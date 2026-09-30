@@ -86,7 +86,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const point={x:(surface.x*TILE-origin.x)*camera.zoom,y:(surface.y*TILE-origin.y)*camera.zoom};
         parent.dataset.cameraScrollX=String(camera.scrollX+camera.width/2-camera.width/(2*camera.zoom));
         parent.dataset.cameraScrollY=String(camera.scrollY+camera.height/2-camera.height/(2*camera.zoom));
-        parent.dispatchEvent(new CustomEvent("third-space:projection",{bubbles:true,detail:{x:point.x,y:point.y,width:surface.width*TILE*camera.zoom,height:(surface.height*TILE-12)*camera.zoom}}));
+        parent.dispatchEvent(new CustomEvent("third-space:projection",{bubbles:true,detail:{instanceId:snapshot.instanceId,x:point.x,y:point.y,width:surface.width*TILE*camera.zoom,height:(surface.height*TILE-12)*camera.zoom}}));
       });
       if (this.input.keyboard) {
         this.keys = this.input.keyboard.addKeys(

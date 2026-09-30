@@ -56,12 +56,15 @@ class Harness {
   identities: string[] = [];
   homeId: string;
   clients: TestClient[] = [];
+  private pingHandler!: (client: AuthorityClient, raw: unknown) => unknown;
+  ping(client: TestClient, raw: unknown) {this.pingHandler(client.authority(),raw);}
   private commandHandler!: (client: AuthorityClient, raw: unknown) => unknown;
   private timestep!: (dt: number) => unknown;
   private intervals: { callback: () => void; ms: number }[] = [];
   private time = Date.now();
   private ticks = 0;
-  constructor() {
+  constructor(worldId: "living-room" | "forest" = "living-room") {
+    this.room.worldId = worldId;
     for (let i = 0; i < GAME_CONFIG.partyCapacity + 1; i++)
       this.identities.push(
         this.store.createIdentity({ name: `Friend ${i + 1}` }).profile.id,
@@ -84,6 +87,7 @@ class Harness {
     });
     vi.spyOn(this.room, "onMessage").mockImplementation(
       (type: string | number, callback: unknown) => {
+        if (type === "connection.ping") this.pingHandler = callback as typeof this.pingHandler;
         if (type === "command")
           this.commandHandler = callback as typeof this.commandHandler;
       },
@@ -511,6 +515,26 @@ describe("eight-player authoritative party without network listeners", () => {
 
 
 describe("shared reusable social worlds",()=>{
+  it("bounds authenticated probes and rate limits them independently",()=>{
+    const unauth=harness.authenticate(harness.identities[0]!);harness.ping(unauth,1);expect(unauth.received("connection.pong")).toEqual([]);
+    const c=harness.join(harness.identities[0]!);harness.ping(c,1);harness.ping(c,2);
+    expect(c.received("connection.pong")).toEqual([1]);harness.advance(61);
+    for(const invalid of ["3",-1,Infinity,1e12,{},null])harness.ping(c,invalid);
+    expect(c.received("connection.pong")).toEqual([1]);harness.ping(c,3);expect(c.received("connection.pong")).toEqual([1,3]);
+  });
+  it("new rooms default to Midnight Pines with safe spawns and flashlights",()=>{
+    expect(new PartyRoom().worldId).toBe("forest");
+    const forest = new Harness("forest");
+    try { const c=forest.join(forest.identities[0]!);const p=forest.room.players.get(c.auth.userId)!;
+      expect(c.snapshot().worldId).toBe("forest");expect(p.flashlightOn).toBe(true);
+      expect(getWorld("forest").map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);
+    } finally {forest.close();}
+  });
+  it("an objection permits an immediate fresh countdown without a second cooldown",()=>{
+    const c=harness.join(harness.identities[0]!);propose(c);
+    harness.send(c,{type:"world.object",proposalId:harness.room.worldProposal!.id});
+    propose(c,"forest","second");expect(harness.room.worldProposal?.commandId).toBe("second");
+  });
   function propose(client:TestClient,worldId:"forest"|"living-room"="forest",commandId="change"){
     harness.send(client,{type:"world.propose",worldId,commandId,revision:harness.room.worldRevision});
   }

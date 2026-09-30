@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client, type Room } from "@colyseus/sdk";
 import type {
   ChatMessage,
@@ -11,6 +11,7 @@ import { HOME_MAP, RACE_MAP } from "../../packages/config/src/index";
 import { distance, findHomePath } from "../../packages/simulation/src/index";
 import { createGameServer } from "../../apps/game-server/src/server";
 
+import { PartyRoom } from "../../apps/game-server/src/PartyRoom";
 const origin = "http://localhost:3000";
 type Identity = { id: string; cookie: string; name: string };
 type Peer = {
@@ -167,6 +168,9 @@ async function walkToPortal(peer: Peer) {
 
 describe("real HTTP admission and Colyseus multiplayer", () => {
   beforeAll(async () => {
+    // These existing network regressions explicitly start in the retained lounge.
+    const create = PartyRoom.prototype.onCreate;
+    vi.spyOn(PartyRoom.prototype,"onCreate").mockImplementation(function(options){ this.worldId="living-room"; return create.call(this,options); });
     runtime = createGameServer({ dataPath: ":memory:", origins: [origin] });
     await runtime.server.listen(0, "127.0.0.1");
     const address = runtime.httpServer.address();
@@ -207,6 +211,7 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
   afterAll(async () => {
     await runtime.server.gracefullyShutdown(false);
     runtime.store.close();
+    vi.restoreAllMocks();
   });
 
   it("admits eight independent identities into one room, shares movement, and refuses capacity forks", async () => {

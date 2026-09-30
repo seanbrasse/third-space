@@ -6,7 +6,7 @@ import type {
   ServerNotice,
   SocialEffect,
 } from "../../packages/contracts/src/index";
-import { HOME_MAP } from "../../packages/config/src/index";
+import { getWorld } from "../../packages/config/src/index";
 import { createGameServer } from "../../apps/game-server/src/server";
 
 type Peer = {
@@ -198,7 +198,7 @@ describe("social consent and participant lifecycle regressions", () => {
     expect(owner.effects.some((effect) => effect.type === "emote")).toBe(false);
     expect(
       owner.snapshot!.players.find((player) => player.id === ownerId)!.x,
-    ).toBe(HOME_MAP.spawns[0].x);
+    ).toBe(getWorld(owner.snapshot!.worldId).map.spawns[0].x);
   });
 
   it("cleans retry caches, rate windows, sound cooldowns and pending proposals on a genuine fresh session", async () => {

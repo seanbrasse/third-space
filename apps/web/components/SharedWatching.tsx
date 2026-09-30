@@ -11,7 +11,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
     onExpand: (v: boolean) => void;
     send: (v: Record<string, unknown>) => void;
 }) {
-    const video = useRef<HTMLVideoElement>(null), anchor = useRef({ server: 0, client: 0 }), [url, setUrl] = useState(""), [seek, setSeek] = useState("0"), [volume, setVolume] = useState(.7), [error, setError] = useState("");
+    const video = useRef<HTMLVideoElement>(null), anchor = useRef({ server: 0, client: 0 }), [url, setUrl] = useState(""), [seek, setSeek] = useState("0"), [volume, setVolume] = useState(.7), [error, setError] = useState(""), [buffering, setBuffering] = useState(false);
     const screen = useRef<HTMLElement>(null);
     const source = snapshot?.media.url ? resolveMediaLink(snapshot.media.url) : null;
     const self = snapshot?.players.find(p => p.id === selfId), surface = getWorld(snapshot?.worldId).mediaSurface, host = snapshot?.hostId === selfId;
@@ -76,8 +76,9 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
         return null;
     return <section ref={screen} className={`shared-watching ${expanded ? "expanded" : "surface"}`} style={expanded ? undefined : { left: 0, top: 0, visibility: near ? "visible" : "hidden" }} aria-label="Shared screen">
     {expanded && <header><div><small>WATCHING TOGETHER</small><strong>{snapshot.worldId === "forest" ? "Movie night under the pines" : "The lounge screen"}</strong></div><button onClick={() => onExpand(false)} aria-label="Close shared screen">×</button></header>}
-    {source?.kind === "youtube" ? (expanded ? <YouTubeWatching key={source.videoId} videoId={source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} onError={setError}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▶</span>YOUTUBE · OPEN SCREEN</button>) : snapshot.media.url ? <video ref={video} src={snapshot.media.url} playsInline preload="metadata" onClick={() => { void video.current?.play().catch(() => { }); setError(""); if (!expanded)
-        onExpand(true); }} onError={() => setError("This link could not play. Try a YouTube video or another video file.")}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : "MOVIE NIGHT"}</button>}
+    {source?.kind === "youtube" ? (expanded ? <YouTubeWatching key={source.videoId} videoId={source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} onError={setError}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▶</span>YOUTUBE · OPEN SCREEN</button>) : snapshot.media.url ? <video ref={video} src={snapshot.media.url} onLoadStart={()=>setBuffering(true)} onWaiting={()=>setBuffering(true)} onCanPlay={()=>setBuffering(false)} onPlaying={()=>setBuffering(false)} playsInline preload="metadata" onClick={() => { void video.current?.play().catch(() => { }); setError(""); if (!expanded)
+        onExpand(true); }} onError={() => {setBuffering(false);setError("This link could not play. Try a YouTube video or another video file.");}}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : "MOVIE NIGHT"}</button>}
+    {buffering && source?.kind === "file" && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading video…</div>}
     {expanded && <div className="watching-controls">
       {error && <p role="status">{error}</p>}
       <p>Playback is shared. Your volume is personal. Walking away fades video-file audio. Keep the screen open to watch YouTube.</p>

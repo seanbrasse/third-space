@@ -21,13 +21,14 @@ import { readPersonVolumes } from "../lib/person-volume";
 import PersonVolume from "./PersonVolume";
 import WorldMenu from "./WorldMenu";
 import DeathVeil from "./DeathVeil";
+import ConnectionHealth from "./ConnectionHealth";
 import SharedWatching from "./SharedWatching";
 import { AvatarCustomizer } from "./AvatarPreview";
 const World = dynamic(() => import("./World"), {
   ssr: false,
   loading: () => (
     <div className="world-loading">
-      <span className="pixel-spark">✦</span> Making room for you…
+      <span className="loading-spinner" aria-hidden="true"/> Making room for you…
     </div>
   ),
 });
@@ -862,6 +863,7 @@ export default function ThirdSpace() {
                   </button>
                 )}
                 <button className="primary enter-button" disabled={busy}>
+                  {busy && <span className="loading-spinner" aria-hidden="true"/>}
                   {busy
                     ? "Opening the door…"
                     : entryMode === "create"
@@ -923,6 +925,7 @@ export default function ThirdSpace() {
                 <i />
                 {connection}
               </span>
+              <ConnectionHealth room={room.current} connection={connection}/>
               {connection === "Disconnected" && (
                 <button
                   className="secondary"
@@ -972,7 +975,7 @@ export default function ThirdSpace() {
               <World bridge={bridge} />
               {!snapshot && (
                 <div className="connecting-cover">
-                  Waiting for the room state…
+                  <span className="loading-spinner" aria-hidden="true"/> Waiting for the room state…
                 </div>
               )}
               {race && snapshot?.race?.phase === "countdown" && (
@@ -1401,6 +1404,7 @@ export default function ThirdSpace() {
                       </button>
                     )}
                     <button className="primary" disabled={busy}>
+                      {busy && <span className="loading-spinner" aria-hidden="true"/>}
                       {busy
                         ? "Saving…"
                         : editing

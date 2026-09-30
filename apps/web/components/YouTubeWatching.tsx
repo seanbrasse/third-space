@@ -26,7 +26,7 @@ export default function YouTubeWatching({ videoId, getSnapshot, selfId, volume, 
     onError: (message: string) => void;
 }) {
     const clock = useRef({ server: 0, client: 0 });
-    const root = useRef<HTMLDivElement>(null), player = useRef<Player | null>(null), latest = useRef({ getSnapshot, selfId, volume, onError }), [ready, setReady] = useState(false), [blocked, setBlocked] = useState(false);
+    const root = useRef<HTMLDivElement>(null), player = useRef<Player | null>(null), latest = useRef({ getSnapshot, selfId, volume, onError }), [ready, setReady] = useState(false), [blocked, setBlocked] = useState(false), [loading, setLoading] = useState(true);
     useEffect(() => { latest.current = { getSnapshot, selfId, volume, onError }; }, [getSnapshot, selfId, volume, onError]);
     useEffect(() => {
         const w = window as YouTubeWindow, previous = w.onYouTubeIframeAPIReady;
@@ -46,13 +46,14 @@ export default function YouTubeWatching({ videoId, getSnapshot, selfId, volume, 
         root.current.appendChild(target);
         const instance = new api.Player(target, { width: "100%", height: "270", videoId, playerVars: { origin: location.origin, playsinline: 1, controls: 0, rel: 0 }, events: {
                 onReady: () => { if (!stopped)
-                    player.current = instance; },
+                    {player.current = instance;setLoading(false);} },
+                onStateChange: (event:{data:number}) => {if(!stopped)setLoading(event.data===3);},
                 onAutoplayBlocked: () => { if (!stopped)
-                    setBlocked(true); },
+                    {setBlocked(true);setLoading(false);} },
                 onError: (e: {
                     data: number;
-                }) => { if (!stopped)
-                    latest.current.onError([101, 150].includes(e.data) ? "This creator does not allow embedded playback. Choose another video." : "YouTube could not play this video. It may be unavailable or restricted."); }
+                }) => { if (!stopped) {setLoading(false);
+                    latest.current.onError([101, 150].includes(e.data) ? "This creator does not allow embedded playback. Choose another video." : "YouTube could not play this video. It may be unavailable or restricted.");} }
             } });
         return () => { stopped = true; player.current = null; instance.destroy(); };
     }, [ready, videoId]);
@@ -79,5 +80,5 @@ export default function YouTubeWatching({ videoId, getSnapshot, selfId, volume, 
         return () => clearInterval(timer);
     }, []);
     return <div className="youtube-watching"><Script src="https://www.youtube.com/iframe_api" strategy="afterInteractive" onReady={() => { if ((window as YouTubeWindow).YT?.Player)
-        setReady(true); }} onError={() => onError("YouTube could not load. Check your connection or browser content blocker.")}/><div ref={root} className="youtube-player"/>{blocked && <button onClick={() => { player.current?.playVideo(); setBlocked(false); }}>Tap to enable YouTube playback</button>}</div>;
+        setReady(true); }} onError={() => {setLoading(false);onError("YouTube could not load. Check your connection or browser content blocker.");}}/><div ref={root} className="youtube-player"/>{loading && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading YouTube…</div>}{blocked && <button onClick={() => { player.current?.playVideo(); setBlocked(false); }}>Tap to enable YouTube playback</button>}</div>;
 }

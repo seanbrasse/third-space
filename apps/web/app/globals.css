@@ -2353,3 +2353,12 @@ fieldset {
 .death-veil.active{pointer-events:auto;animation-name:forest-respawn-fade;animation-timing-function:ease-in-out;animation-fill-mode:both;}
 @keyframes forest-respawn-fade{0%{opacity:0}25%,50%{opacity:1}100%{opacity:0}}
 .death-veil.gentle.active{animation-timing-function:linear;}
+
+/* Loading follows actual work; no artificial delay or background animation. */
+.loading-spinner{display:inline-block;width:16px;height:16px;flex:none;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:space-loading .85s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes space-loading{to{transform:rotate(360deg)}}
+.world-busy{position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;gap:8px;background:#11241fee;color:#eee6cd;font-size:14px;pointer-events:auto}
+.world-canvas{position:relative}.network-health{font-size:11px;border-radius:5px;padding:6px 8px;background:#e5ecd9;color:#354b38;cursor:help}.network-health[data-quality="slow"],.network-health[data-quality="unstable"]{background:#f4dfac;color:#694919}.network-health[data-quality="stalled"],.network-health[data-quality="offline"]{background:#f1ccc2;color:#782f23}
+@media(prefers-reduced-motion:reduce){.loading-spinner{animation:none;border-style:dotted}}.reduced-motion .loading-spinner{animation:none;border-style:dotted}
+
+.youtube-watching{position:relative}.media-loading{position:absolute;top:65px;left:50%;transform:translateX(-50%);padding:10px 14px;border-radius:6px;background:#14251fee;color:#eee6cd;font-size:12px;pointer-events:none;z-index:4;white-space:nowrap}
