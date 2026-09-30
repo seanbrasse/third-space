@@ -2348,3 +2348,8 @@ fieldset {
 .home-view .world-topline>span:first-child{margin-left:95px}
 
 .shared-watching.surface{will-change:transform}.youtube-player{width:100%;height:270px;min-width:200px;min-height:200px}.youtube-player iframe{width:100%;height:270px;border:0;display:block}
+
+.death-veil{position:fixed;inset:0;background:#020406;opacity:0;pointer-events:none;z-index:10000;}
+.death-veil.active{pointer-events:auto;animation-name:forest-respawn-fade;animation-timing-function:ease-in-out;animation-fill-mode:both;}
+@keyframes forest-respawn-fade{0%{opacity:0}25%,50%{opacity:1}100%{opacity:0}}
+.death-veil.gentle.active{animation-timing-function:linear;}

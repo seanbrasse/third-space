@@ -52,4 +52,18 @@ describe('one shared forest encounter', () => {
         previous = { ...e.state };
     } });
     it('reset removes old encounters and starts a fresh cadence', () => { const { encounter: e, p } = fixture(); spawn(e, p); e.reset(32000); expect(e.state).toBeNull(); e.update(61000, [p]); expect(e.state).toBeNull(); e.update(62000, [p]); expect(e.state?.phase).toBe('peek'); });
+  it("when everyone is safe, waits five to ten minutes and only peeks at the dark perimeter",()=>{
+    const w=getWorld("forest"),e=new ForestEncounter(w,()=>.5),p=createPlayer("camper","Camper");p.x=24;p.y=28.5;
+    e.reset(1000);e.update(1000,[p]);e.update(450999,[p]);expect(e.state).toBeNull();e.update(451000,[p]);
+    expect(e.state?.intent).toBe("perimeter");expect(e.state?.phase).toBe("peek");expect(distance(e.state!,w.fire!)).toBeGreaterThan(w.stalker!.safeRadius);
+    expect(e.visibleTo(p)).not.toBeNull();const origin={x:e.state!.originX!,y:e.state!.originY!};
+    e.update(451900,[p]);expect(distance(e.state!,origin)).toBeGreaterThan(0);expect(e.update(454000,[p])).toBeNull();expect(e.state?.phase).toBe("retreat");e.update(455000,[p]);expect(e.state).toBeNull();
+    e.update(751000,[p]);expect(e.state).toBeNull();
+  });
+  it("a perimeter peek never converts into a hunt if someone wanders outside",()=>{
+    const w=getWorld("forest"),e=new ForestEncounter(w,()=>.2),p=createPlayer("camper","Camper");p.x=24;p.y=28.5;e.reset(1000);e.update(1000,[p]);e.update(361000,[p]);
+    expect(e.state?.intent).toBe("perimeter");expect(e.state?.giggleAt).toBe(361000);
+    p.x=e.state!.x;p.y=e.state!.y;expect(e.update(364000,[p])).toBeNull();expect(e.state?.phase).toBe("retreat");
+  });
+
 });

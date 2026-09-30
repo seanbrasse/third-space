@@ -534,7 +534,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         !bridge.blocked &&
         !typing &&
         document.visibilityState === "visible" &&
-        !!self?.connected;
+        !!self?.connected && !self.respawnAt;
       if (!active) this.cancelWalk();
       if (self && snapshot.serverTime !== this.authoritativeTime) {
         this.authoritativeTime = snapshot.serverTime;
@@ -824,6 +824,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         flashlightOn: String(self?.flashlightOn),
         roastingAt: String(self?.roastingAt??0),
         respawnCount: String(self?.respawnCount??0),
+        caughtAt: String(self?.caughtAt??0),
+        respawnAt: String(self?.respawnAt??0),
         haloUntil: String(self?.haloUntil??0),
         haloVisible: String((self?.haloUntil??0)>snapshot.serverTime),
         stalkerId: snapshot.stalker?.id??"",

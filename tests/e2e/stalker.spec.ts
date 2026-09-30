@@ -2,6 +2,11 @@ import {test,expect,type Page} from '@playwright/test';
 async function untilCoordinate(page:Page,key:string,test:(n:number)=>boolean){await expect.poll(async()=>test(Number(await page.locator('.world-canvas').getAttribute('data-'+key))),{timeout:10000}).toBe(true);}
 test('one local-area clown peeks, chases, catches and respawns with a fading halo',async({browser,page})=>{
  test.setTimeout(90000);
+ await page.addInitScript(()=>{
+   const w=window as unknown as {gameCueStarts:number[]};w.gameCueStarts=[];
+   const original=AudioBufferSourceNode.prototype.start;
+   AudioBufferSourceNode.prototype.start=function(...args:Parameters<typeof original>){if(this.buffer)w.gameCueStarts.push(this.buffer.duration);return original.apply(this,args);};
+ });
  const c=await browser.newContext(),camp=await c.newPage(),errors:string[]=[];for(const p of [page,camp])p.on('pageerror',e=>errors.push(e.message));
  try{
  const name='Stalker '+Date.now();await page.goto('/');await page.getByLabel('Your name',{exact:true}).fill('Explorer');await page.getByLabel('Home name',{exact:true}).fill(name);await page.getByLabel('Choose a private PIN',{exact:true}).fill('123456');await page.getByRole('button',{name:'Create & enter home'}).click();await expect(page.locator('.connection')).toHaveText('Connected');
@@ -18,6 +23,11 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  // Escape away from the pursuer briefly; the room-owned entity keeps tracking us.
  await page.keyboard.down('w');await page.waitForTimeout(400);await page.keyboard.up('w');
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1',{timeout:17000});
+ const cues=await page.evaluate(()=>(window as unknown as {gameCueStarts:number[]}).gameCueStarts);expect(cues.some(d=>Math.abs(d-.21)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.3)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.11)<.002)).toBe(true);
+ await expect(page.locator('.death-veil')).toHaveClass(/active/);
+ await expect.poll(()=>page.locator('.death-veil').evaluate(el=>Number(getComputedStyle(el).opacity)),{timeout:1000}).toBeGreaterThan(.8);
+ await expect(page.locator('.world-canvas')).toHaveAttribute('data-halo-visible','true');
+ await expect(page.locator('.death-veil')).not.toHaveClass(/active/,{timeout:3000});
  const p=await page.locator('.world-canvas').evaluate(el=>({x:Number((el as HTMLElement).dataset.authoritativeX),y:Number((el as HTMLElement).dataset.authoritativeY)}));expect(Math.hypot(p.x-24,p.y-24)).toBeLessThan(9);
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-halo-visible','true');
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-move-target-x','');
