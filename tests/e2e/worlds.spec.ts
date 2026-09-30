@@ -22,6 +22,9 @@ test("friends object, switch together, roast, sleep rendering and return to the 
     second.on("pageerror", e => errors.push(e.message));
     try {
         const id = await create(page);
+        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","forest");
+        await choose(page,/The reading lounge/);
+        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","living-room",{timeout:12000});
         await join(second, id);
         await choose(page, /Midnight Pines/);
         await expect(second.getByText(/Everyone moves together in/)).toBeVisible();
@@ -30,7 +33,7 @@ test("friends object, switch together, roast, sleep rendering and return to the 
         await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id", "living-room");
         await choose(second, /Midnight Pines/);
         await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id", "forest", { timeout: 12000 });
-        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "1");
+        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "2");
         const point = await page.locator(".world-canvas").evaluate(el => { const b = el.querySelector("canvas")!.getBoundingClientRect(), d = (el as HTMLElement).dataset; return { x: b.x + (20.8 * 32 - Number(d.cameraScrollX)) * Number(d.cameraZoom), y: b.y + (24 * 32 - Number(d.cameraScrollY)) * Number(d.cameraZoom) }; });
         await page.mouse.click(point.x, point.y);
         await expect.poll(() => page.locator(".world-canvas").getAttribute("data-seat-id")).not.toBe("");
@@ -61,12 +64,12 @@ test("friends object, switch together, roast, sleep rendering and return to the 
         await expect.poll(() => second.locator(".world-canvas").getAttribute("data-render-frame")).not.toBe(frame);
         await choose(page, /The reading lounge/);
         await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-id", "living-room", { timeout: 12000 });
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-revision", "2");
+        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
         await second.reload();
         await second.getByRole("button", { name: /^Worlds \d+ ↗$/ }).click();
         await second.getByRole("button", { name: "Use this tab · replaces your other session" }).click();
         await expect(second.locator(".connection")).toHaveText("Connected");
-        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "2");
+        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
         expect(errors).toEqual([]);
     }
     finally {

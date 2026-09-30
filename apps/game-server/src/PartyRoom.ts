@@ -53,7 +53,7 @@ export class PartyRoom extends Room {
   static store: LocalStore;
   static activeHomes = new Set<string>();
   homeId = "";
-  worldId: WorldId = "living-room";
+  worldId: WorldId = "forest";
   worldRevision = 0;
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
@@ -102,6 +102,12 @@ export class PartyRoom extends Room {
       );
     PartyRoom.activeHomes.add(options.homeId);
     this.homeId = options.homeId;
+    this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
+    this.onMessage("connection.ping", (client, raw: unknown) => {
+      const id = (client.auth as Admission)?.userId;
+      if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0 || raw > 1e9 || this.clientsByUser.get(id) !== client || !this.cooled(id, "ping", 1000)) return;
+      client.send("connection.pong", raw);
+    });
     // Leave one transport reservation for explicit tab replacement; unique identities are separately capped.
     this.maxClients = Math.min(home.capacity, GAME_CONFIG.partyCapacity) + 1;
     this.autoDispose = true;
@@ -402,7 +408,6 @@ export class PartyRoom extends Room {
         if(command.revision!==this.worldRevision || this.worldProposal)
           return this.notice(client,"WORLD_BUSY","A world change is already pending, or your view changed.");
         if(command.worldId===this.worldId) break;
-        if(!this.cooled(id,"world",10_000)) return this.notice(client,"RATE_LIMITED","Wait a moment before suggesting another world.");
         const now=Date.now();
         this.worldProposal={id:randomUUID(),commandId:command.commandId,proposerId:id,worldId:command.worldId,startAt:now,endsAt:now+WORLD_COUNTDOWN_MS};
         this.acceptedWorldCommands.set(key,this.worldProposal.id);

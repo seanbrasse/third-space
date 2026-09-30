@@ -228,6 +228,13 @@ async function followRaceCamera(page: Page) {
     ),
   });
 }
+async function enterLounge(page: Page) {
+  await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","forest");
+  await page.getByRole("button",{name:"☷ Worlds"}).click();
+  await page.getByRole("button",{name:/The reading lounge/}).click();
+  await page.getByRole("button",{name:"Close worlds"}).click();
+  await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","living-room",{timeout:12000});
+}
 async function createHome(page: Page, name: string, homeName: string) {
   await page.goto("/");
   await expect(
@@ -237,6 +244,7 @@ async function createHome(page: Page, name: string, homeName: string) {
   await page.getByLabel("Home name", { exact: true }).fill(homeName);
   await page.getByLabel("Choose a private PIN", { exact: true }).fill("123456");
   await page.getByRole("button", { name: "Create & enter home" }).click();
+  await enterLounge(page);
   await expect(page.getByRole("heading", { name: homeName })).toBeVisible();
   await expect(page.locator(".connection")).toHaveText("Connected");
   await expect(page.locator("canvas")).toBeVisible();
@@ -329,6 +337,7 @@ test("two independent browsers hang out, chat once, share notes, customize and r
       .getByLabel("Choose a private PIN", { exact: true })
       .fill("123456");
     await page.getByRole("button", { name: "Create & enter home" }).click();
+    await enterLounge(page);
     await expect(page.locator(".connection")).toHaveText("Connected");
     await expect(page.locator("canvas")).toBeVisible();
     const { homes } = await api<{ homes: { id: string; name: string }[] }>(

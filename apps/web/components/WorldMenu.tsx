@@ -18,9 +18,9 @@ export default function WorldMenu({ snapshot, send }: {
     <button className="world-menu-toggle" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="world-destinations">☷ Worlds</button>
     {open && <aside className="world-destinations" id="world-destinations" aria-label="Choose a world">
       <div className="world-menu-heading"><span>Somewhere together</span><button aria-label="Close worlds" onClick={() => setOpen(false)}>×</button></div>
-      <p>Suggest a change. Everyone gets eight seconds to object.</p>
+      <p>Choose a destination. One shared countdown, then everyone moves together.</p>
       {Object.values(WORLDS).map(w => <button key={w.id} className={`world-destination ${w.id === snapshot?.worldId ? "selected" : ""}`} disabled={!snapshot || !!proposal || w.id === snapshot.worldId} onClick={() => send({ type: "world.propose", worldId: w.id, revision: snapshot!.worldRevision, commandId: crypto.randomUUID() })}>
-        <span className="world-destination-icon">{w.dark ? "☾" : "⌂"}</span><strong>{w.name}</strong><small>{w.description}</small><em>{w.id === snapshot?.worldId ? "You are here" : "Suggest this world →"}</em>
+        <span className="world-destination-icon">{w.dark ? "☾" : "⌂"}</span><strong>{w.name}</strong><small>{w.description}</small><em>{w.id === snapshot?.worldId ? "You are here" : "Travel here →"}</em>
       </button>)}
     </aside>}
     {proposal && <div className="world-proposal" role="status"><div><small>A FRIEND SUGGESTED</small><strong>{WORLDS[proposal.worldId].name}</strong><span>Everyone moves together in {remaining}s</span></div><button onClick={() => send({ type: "world.object", proposalId: proposal.id })}>Stay here · object</button></div>}
