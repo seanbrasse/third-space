@@ -18,7 +18,7 @@ import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
 import { homeFloorCanvas } from "./home-art";
 import { cameraFollowX, decayCorrection } from "./presentation";
-import { forestFloorCanvas, forestObjectCanvas, flashlightContains } from "./forest-art";
+import { forestFloorCanvas, forestObjectCanvas, flashlightContains, clownSpriteCanvas } from "./forest-art";
 const AVATAR_SCALE = 1.65,
   AVATAR_HEAD = 32 * AVATAR_SCALE + 7;
 const TILE = 32,
@@ -49,6 +49,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private currentMode = "";
     private currentWorld = "";
     private currentRevision = -1;
+    private stalkerSprite: Phaser.GameObjects.Image | null = null;
+    private stalkerId="";
     private fireArt: Phaser.GameObjects.Graphics | null = null;
     private roastArt: Phaser.GameObjects.Graphics | null = null;
     private lightImage: Phaser.GameObjects.Image | null = null;
@@ -144,6 +146,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     clearMap() {
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
+      this.stalkerSprite=null;this.stalkerId="";
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
       this.hoveredFurniture = null;
       this.prompt.setVisible(false);
@@ -252,12 +255,16 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                     this.useFurniture(item); });
             }
         }
+        this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(1.55).setVisible(false);
+        for(let i=1;i<4;i++)this.texture("forest-clown-"+i,clownSpriteCanvas(i));
+        this.mapObjects.push(this.stalkerSprite);
         this.fireArt = this.add.graphics().setDepth(24.5 * TILE);
         this.mapObjects.push(this.fireArt);
         this.roastArt = this.add.graphics().setDepth(1100);
         this.mapObjects.push(this.roastArt);
         this.lightCanvas ??= document.createElement("canvas");
         this.lightCanvas.width = this.lightCanvas.height = 320;
+        const initialMask=this.lightCanvas.getContext("2d")!;initialMask.fillStyle="rgba(2,8,13,.97)";initialMask.fillRect(0,0,320,320);
         this.lightImage = this.add.image(0, 0, this.texture("forest-darkness", this.lightCanvas)).setOrigin(0).setDepth(1800);
         this.mapObjects.push(this.lightImage);
     }
@@ -286,10 +293,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                 r.fillStyle(bridge.snapshot!.serverTime - p.roastingAt > 7000 ? 0xdca66c : 0xffe6bd);
                 r.fillRect(ex - 4, ey - 4, 8, 7);
             }
+        for(const p of players){
+          const remaining=(p.haloUntil??0)-bridge.snapshot!.serverTime;
+          if(remaining>0){r.lineStyle(2,0xffe6a5,Math.min(1,remaining/1500));r.strokeEllipse(p.x*TILE,p.y*TILE-58,20,6);}
+        }
         if (time - this.lastLightAt < 33)
             return;
-        this.lastLightAt = time;
         const view = this.cameras.main.worldView;
+        // An active forest can be the very first frame after rejoining. Camera
+        // worldView is finalized by preRender; do not divide by its initial zero size.
+        if(!Number.isFinite(view.width)||!Number.isFinite(view.height)||view.width<=0||view.height<=0)return;
+        this.lastLightAt = time;
         g.clearRect(0, 0, c.width, c.height);
         g.fillStyle = "rgba(2,8,13,.97)";
         g.fillRect(0, 0, c.width, c.height);
@@ -317,6 +331,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const fireDistance = Math.hypot(self.x - 24, self.y - 24);
         glow(24, 24, 9.6 * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
         glow(self.x, self.y, 1.3, .28);
+        const stalker=bridge.snapshot?.stalker;if(stalker)glow(stalker.x,stalker.y,1.05,.28);
         for (const p of players)
             if (p.flashlightOn && Math.hypot(p.x - self.x, p.y - self.y) < 12)
                 glow(p.x, p.y, 7, .92, p.facing);
@@ -524,6 +539,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (self && snapshot.serverTime !== this.authoritativeTime) {
         this.authoritativeTime = snapshot.serverTime;
         this.seq = Math.max(this.seq, self.lastInputSeq);
+        if((self.respawnCount??0)!==(this.prediction?.respawnCount??0)){
+          this.cancelWalk();this.inputHistory=[];this.correction={x:0,y:0};this.prediction=null;
+        }
         const previous = this.prediction
           ? {
               x: this.prediction.x + this.correction.x,
@@ -756,6 +774,18 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         camera.centerOn(cameraFollowX(localNode.sprite.x,this.map.width*TILE,vw),cameraFollowX(localNode.sprite.y,this.map.height*TILE,vh));
         this.lightForest(time,{...self,x:localNode.sprite.x/TILE,y:localNode.sprite.y/TILE},snapshot.players);
       }
+      const stalker=this.forest?snapshot.stalker:null;
+      if(this.stalkerSprite){
+        this.stalkerSprite.setVisible(!!stalker);
+        if(stalker){
+          if(this.stalkerId!==stalker.id){this.stalkerId=stalker.id;this.stalkerSprite.setPosition(stalker.x*TILE,stalker.y*TILE);}
+          const t=snapshot.serverTime-stalker.startedAt,peek=stalker.phase==="peek",motion=bridge.reducedMotion?0:Math.sin(t/(peek?230:95));
+          this.stalkerSprite.x+=(stalker.x*TILE-this.stalkerSprite.x)*(1-Math.exp(-delta/75));
+          this.stalkerSprite.y+=(stalker.y*TILE-this.stalkerSprite.y)*(1-Math.exp(-delta/75));
+          this.stalkerSprite.setTexture("forest-clown-"+(peek||bridge.reducedMotion?0:Math.floor(t/110)%4));
+          this.stalkerSprite.setRotation(motion*(peek?.05:.10)).setDepth(this.stalkerSprite.y).setAlpha(stalker.phase==="retreat"?Math.max(0,(stalker.phaseUntil-snapshot.serverTime)/900):.92);
+        }
+      }
       this.target.clear();
       if (this.destination) {
         this.target.lineStyle(1, 0xf7e6b6);
@@ -793,6 +823,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         avatarTextureCount: String(this.textureIds.size),
         flashlightOn: String(self?.flashlightOn),
         roastingAt: String(self?.roastingAt??0),
+        respawnCount: String(self?.respawnCount??0),
+        haloUntil: String(self?.haloUntil??0),
+        haloVisible: String((self?.haloUntil??0)>snapshot.serverTime),
+        stalkerId: snapshot.stalker?.id??"",
+        stalkerPhase: snapshot.stalker?.phase??"",
         selfAvatar: JSON.stringify(self?.avatar || {}),
         seatId: self?.seatId || "",
         authoritativeX: String(self?.x || 0),
@@ -824,7 +859,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const input = { seq: ++this.seq, axisX, axisY, jump };
         this.inputHistory.push({ input, dt });
         if (this.inputHistory.length > 100) this.inputHistory.shift();
-        bridge.send({ type: "input", input });
+        bridge.send({ type: "input", input, lifeRevision:self.respawnCount??0 });
         bridge.touch.jump = false;
       }
       for (const effect of bridge.effects.splice(0)) {

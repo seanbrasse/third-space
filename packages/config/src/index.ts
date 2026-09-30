@@ -204,6 +204,7 @@ export interface WorldMap {
 export interface WorldDefinition {
   id: WorldId; name: string; description: string; map: WorldMap;
   camera: "fit" | "follow"; dark: boolean;
+  stalker?: {safeRadius:number;viewRadius:number;intervalMs:number;peekMs:number;chaseMs:number};
   fire?: Point; mediaSurface: Rect & { id: string; source: Point };
 }
 const forestSeats: Seat[] = Array.from({length:8}, (_,i)=>({
@@ -232,7 +233,7 @@ export const FOREST_MAP: WorldMap = {
 };
 export const WORLDS: Record<WorldId,WorldDefinition> = {
   "living-room":{id:"living-room",name:"The reading lounge",description:"Walnut, velvet, and your people.",map:HOME_MAP,camera:"fit",dark:false,mediaSurface:{id:"world-tv",x:3,y:1.3,width:3,height:1.3,source:{x:4.5,y:3.3}}},
-  forest:{id:"forest",name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},mediaSurface:{id:"forest-screen",x:30,y:23.7,width:4,height:2.1,source:{x:32,y:24.7}}},
+  forest:{id:"forest",name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},stalker:{safeRadius:9,viewRadius:10,intervalMs:30000,peekMs:3000,chaseMs:14000},mediaSurface:{id:"forest-screen",x:30,y:23.7,width:4,height:2.1,source:{x:32,y:24.7}}},
 };
 export function getWorld(id: WorldId = "living-room") { return WORLDS[id]; }
 export const WORLD_COUNTDOWN_MS=8_000;

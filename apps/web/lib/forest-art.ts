@@ -101,3 +101,20 @@ export function flashlightContains(source: Point & {
     const direction = source.facing === "up" ? -Math.PI / 2 : source.facing === "down" ? Math.PI / 2 : source.facing === "left" ? Math.PI : 0;
     return Math.abs(Math.atan2(Math.sin(Math.atan2(dy, dx) - direction), Math.cos(Math.atan2(dy, dx) - direction))) < .55;
 }
+
+/** Original 2.5D pixel sprite; four stride frames share a tiny fixed texture set. */
+export function clownSpriteCanvas(frame:number){
+  const c=document.createElement("canvas");c.width=28;c.height=38;const g=c.getContext("2d")!;g.imageSmoothingEnabled=false;
+  const r=(x:number,y:number,w:number,h:number,color:string)=>{g.fillStyle=color;g.fillRect(x,y,w,h);};
+  const lean=[0,1,0,-1][frame%4],step=[0,2,0,-2][frame%4];
+  r(6,35,18,2,"#16251f");
+  r(9+step,26,5,8,"#483b48");r(16-step,26,4,8,"#3d4144");r(5+step,33,9,3,"#642f39");r(16-step,33,9,3,"#823541");
+  r(7,17,16,12,"#b7b6a4");r(7,20,8,9,"#697b71");r(15,20,8,9,"#816373");
+  r(3,19,4,11,"#999e8d");r(23,17,3,12,"#979f8c");r(3,29,4,3,"#ccc5ad");r(23,28,3,3,"#ccc5ad");
+  r(5+lean,5,4,10,"#8e3246");r(22+lean,5,4,10,"#8e3246");r(9+lean,3,14,15,"#d5cdb3");
+  r(10+lean,9,5,3,"#29332c");r(18+lean,8,4,3,"#29332c");r(12+lean,10,2,1,"#d24b4c");r(19+lean,9,2,1,"#d24b4c");
+  r(15+lean,11,4,3,"#a63a47");r(12+lean,15,9,2,"#583341");r(14+lean,15,5,1,"#f3dec2");
+  r(9,17,13,3,"#dfd9bd");r(14,20,3,3,"#a73f4f");r(14,25,3,3,"#a73f4f");
+  r(12+lean,1,9,2,"#676c62");r(14+lean,0,5,2,"#9c4a54");
+  return c;
+}

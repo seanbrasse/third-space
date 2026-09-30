@@ -1,3 +1,4 @@
+import { ForestEncounter } from "./ForestStalker";
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { randomUUID } from "node:crypto";
 import { resolveMediaLink, GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
@@ -78,6 +79,7 @@ export class PartyRoom extends Room {
   };
   private seq = 0;
   private tick = 0;
+  private encounter: ForestEncounter | null = null;
   private accumulation = 0;
   private hostId: string | null = null;
   private windows = new Map<string, number[]>();
@@ -440,6 +442,7 @@ export class PartyRoom extends Room {
       case "input.stop": { const seq=this.intents.get(id)?.value.seq??p.lastInputSeq;this.intents.set(id,{value:neutral(seq),receivedAt:Date.now()});p.vx=p.vy=0;break;}
       case "input": {
         if(command.worldRevision!==undefined && command.worldRevision!==this.worldRevision)return;
+        if(command.lifeRevision!==undefined && command.lifeRevision!==(p.respawnCount??0))return;
         const previous = this.intents.get(id)?.value.seq ?? p.lastInputSeq;
         if (command.input.seq <= previous) return;
         if (command.input.seq > previous + 10000)
@@ -759,12 +762,14 @@ export class PartyRoom extends Room {
 
   private changeWorld(worldId: WorldId) {
     this.worldId=worldId; this.worldRevision++; this.worldProposal=null;
+    this.encounter=getWorld(worldId).stalker?new ForestEncounter(getWorld(worldId)):null;
+    this.encounter?.reset(Date.now());
     this.proposals.clear(); this.chats.home=[]; this.chats.race=[];
     this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
     const map=getWorld(worldId).map;
     // Includes grace-reserved avatars; reconnect never restores the old map.
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
-    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;});
+    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;});
     this.intents.clear();
     this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
     this.sendSnapshots();
@@ -802,6 +807,16 @@ export class PartyRoom extends Room {
           });
         }
       }
+    }
+    const caught=this.encounter?.update(now,[...this.players.values()]);
+    if(caught){
+      const player=this.players.get(caught)!;
+      const spawn=this.findHomeSpawn(caught);
+      Object.assign(player,spawn,{vx:0,vy:0,respawnCount:(player.respawnCount??0)+1,haloUntil:now+5000});
+      player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
+      delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
+      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT","The clown caught you. Back by the fire — you're safe here.");
+      this.sendSnapshots();
     }
     if (this.race.phase === "running" && now >= this.race.endAt) {
       for (const p of this.players.values())
@@ -867,6 +882,7 @@ export class PartyRoom extends Room {
       if (!p) continue;
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
+        stalker:this.encounter?.visibleTo(p)??null,
         worldId:this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
         instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision : this.race.id,
         epoch: this.epoch,
