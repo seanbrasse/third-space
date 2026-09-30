@@ -594,4 +594,35 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
       "Eight racers did not return to the same home",
     );
   }, 90_000);
+  it("objections, joining during countdown and a dropped member converge on one forest revision", async()=>{
+    const homeId=await home(identities[0]!,"Forest network lifecycle");
+    const peers:Peer[]=[];
+    for(const identity of identities.slice(0,5))peers.push(await connect(homeId,identity));
+    send(peers[1]!,{type:"world.propose",worldId:"forest",revision:0,commandId:crypto.randomUUID()});
+    const proposal=await until(()=>peers[2]!.snapshot?.worldProposal,"No shared countdown");
+    send(peers[2]!,{type:"world.object",proposalId:proposal.id});
+    await until(()=>peers.every(p=>p.snapshot?.worldProposal===null),"Objection did not cancel for everyone");
+    expect(peers.every(p=>p.snapshot!.worldId==="living-room")).toBe(true);
+    send(peers[3]!,{type:"world.propose",worldId:"forest",revision:0,commandId:crypto.randomUUID()});
+    await until(()=>peers[0]!.snapshot?.worldProposal,"Second countdown missing");
+    for(const identity of identities.slice(5,8))peers.push(await connect(homeId,identity));
+    expect(peers[7]!.snapshot!.worldProposal?.worldId).toBe("forest");
+    const dropped=peers[7]!,token=dropped.room.reconnectionToken;
+    dropped.room.reconnection.enabled=false;
+    dropped.room.connection.close();
+    await until(()=>peers[0]!.snapshot?.players.find(p=>p.id===dropped.identity.id)?.connected===false,"Dropped member not reserved");
+    await until(()=>peers.slice(0,7).every(p=>p.snapshot?.worldId==="forest"&&p.snapshot.worldRevision===1),"Peers did not transition together",11000);
+    const resumed=await new Client(base.replace("http:","ws:")).reconnect(token);
+    const rejoined:Peer={room:resumed,identity:dropped.identity,chats:[],notices:[],effects:[],seq:0,left:false};
+    resumed.onMessage("snapshot",s=>rejoined.snapshot=s);resumed.onMessage("welcome",()=>{});resumed.onMessage("transition",()=>{});resumed.onMessage("notice",n=>rejoined.notices.push(n));resumed.onLeave(()=>rejoined.left=true);active.push(rejoined);
+    await until(()=>rejoined.snapshot?.players.find(p=>p.id===dropped.identity.id)?.connected,"Reconnect did not restore member");
+    expect(rejoined.snapshot!.worldId).toBe("forest");expect(rejoined.snapshot!.worldRevision).toBe(1);
+    expect(new Set(rejoined.snapshot!.players.map(p=>p.x+":"+p.y)).size).toBe(8);
+    const before=peers[0]!.snapshot!.players.find(p=>p.id===identities[0]!.id)!;
+    send(peers[0]!,{type:"input",worldRevision:0,input:{seq:99999,axisX:1,axisY:0,jump:false}});await pause(300);
+    expect(peers[0]!.snapshot!.players.find(p=>p.id===identities[0]!.id)!.x).toBe(before.x);
+    send(peers[0]!,{type:"media.control",revision:0,commandId:crypto.randomUUID(),action:"source",url:"https://example.com/movie.mp4"});
+    await until(()=>[...peers.slice(0,7),rejoined].every(p=>p.snapshot?.media.revision===1),"Shared media did not reach every client");
+  },30000);
+
 });

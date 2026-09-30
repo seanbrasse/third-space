@@ -1,0 +1,45 @@
+# Shared worlds: implementation and follow-up
+
+The reading lounge remains available. Midnight Pines adds a bounded 48 × 48 tile forest with eight campfire seats, tree paths, an abandoned cabin, a camper and shared screen. Art is procedural pixel canvas; no external image assets or accounts are required. Each player starts with a flashlight. Marshmallows are a shared avatar action; walking cancels roasting. Forest wind, fire and occasional synthetic distant calls use the existing effects-volume control.
+
+## Authority and transitions
+
+`packages/config` owns map bounds, solids, seats, eight distinct spawns, camera policy, fire location and media-surface geometry. Shared simulation accepts a world map. Colyseus remains the room authority at 60 simulation ticks and 20 snapshots per second. No database migration is required.
+
+Any connected member can suggest a different world from the side menu. The server issues an eight-second proposal, shown to everyone. A matching objection before the deadline cancels it. An unopposed deadline increments `worldRevision`, clears movement intents/seats/roasting and sends every member to deterministic distinct spawns. Duplicate command IDs, stale revisions, simultaneous proposals and late objections are handled by the authority. Suggestions have a ten-second per-person cooldown. No asset-loading barrier is needed for bundled procedural assets.
+
+Members joining during a countdown receive the proposal; members joining afterward receive the current world. A dropped member keeps their place for the existing 30-second reconnect grace and transitions with the group. Actual Colyseus reconnect testing exposed a preexisting client-object identity mismatch; reconnect now checks the reserved session ID, while replaced sessions remain rejected. A page reload retains the local identity; reopening a saved home offers the existing explicit “Use this tab” replacement action when its previous session is still reserved.
+
+World/media state is held in the live room. It resets after server restart or disposal of an empty room. Persistent home access, profiles and the idea board retain their existing SQLite behavior. Garden Dash remains the existing opt-in, per-player activity; a social-world transition gathers racers back into the chosen world. Deciding whether all future game activities must also be room-wide remains a product choice.
+
+## Light, media and sound
+
+Canvas compositing reveals the ground, trees and avatars in the same flickering warm fire field. Directional flashlights reveal nearby paths; distant avatars and their labels/bubbles are hidden outside the visible field. This is atmosphere rather than a security boundary: the authoritative snapshot still carries all room positions. Light does not ray-cast shadows behind obstacles in this milestone.
+
+The lounge and forest both position one HTML5 video surface from the world definition. The host chooses a direct HTTPS MP4, WebM or Ogg URL and controls play, pause and seek. The server stores a revisioned playback position anchored to its clock; clients converge when drift exceeds 0.6 seconds. Local screen volume is personal, and surface audio fades over 12 tiles. Expanding the viewing panel opts into full listening volume. Playback state survives a world change. Autoplay restrictions require a local tap when a browser blocks playback.
+
+The video origin must permit playback and support byte-range requests for reliable seeking. URLs ending in a supported extension are accepted; this does not guarantee the remote video exists or is playable. YouTube, protected streaming, uploads, live screen sharing and provider-specific synchronization need separate adapters. Browser verification uses an intercepted HTTPS URL with a locally generated test video; it does not validate an external provider or Internet latency.
+
+Native voice is still unavailable: the current media-status endpoint reports it unconfigured and token issuance is disabled. Existing policy controls and proximity gain helpers do not constitute a working voice transport. Completing voice requires an authorized provider configuration, scoped room/member token issuance, client track subscription, positional gain updates, permission/error handling, and testing proximity/whole-room/off modes. No credentials or paid services were created. Text chat, soundboard and forest ambience remain usable with Discord.
+
+## Browser and performance policy
+
+Hidden rendering sleeps independently of sockets and audio. Movement is neutralized on blur/visibility change, prediction and paths reset on transitions, and the server's stale-input timeout remains a fallback. Visual effect queues are bounded at 64 and expired effects are skipped. Foreground React snapshot updates are capped around 5 Hz; live snapshots still drive media and ambience in the background. Rendering resumes from current authoritative state. Background media can continue if the browser permits it; OS/browser audio or frozen-tab restrictions remain outside app control.
+
+Static forest art is cached across transitions; identical trees/logs share textures. Avatar variants are capped at 256 cached textures, pruning unused variants toward 192. Fire/flashlight compositing uses a 320 × 320 mask at up to 30 Hz, with at most eight cones, rather than per-pixel lighting across the full forest. The authored floor is one 1536 × 1536 canvas. These are bounds in code, not measured performance claims.
+
+Suggested profiling acceptance criteria before expanding the map/art:
+
+- Eight moving avatars plus video and voice: target at least 30 FPS on the minimum supported mobile device, 60 FPS on a typical desktop; record frame-time percentiles and long tasks separately.
+- Set an initial renderer budget of 8 ms per desktop frame (including at most 3 ms lighting), then revise from measured device traces. Measure media decoding and voice separately.
+- Ten world-switch cycles and repeated avatar edits should plateau in canvas/texture count and heap after collection; no increasing listeners/audio nodes.
+- One foreground and three background tabs: no hidden render frames or stuck movement; room/video controls remain synchronized and resuming produces no stale-effect burst.
+- Profile 30 minutes at eight players on realistic network delay/loss; record input/snapshot bandwidth, drift, reconnect success and authority tick time. Full JSON snapshots and click-path grid construction are observed optimization candidates, not measured bottlenecks. Cache navigation grids or use indexed search/chunked floors only if traces justify it.
+
+## Verification and next milestones
+
+Local validation covers unit/navigation/data/authority tests, real HTTP and Colyseus admission/lifecycle tests, all original lounge/mobile/race/roster browser flows, and a new world/roasting/flashlight/hidden-rendering browser regression. The eight-client lifecycle test exercises objections, join-during-countdown, dropped-session reconnect after transition, stale movement and shared media delivery. A separate two-browser/six-SDK-peer run verifies direct-video play/pause/seek and background playback controls. Visibility is deterministically simulated in browser tests; this is not a physical OS background-tab or mobile power benchmark.
+
+There were no GitHub Actions workflows or CI checks when the milestones were published. Local test evidence should not be described as a remote CI result. No deployment is included.
+
+Next coherent milestone: configure and implement the actual voice transport with positional audio and listener-range feedback, once provider access is available. Then profile physical mobile/background-tab behavior and realistic networks. Visual refinements can add softer path edges, occluded flashlight shadows, richer roasting animation and animal recordings without changing room authority. Camper versus pickup and TV versus projector remain reversible visual choices; this milestone uses a camper and mounted screen. Sean can also decide host-only versus shared media control, room-wide treatment of Garden Dash, and whether live world state should persist across server restarts.

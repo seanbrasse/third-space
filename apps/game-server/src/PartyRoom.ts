@@ -243,7 +243,9 @@ export class PartyRoom extends Room {
       client.leave(4003);
       return;
     }
-    if (this.clientsByUser.get(id) !== client) {
+    // Colyseus recreates Client on reconnect while retaining its reserved session.
+    const previous=this.clientsByUser.get(id);
+    if (!previous || previous.sessionId !== client.sessionId) {
       client.leave(4011);
       return;
     }
