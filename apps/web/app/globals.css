@@ -2346,3 +2346,5 @@ fieldset {
 @media(max-width:650px){.world-proposal{min-width:0;width:90%;gap:12px}.world-proposal button{white-space:normal}.world-destinations{width:240px}.shared-watching.expanded{right:16px;bottom:16px}.shared-watching.expanded video{height:210px}.social-toolbar{flex-wrap:wrap;gap:10px}}
 
 .home-view .world-topline>span:first-child{margin-left:95px}
+
+.shared-watching.surface{will-change:transform}.youtube-player{width:100%;height:270px;min-width:200px;min-height:200px}.youtube-player iframe{width:100%;height:270px;border:0;display:block}

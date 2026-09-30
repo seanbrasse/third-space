@@ -1,6 +1,6 @@
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { randomUUID } from "node:crypto";
-import { GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
+import { resolveMediaLink, GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
 import {
   parseCommand,
   type ChatMessage,
@@ -425,11 +425,11 @@ export class PartyRoom extends Room {
         const now=Date.now();
         const position=Math.min(86400,this.media.position+(this.media.playing?Math.max(0,now-this.media.anchorAt)/1000:0));
         if(command.action==="source") {
-          if(!command.url)return this.notice(client,"INVALID_MEDIA","Choose a direct HTTPS video URL.");
-          const u=new URL(command.url);
-          if(u.protocol!=="https:" || u.username || u.password || !/\.(mp4|webm|ogg)$/i.test(u.pathname))
-            return this.notice(client,"INVALID_MEDIA","Use a direct HTTPS MP4, WebM or Ogg video URL. YouTube needs a separate player adapter.");
-          this.media={revision:this.media.revision+1,url:u.href,playing:false,position:0,anchorAt:now};
+          if(!command.url)return this.notice(client,"INVALID_MEDIA","Paste a YouTube link or an HTTPS video file link.");
+          try {
+            const source=resolveMediaLink(command.url);
+            this.media={revision:this.media.revision+1,url:source.url,playing:false,position:source.start,anchorAt:now};
+          }catch(error){return this.notice(client,"INVALID_MEDIA",(error as Error).message);}
         } else {
           if(!this.media.url)return this.notice(client,"INVALID_MEDIA","Choose a video first.");
           this.media={...this.media,revision:this.media.revision+1,position:command.action==="seek"?command.position??position:position,anchorAt:now,playing:command.action==="play"?true:command.action==="pause"?false:this.media.playing};

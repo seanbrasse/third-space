@@ -34,10 +34,22 @@ test("friends object, switch together, roast, sleep rendering and return to the 
         const point = await page.locator(".world-canvas").evaluate(el => { const b = el.querySelector("canvas")!.getBoundingClientRect(), d = (el as HTMLElement).dataset; return { x: b.x + (20.8 * 32 - Number(d.cameraScrollX)) * Number(d.cameraZoom), y: b.y + (24 * 32 - Number(d.cameraScrollY)) * Number(d.cameraZoom) }; });
         await page.mouse.click(point.x, point.y);
         await expect.poll(() => page.locator(".world-canvas").getAttribute("data-seat-id")).not.toBe("");
+        await page.getByRole("button", { name: "☺ Emotes" }).click();
         await page.getByRole("button", { name: /Roast marshmallow/ }).click();
         await expect.poll(async () => Number(await page.locator(".world-canvas").getAttribute("data-roasting-at"))).toBeGreaterThan(0);
         await page.getByRole("button", { name: /Flashlight on/ }).click();
         await expect(page.locator(".world-canvas")).toHaveAttribute("data-flashlight-on", "false");
+        await page.evaluate(()=>{
+          const check={frames:0,maxError:0};(window as unknown as {projectionCheck:typeof check}).projectionCheck=check;
+          document.addEventListener("third-space:projection",event=>{
+            const world=event.target as HTMLElement,canvas=world.querySelector("canvas"),shell=world.closest(".world-shell"),screen=shell?.querySelector<HTMLElement>(".shared-watching.surface");if(!canvas||!shell||!screen)return;
+            const b=canvas.getBoundingClientRect(),s=shell.getBoundingClientRect(),d=(event as CustomEvent).detail,m=new DOMMatrixReadOnly(screen.style.transform);
+            check.frames++;check.maxError=Math.max(check.maxError,Math.abs(m.m41-(b.left-s.left+d.x+6)),Math.abs(m.m42-(b.top-s.top+d.y+6)));
+          });
+        });
+        await page.locator(".world-canvas").focus();await page.keyboard.down("d");await page.waitForTimeout(700);await page.keyboard.up("d");
+        const projection=await page.evaluate(()=>(window as unknown as {projectionCheck:{frames:number;maxError:number}}).projectionCheck);
+        expect(projection.frames).toBeGreaterThan(10);expect(projection.maxError).toBeLessThan(.1);
         // Deterministic app policy test, not an OS background-throttling benchmark.
         await second.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
         await second.waitForTimeout(300);

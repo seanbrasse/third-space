@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { getWorld } from "@third-space/config";
+import { getWorld, resolveMediaLink } from "@third-space/config";
+import YouTubeWatching from "./YouTubeWatching";
 import type { Snapshot } from "../lib/types";
 export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded, onExpand, send }: {
     snapshot: Snapshot | null;
@@ -10,31 +11,41 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
     onExpand: (v: boolean) => void;
     send: (v: Record<string, unknown>) => void;
 }) {
-    const video = useRef<HTMLVideoElement>(null), anchor = useRef({ server: 0, client: 0 }), [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0, clip: "inset(0px)" }), [url, setUrl] = useState(""), [seek, setSeek] = useState("0"), [volume, setVolume] = useState(.7), [error, setError] = useState("");
+    const video = useRef<HTMLVideoElement>(null), anchor = useRef({ server: 0, client: 0 }), [url, setUrl] = useState(""), [seek, setSeek] = useState("0"), [volume, setVolume] = useState(.7), [error, setError] = useState("");
+    const screen = useRef<HTMLElement>(null);
+    const source = snapshot?.media.url ? resolveMediaLink(snapshot.media.url) : null;
     const self = snapshot?.players.find(p => p.id === selfId), surface = getWorld(snapshot?.worldId).mediaSurface, host = snapshot?.hostId === selfId;
     const latest = useRef({ snapshot, self, expanded, volume, surface, getSnapshot, selfId });
     useEffect(() => { latest.current = { snapshot, self, expanded, volume, surface, getSnapshot, selfId }; }, [snapshot, self, expanded, volume, surface, getSnapshot, selfId]);
     const near = !!self && self.mode === "home" && Math.hypot(self.x - surface.source.x, self.y - surface.source.y) < 12;
-    useEffect(() => { if (snapshot)
-        anchor.current = { server: snapshot.serverTime, client: Date.now() }; }, [snapshot?.serverTime]);
     useEffect(() => {
-        const project = () => {
-            if (document.hidden)
+        if (snapshot)
+            anchor.current = { server: snapshot.serverTime, client: Date.now() };
+    }, [snapshot?.serverTime]);
+    useEffect(() => {
+        const project = (event: Event) => {
+            const el = screen.current;
+            if (!el || latest.current.expanded || document.hidden)
                 return;
-            const world = document.querySelector<HTMLElement>(".world-canvas"), canvas = world?.querySelector("canvas"), shell = world?.closest(".world-shell");
-            if (!world || !canvas || !shell)
+            const world = event.target as HTMLElement, canvas = world.querySelector("canvas"), shell = world.closest(".world-shell");
+            if (!canvas || !shell)
                 return;
-            const b = canvas.getBoundingClientRect(), s = shell.getBoundingClientRect(), d = world.dataset, z = Number(d.cameraZoom), t = Number(d.tileSize);
-            const x = (surface.x * t - Number(d.cameraScrollX)) * z, y = (surface.y * t - Number(d.cameraScrollY)) * z, w = surface.width * t * z, h = (surface.height * t - 12) * z;
-            if (![x, y, w, h].every(Number.isFinite) || !z || !t)
-                return;
-            const clip = `inset(${Math.max(0, -y)}px ${Math.max(0, x + w - b.width)}px ${Math.max(0, y + h - b.height)}px ${Math.max(0, -x)}px)`;
-            setBox({ left: b.left - s.left + x, top: b.top - s.top + y, width: w, height: h, clip });
+            const d = (event as CustomEvent).detail, b = canvas.getBoundingClientRect(), s = shell.getBoundingClientRect();
+            const x = d.x + 6, y = d.y + 6, w = Math.max(1, d.width - 12), h = Math.max(1, d.height - 12);
+            el.style.transform = `translate3d(${b.left - s.left + x}px,${b.top - s.top + y}px,0)`;
+            el.style.width = w + "px";
+            el.style.height = h + "px";
+            el.style.clipPath = `inset(${Math.max(0, -y)}px ${Math.max(0, x + w - b.width)}px ${Math.max(0, y + h - b.height)}px ${Math.max(0, -x)}px)`;
         };
-        project();
-        const timer = setInterval(project, 100);
-        return () => clearInterval(timer);
-    }, [surface.id]);
+        document.addEventListener("third-space:projection", project);
+        return () => document.removeEventListener("third-space:projection", project);
+    }, []);
+    useEffect(() => { if (expanded && screen.current) {
+        screen.current.style.transform = "";
+        screen.current.style.width = "";
+        screen.current.style.height = "";
+        screen.current.style.clipPath = "";
+    } }, [expanded]);
     useEffect(() => {
         const timer = setInterval(() => {
             const { expanded, volume, getSnapshot, selfId } = latest.current;
@@ -56,20 +67,23 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
         }, 250);
         return () => clearInterval(timer);
     }, []);
-    const control = (action: string, extra: Record<string, unknown> = {}) => { if (snapshot)
-        send({ type: "media.control", action, revision: snapshot.media.revision, commandId: crypto.randomUUID(), ...extra }); };
+    const control = (action: string, extra: Record<string, unknown> = {}) => {
+        const current = getSnapshot() ?? snapshot;
+        if (current)
+            send({ type: "media.control", action, revision: current.media.revision, commandId: crypto.randomUUID(), ...extra });
+    };
     if (!snapshot || self?.mode !== "home")
         return null;
-    return <section className={`shared-watching ${expanded ? "expanded" : "surface"}`} style={expanded ? undefined : { left: box.left + 6, top: box.top + 6, width: Math.max(1, box.width - 12), height: Math.max(1, box.height - 12), visibility: near ? "visible" : "hidden", clipPath: box.clip }} aria-label="Shared screen">
+    return <section ref={screen} className={`shared-watching ${expanded ? "expanded" : "surface"}`} style={expanded ? undefined : { left: 0, top: 0, visibility: near ? "visible" : "hidden" }} aria-label="Shared screen">
     {expanded && <header><div><small>WATCHING TOGETHER</small><strong>{snapshot.worldId === "forest" ? "Movie night under the pines" : "The lounge screen"}</strong></div><button onClick={() => onExpand(false)} aria-label="Close shared screen">×</button></header>}
-    {snapshot.media.url ? <video ref={video} src={snapshot.media.url} playsInline preload="metadata" onClick={() => { void video.current?.play().catch(() => { }); setError(""); if (!expanded)
-        onExpand(true); }} onError={() => setError("This video could not play. Choose a supported direct video URL.")}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Choose something to watch together" : "MOVIE NIGHT"}</button>}
+    {source?.kind === "youtube" ? (expanded ? <YouTubeWatching key={source.videoId} videoId={source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} onError={setError}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▶</span>YOUTUBE · OPEN SCREEN</button>) : snapshot.media.url ? <video ref={video} src={snapshot.media.url} playsInline preload="metadata" onClick={() => { void video.current?.play().catch(() => { }); setError(""); if (!expanded)
+        onExpand(true); }} onError={() => setError("This link could not play. Try a YouTube video or another video file.")}/> : <button className="screen-placeholder" onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : "MOVIE NIGHT"}</button>}
     {expanded && <div className="watching-controls">
       {error && <p role="status">{error}</p>}
-      <p>Playback is shared. Your volume is personal. Walking away fades the screen audio.</p>
+      <p>Playback is shared. Your volume is personal. Walking away fades video-file audio. Keep the screen open to watch YouTube.</p>
       <label>Screen volume<input aria-label="Screen volume" type="range" min="0" max="1" step=".05" value={volume} onChange={e => setVolume(Number(e.target.value))}/></label>
-      {host ? <><form onSubmit={e => { e.preventDefault(); setError(""); control("source", { url }); }}><label>Direct HTTPS video URL<input aria-label="Direct video URL" type="url" placeholder="https://…/movie.mp4" value={url} onChange={e => setUrl(e.target.value)} required/></label><button>Load for everyone</button></form><div className="watching-actions"><button disabled={!snapshot.media.url} onClick={() => control(snapshot.media.playing ? "pause" : "play")}>{snapshot.media.playing ? "Pause together" : "Play together"}</button><label>Seek (seconds)<input type="number" min="0" max="86400" value={seek} onChange={e => setSeek(e.target.value)}/></label><button disabled={!snapshot.media.url} onClick={() => control("seek", { position: Number(seek) })}>Seek together</button></div></> : <p>The host selects the video and controls playback.</p>}
-      <small>Direct MP4, WebM and Ogg video are supported. YouTube and live screen sharing need separate adapters.</small>
+      {host ? <><form onSubmit={e => { e.preventDefault(); setError(""); control("source", { url }); }}><label>Paste a video link<input aria-label="Video link" type="url" placeholder="YouTube link or video file link" value={url} onChange={e => setUrl(e.target.value)} required/></label><button>Load for everyone</button></form><div className="watching-actions"><button disabled={!snapshot.media.url} onClick={() => control(snapshot.media.playing ? "pause" : "play")}>{snapshot.media.playing ? "Pause together" : "Play together"}</button><label>Seek (seconds)<input type="number" min="0" max="86400" value={seek} onChange={e => setSeek(e.target.value)}/></label><button disabled={!snapshot.media.url} onClick={() => control("seek", { position: Number(seek) })}>Seek together</button></div></> : <p>The host selects the video and controls playback.</p>}
+      <small>Paste a YouTube watch/share/Shorts link, or a link to an MP4, WebM or Ogg file. Other website pages and live screen sharing are not supported yet.</small>
     </div>}
   </section>;
 }
