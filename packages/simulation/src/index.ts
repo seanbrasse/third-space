@@ -232,6 +232,7 @@ export function stepHome(
   player: PlayerState,
   input: PlayerInput,
   dt: number,
+  map: NavigationMap = HOME_MAP,
 ): PlayerState {
   const next = { ...player };
   let axisX = player.connected ? safeAxis(input.axisX) : 0;
@@ -243,6 +244,7 @@ export function stepHome(
   }
   if (magnitude > 0) {
     delete next.seatId;
+    delete next.roastingAt;
     next.facing =
       Math.abs(axisX) > Math.abs(axisY)
         ? axisX > 0
@@ -264,16 +266,16 @@ export function stepHome(
   for (let i = 0; i < count; i++) {
     const oldX = next.x;
     next.x = clamp(
-      moveAxis(next, next.vx * step, "x", HOME_MAP.solids),
+      moveAxis(next, next.vx * step, "x", map.solids),
       RADIUS,
-      HOME_MAP.width - RADIUS,
+      map.width - RADIUS,
     );
     if (Math.abs(next.x - oldX - next.vx * step) > EPSILON) next.vx = 0;
     const oldY = next.y;
     next.y = clamp(
-      moveAxis(next, next.vy * step, "y", HOME_MAP.solids),
+      moveAxis(next, next.vy * step, "y", map.solids),
       RADIUS,
-      HOME_MAP.height - RADIUS,
+      map.height - RADIUS,
     );
     if (Math.abs(next.y - oldY - next.vy * step) > EPSILON) next.vy = 0;
   }

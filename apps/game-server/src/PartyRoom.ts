@@ -1,6 +1,6 @@
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { randomUUID } from "node:crypto";
-import { GAME_CONFIG, HOME_MAP, RACE_MAP } from "@third-space/config";
+import { GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
 import {
   parseCommand,
   type ChatMessage,
@@ -12,6 +12,8 @@ import {
   type RoomSnapshot,
   type SocialEffect,
   type VoiceMode,
+  type WorldProposal,
+  type SharedMedia,
 } from "@third-space/contracts";
 import {
   createPlayer,
@@ -49,6 +51,12 @@ export class PartyRoom extends Room {
   static store: LocalStore;
   static activeHomes = new Set<string>();
   homeId = "";
+  worldId: WorldId = "living-room";
+  worldRevision = 0;
+  worldProposal: WorldProposal | null = null;
+  media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
+  private acceptedWorldCommands = new Map<string,string>();
+  private acceptedMediaCommands = new Set<string>();
   epoch = randomUUID();
   players = new Map<string, PlayerState>();
   clientsByUser = new Map<string, Client>();
@@ -199,6 +207,7 @@ export class PartyRoom extends Room {
       player.y = spawn.y;
     }
     player.connected = true;
+    player.flashlightOn ??= true;
     this.players.set(auth.userId, player);
     this.roles.set(auth.userId, auth.role);
     this.clientsByUser.set(auth.userId, client);
@@ -241,6 +250,7 @@ export class PartyRoom extends Room {
     const player = this.players.get(id);
     if (player) {
       player.connected = true;
+    player.flashlightOn ??= true;
       if (player.mode === "race") this.safeRaceRespawn(player);
     }
     this.clientsByUser.set(id, client);
@@ -266,6 +276,7 @@ export class PartyRoom extends Room {
     this.players.delete(id);
     this.roles.delete(id);
     this.intents.delete(id);
+    if(this.worldProposal?.proposerId === id) this.worldProposal = null;
     const prefix = id + ":";
     for (const cache of [this.windows, this.cooldowns, this.chatAcks]) {
       for (const key of cache.keys())
@@ -289,28 +300,29 @@ export class PartyRoom extends Room {
   }
 
   private findHomeSpawn(excludeId?: string): { x: number; y: number } {
+    const map = getWorld(this.worldId).map;
     const occupied = [...this.players.values()].filter(
       (player) => player.mode === "home" && player.id !== excludeId,
     );
     const safe = (point: { x: number; y: number }) =>
       point.x >= GAME_CONFIG.playerRadius &&
-      point.x <= HOME_MAP.width - GAME_CONFIG.playerRadius &&
+      point.x <= map.width - GAME_CONFIG.playerRadius &&
       point.y >= GAME_CONFIG.playerRadius &&
-      point.y <= HOME_MAP.height - GAME_CONFIG.playerRadius &&
-      !HOME_MAP.solids.some((solid) => overlapsPlayer(point, solid)) &&
+      point.y <= map.height - GAME_CONFIG.playerRadius &&
+      !map.solids.some((solid) => overlapsPlayer(point, solid)) &&
       occupied.every(
         (player) => distance(player, point) >= 2 * GAME_CONFIG.playerRadius,
       );
-    const authored = HOME_MAP.spawns.find(safe);
+    const authored = map.spawns.find(safe);
     if (authored) return { x: authored.x, y: authored.y };
     // Moving occupants can cover more than one authored point. Find a nearby clear
     // location rather than stacking a new/returning avatar on another participant.
     const candidates: { x: number; y: number }[] = [];
-    for (let y = 1.5; y < HOME_MAP.height - 1; y += 0.75)
-      for (let x = 1.5; x < HOME_MAP.width - 1; x += 0.75)
+    for (let y = 1.5; y < map.height - 1; y += 0.75)
+      for (let x = 1.5; x < map.width - 1; x += 0.75)
         candidates.push({ x, y });
     candidates.sort(
-      (a, b) => distance(a, HOME_MAP.spawn) - distance(b, HOME_MAP.spawn),
+      (a, b) => distance(a, map.spawn) - distance(b, map.spawn),
     );
     const fallback = candidates.find(safe);
     if (!fallback)
@@ -378,7 +390,54 @@ export class PartyRoom extends Room {
     const p = this.players.get(id);
     if (!p || !p.connected) return;
     switch (command.type) {
+      case "world.propose": {
+        const key=id+":"+command.commandId;
+        if(this.acceptedWorldCommands.has(key)) break;
+        if(command.revision!==this.worldRevision || this.worldProposal)
+          return this.notice(client,"WORLD_BUSY","A world change is already pending, or your view changed.");
+        if(command.worldId===this.worldId) break;
+        if(!this.cooled(id,"world",10_000)) return this.notice(client,"RATE_LIMITED","Wait a moment before suggesting another world.");
+        const now=Date.now();
+        this.worldProposal={id:randomUUID(),commandId:command.commandId,proposerId:id,worldId:command.worldId,startAt:now,endsAt:now+WORLD_COUNTDOWN_MS};
+        this.acceptedWorldCommands.set(key,this.worldProposal.id);
+        if(this.acceptedWorldCommands.size>128)this.acceptedWorldCommands.delete(this.acceptedWorldCommands.keys().next().value!);
+        this.sendSnapshots(); break;
+      }
+      case "world.object":
+        if(this.worldProposal?.id!==command.proposalId || Date.now()>=this.worldProposal.endsAt)
+          return this.notice(client,"PROPOSAL_EXPIRED","That world countdown has ended.");
+        this.worldProposal=null; this.broadcast("notice",{code:"WORLD_CANCELLED",message:p.name+" asked to stay here. World change cancelled."}); this.sendSnapshots(); break;
+      case "flashlight": p.flashlightOn=command.enabled; break;
+      case "roast": {
+        const fire=getWorld(this.worldId).fire;
+        if(command.enabled && (p.mode!=="home" || !fire || distance(p,fire)>4))
+          return this.notice(client,"TOO_FAR","Come close to the campfire to roast a marshmallow.");
+        if(command.enabled) p.roastingAt=Date.now(); else delete p.roastingAt;
+        break;
+      }
+      case "media.control": {
+        const key=id+":"+command.commandId;
+        if(this.acceptedMediaCommands.has(key))break;
+        if(id!==this.hostId)return this.notice(client,"ACCESS_DENIED","The host controls shared playback.");
+        if(command.revision!==this.media.revision)return this.notice(client,"MEDIA_CONFLICT","Playback changed. Try again with the latest controls.");
+        const now=Date.now();
+        const position=Math.min(86400,this.media.position+(this.media.playing?Math.max(0,now-this.media.anchorAt)/1000:0));
+        if(command.action==="source") {
+          if(!command.url)return this.notice(client,"INVALID_MEDIA","Choose a direct HTTPS video URL.");
+          const u=new URL(command.url);
+          if(u.protocol!=="https:" || u.username || u.password || !/\.(mp4|webm|ogg)$/i.test(u.pathname))
+            return this.notice(client,"INVALID_MEDIA","Use a direct HTTPS MP4, WebM or Ogg video URL. YouTube needs a separate player adapter.");
+          this.media={revision:this.media.revision+1,url:u.href,playing:false,position:0,anchorAt:now};
+        } else {
+          if(!this.media.url)return this.notice(client,"INVALID_MEDIA","Choose a video first.");
+          this.media={...this.media,revision:this.media.revision+1,position:command.action==="seek"?command.position??position:position,anchorAt:now,playing:command.action==="play"?true:command.action==="pause"?false:this.media.playing};
+        }
+        this.acceptedMediaCommands.add(key); if(this.acceptedMediaCommands.size>256)this.acceptedMediaCommands.delete(this.acceptedMediaCommands.values().next().value!);
+        this.sendSnapshots(); break;
+      }
+      case "input.stop": { const seq=this.intents.get(id)?.value.seq??p.lastInputSeq;this.intents.set(id,{value:neutral(seq),receivedAt:Date.now()});p.vx=p.vy=0;break;}
       case "input": {
+        if(command.worldRevision!==undefined && command.worldRevision!==this.worldRevision)return;
         const previous = this.intents.get(id)?.value.seq ?? p.lastInputSeq;
         if (command.input.seq <= previous) return;
         if (command.input.seq > previous + 10000)
@@ -389,7 +448,7 @@ export class PartyRoom extends Room {
           );
         if (!this.allowed(id + ":input", 60, 1000)) return;
         this.intents.set(id, { value: command.input, receivedAt: Date.now() });
-        if (command.input.axisX || command.input.axisY) delete p.seatId;
+        if (command.input.axisX || command.input.axisY) { delete p.seatId; delete p.roastingAt; }
         break;
       }
       case "chat.send": {
@@ -446,8 +505,8 @@ export class PartyRoom extends Room {
           delete p.seatId;
           break;
         }
-        const seat = HOME_MAP.seats.find((s) => s.id === command.seatId);
-        if (p.mode !== "home" || !seat || distance(p, seat) > GAME_CONFIG.interactionDistance || !isHomeSegmentWalkable(p, seat))
+        const seat = getWorld(this.worldId).map.seats.find((s) => s.id === command.seatId);
+        if (p.mode !== "home" || !seat || distance(p, seat) > GAME_CONFIG.interactionDistance || !isHomeSegmentWalkable(p, seat, getWorld(this.worldId).map))
           return this.notice(client, "TOO_FAR", "Walk closer to that seat.");
         if (
           [...this.players.values()].some(
@@ -460,6 +519,8 @@ export class PartyRoom extends Room {
             "Someone is already sitting there.",
           );
         p.seatId = seat.id;
+        const fire=getWorld(this.worldId).fire;
+        if(fire){const dx=fire.x-seat.x,dy=fire.y-seat.y;p.facing=Math.abs(dx)>Math.abs(dy)?dx>0?"right":"left":dy>0?"down":"up";}
         p.x = seat.x;
         p.y = seat.y;
         p.vx = p.vy = 0;
@@ -599,6 +660,7 @@ export class PartyRoom extends Room {
           );
         break;
       case "race.ready": {
+        if(this.worldId!=="living-room" || this.worldProposal) return this.notice(client,"WORLD_BUSY","Return to the lounge before starting Garden Dash.");
         if (p.mode !== "home" || this.race.phase !== "lobby")
           return this.notice(
             client,
@@ -617,6 +679,7 @@ export class PartyRoom extends Room {
         break;
       }
       case "race.start": {
+        if(this.worldId!=="living-room" || this.worldProposal) return this.notice(client,"WORLD_BUSY","Finish the world change first.");
         if (id !== this.hostId)
           return this.notice(
             client,
@@ -692,9 +755,22 @@ export class PartyRoom extends Room {
     }
   }
 
+  private changeWorld(worldId: WorldId) {
+    this.worldId=worldId; this.worldRevision++; this.worldProposal=null;
+    this.proposals.clear(); this.chats.home=[]; this.chats.race=[];
+    this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
+    const map=getWorld(worldId).map;
+    // Includes grace-reserved avatars; reconnect never restores the old map.
+    const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
+    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;});
+    this.intents.clear();
+    this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
+    this.sendSnapshots();
+  }
   private simulate(dt: number) {
     const now = Date.now();
     this.tick++;
+    if(this.worldProposal && now>=this.worldProposal.endsAt) this.changeWorld(this.worldProposal.worldId);
     if (this.race.phase === "countdown" && now >= this.race.startAt)
       this.race.phase = "running";
     for (const [id, p] of this.players) {
@@ -704,7 +780,7 @@ export class PartyRoom extends Room {
           ? intent.value
           : neutral(p.lastInputSeq);
       if (p.mode === "home") {
-        if (!p.seatId) this.players.set(id, stepHome(p, input, dt));
+        if (!p.seatId) this.players.set(id, stepHome(p, input, dt, getWorld(this.worldId).map));
       } else if (
         this.race.phase === "running" &&
         !p.finishedAt &&
@@ -789,7 +865,8 @@ export class PartyRoom extends Room {
       if (!p) continue;
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
-        instanceId: p.mode === "home" ? this.homeId + ":home" : this.race.id,
+        worldId:this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
+        instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision : this.race.id,
         epoch: this.epoch,
         serverTime: now,
         players: [...this.players.values()].filter((v) => v.mode === p.mode),
