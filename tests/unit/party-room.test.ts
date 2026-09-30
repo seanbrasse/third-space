@@ -578,4 +578,35 @@ describe("shared reusable social worlds",()=>{
     expect(host.received<ServerNotice>("notice").at(-1)!.code).toBe("INVALID_MEDIA");
   });
 
+  it("respawns a caught explorer safely, clears intent, rejects pre-respawn input and scopes the one stalker by area",()=>{
+    vi.spyOn(Math,"random").mockReturnValue(.5);
+    const clients=harness.fill(),c=clients[0]!;propose(c);harness.advance(481);
+    Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});
+    for(let ticks=0;ticks<2700&&!harness.room.players.get(c.auth.userId)!.respawnCount;ticks+=3)harness.advance(3);
+    const encountered=c.received<RoomSnapshot>("snapshot").find(s=>s.stalker);
+    expect(encountered?.stalker?.targetId).toBe(c.auth.userId);
+    expect(clients[1]!.received<RoomSnapshot>("snapshot").every(s=>!s.stalker)).toBe(true);
+    const p=harness.room.players.get(c.auth.userId)!;
+    expect(p.respawnCount).toBe(1);expect(p.haloUntil).toBeGreaterThan(Date.now());
+    expect(Math.hypot(p.x-24,p.y-24)).toBeLessThan(9);
+    expect(harness.room.intents.has(p.id)).toBe(false);
+    const x=p.x;harness.send(c,{type:"input",input:{seq:1,axisX:1,axisY:0,jump:false},worldRevision:1,lifeRevision:0});harness.advance(3);expect(harness.room.players.get(p.id)!.x).toBe(x);
+    harness.send(c,{type:"input",input:{seq:1,axisX:1,axisY:0,jump:false},worldRevision:1,lifeRevision:1});harness.advance(3);expect(harness.room.players.get(p.id)!.x).toBeGreaterThan(x);
+    propose(c,"living-room","return-after-catch");harness.advance(481);expect(c.snapshot().stalker).toBeNull();expect(c.snapshot().players.find(p=>p.id===c.auth.userId)?.haloUntil).toBeUndefined();
+  });
+
+  it("drops a pursuit when its explorer disconnects and reconnects the same live avatar",async()=>{
+    vi.spyOn(Math,"random").mockReturnValue(.5);
+    const c=harness.fill()[0]!;propose(c);harness.advance(481);
+    Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});harness.advance(1803);
+    expect(c.snapshot().stalker?.phase).toBe("peek");
+    let resolve!:(client:AuthorityClient)=>void;const wait=new Promise<AuthorityClient>(done=>{resolve=done;});
+    vi.spyOn(harness.room,"allowReconnection").mockReturnValue(wait as ReturnType<PartyRoom["allowReconnection"]>);
+    const drop=harness.room.onDrop(c.authority());harness.advance(61);
+    harness.room.onReconnect(c.authority());resolve(c.authority());await drop;
+    expect(c.snapshot().worldId).toBe("forest");expect(c.snapshot().stalker).toBeNull();
+    expect(harness.room.players.get(c.auth.userId)?.respawnCount).toBeUndefined();
+    expect(harness.room.players.get(c.auth.userId)?.connected).toBe(true);
+  });
+
 });

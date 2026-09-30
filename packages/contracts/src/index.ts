@@ -53,6 +53,8 @@ export interface PlayerState {
   mode: "home" | "race";
   flashlightOn?: boolean;
   roastingAt?: number;
+  respawnCount?: number;
+  haloUntil?: number;
   avatar: AvatarConfig;
   nativeMode: NativeMode;
   manualMute: boolean;
@@ -103,7 +105,7 @@ const ChatTextSchema = z
 
 export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("input.stop") }).strict(),
-  z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional() }).strict(),
+  z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional(), lifeRevision: z.number().int().min(0).optional() }).strict(),
   z
     .object({
       type: z.literal("chat.send"),
@@ -183,7 +185,9 @@ export interface RaceState {
 }
 export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
 export interface SharedMedia { revision: number; url: string; playing: boolean; position: number; anchorAt: number; }
+export interface ForestStalker {id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
+  stalker?: ForestStalker | null;
   homeId: string;
   worldId: "living-room" | "forest";
   worldRevision: number;
