@@ -13,9 +13,9 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  const id=await page.evaluate(async n=>(await(await fetch('/api/homes')).json()).homes.find((h:{name:string})=>h.name===n).id,name);
  await camp.goto('http://127.0.0.1:3010');await camp.getByLabel('Your name',{exact:true}).fill('Camper');await camp.getByRole('button',{name:'Join friends',exact:true}).click();await camp.getByLabel('Home ID',{exact:true}).fill(id);await camp.getByLabel('Room PIN',{exact:true}).fill('123456');await camp.getByRole('button',{name:'Join your friends'}).click();await expect(camp.locator('.connection')).toHaveText('Connected');
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-id','forest',{timeout:12000});
- async function walk(x:number,y:number){const b=await page.locator('.world-canvas canvas').boundingBox();const d=await page.locator('.world-canvas').evaluate(el=>({...((el as HTMLElement).dataset)}));await page.mouse.click(b!.x+(x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),b!.y+(y*32-Number(d.cameraScrollY))*Number(d.cameraZoom));await expect.poll(async()=>{const p=await page.locator('.world-canvas').evaluate(el=>({x:Number((el as HTMLElement).dataset.authoritativeX),y:Number((el as HTMLElement).dataset.authoritativeY)}));return Math.hypot(p.x-x,p.y-y);},{timeout:12000}).toBeLessThan(.3);}
- // Two visible waypoints let normal click-to-walk route around the fire.
- await walk(24,18);await walk(24,10.5);
+ async function walk(x:number,y:number){await page.locator('.world-canvas canvas').scrollIntoViewIfNeeded();const b=await page.locator('.world-canvas canvas').boundingBox();const d=await page.locator('.world-canvas').evaluate(el=>({...((el as HTMLElement).dataset)}));await page.mouse.click(b!.x+(x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),b!.y+(y*32-Number(d.cameraScrollY))*Number(d.cameraZoom));await expect.poll(async()=>{const p=await page.locator('.world-canvas').evaluate(el=>({x:Number((el as HTMLElement).dataset.authoritativeX),y:Number((el as HTMLElement).dataset.authoritativeY)}));return Math.hypot(p.x-x,p.y-y);},{timeout:12000}).toBeLessThan(.3);}
+ // Visible waypoints route from the default southern spawn around the fire.
+ await walk(24,22);await walk(24,18);await walk(24,10.5);
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-stalker-phase','peek',{timeout:40000});
  await expect(camp.locator('.world-canvas')).toHaveAttribute('data-stalker-id','');
  await page.screenshot({path:'tests/e2e/artifacts/stalker-peek.png',fullPage:true});
