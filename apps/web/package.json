@@ -1,0 +1,28 @@
+{
+  "name": "@third-space/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build --webpack",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.3.7",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "phaser": "3.90.0",
+    "@colyseus/sdk": "0.18.4",
+    "livekit-client": "2.22.3",
+    "@third-space/contracts": "workspace:*",
+    "@third-space/config": "workspace:*",
+    "@third-space/simulation": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/node": "22.19.1"
+  }
+}

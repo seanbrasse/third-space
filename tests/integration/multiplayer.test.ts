@@ -1,0 +1,597 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { Client, type Room } from "@colyseus/sdk";
+import type {
+  ChatMessage,
+  ClientCommand,
+  RoomSnapshot,
+  ServerNotice,
+  SocialEffect,
+} from "../../packages/contracts/src/index";
+import { HOME_MAP, RACE_MAP } from "../../packages/config/src/index";
+import { distance, findHomePath } from "../../packages/simulation/src/index";
+import { createGameServer } from "../../apps/game-server/src/server";
+
+const origin = "http://localhost:3000";
+type Identity = { id: string; cookie: string; name: string };
+type Peer = {
+  room: Room;
+  identity: Identity;
+  snapshot?: RoomSnapshot;
+  chats: ChatMessage[];
+  notices: ServerNotice[];
+  effects: SocialEffect[];
+  seq: number;
+  left: boolean;
+};
+let runtime: ReturnType<typeof createGameServer>;
+let base = "";
+let identities: Identity[] = [];
+let active: Peer[] = [];
+const pause = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+async function until<T>(
+  read: () => T | undefined | false,
+  message: string,
+  timeout = 5_000,
+): Promise<T> {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const value = read();
+    if (value) return value as T;
+    await pause(20);
+  }
+  throw new Error(message);
+}
+async function request(
+  path: string,
+  identity?: Identity,
+  body?: unknown,
+  method = body === undefined ? "GET" : "POST",
+) {
+  const response = await fetch(`${base}/api${path}`, {
+    method,
+    headers: {
+      Origin: origin,
+      ...(identity ? { Cookie: identity.cookie } : {}),
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { response, data: (await response.json()) as any };
+}
+async function home(owner: Identity, name: string) {
+  const result = await request("/homes", owner, { name, pin: "123456" });
+  expect(result.response.status).toBe(201);
+  return result.data.home.id as string;
+}
+async function admission(
+  homeId: string,
+  identity: Identity,
+  credential: unknown = { pin: "123456" },
+) {
+  const joined = await request(`/homes/${homeId}/join`, identity, credential);
+  expect(joined.response.status).toBe(200);
+  const ticket = await request(`/homes/${homeId}/ticket`, identity, {});
+  expect(ticket.response.status).toBe(200);
+  return ticket.data.ticket as string;
+}
+async function connect(
+  homeId: string,
+  identity: Identity,
+  credential?: unknown,
+  replaceExisting = false,
+) {
+  const ticket = await admission(homeId, identity, credential);
+  const room = await new Client(base.replace("http:", "ws:")).joinOrCreate(
+    "party",
+    { homeId, ticket, replaceExisting },
+  );
+  const peer: Peer = {
+    room,
+    identity,
+    chats: [],
+    notices: [],
+    effects: [],
+    seq: 0,
+    left: false,
+  };
+  room.onMessage("snapshot", (snapshot: RoomSnapshot) => {
+    peer.snapshot = snapshot;
+  });
+  room.onMessage("chat", (chat: ChatMessage) => peer.chats.push(chat));
+  room.onMessage("notice", (notice: ServerNotice) => peer.notices.push(notice));
+  room.onMessage("effect", (effect: SocialEffect) => peer.effects.push(effect));
+  room.onMessage("welcome", () => {});
+  room.onMessage("transition", () => {});
+  room.onMessage("board.changed", () => {});
+  room.onLeave(() => {
+    peer.left = true;
+  });
+  active.push(peer);
+  await until(
+    () => peer.snapshot,
+    "Player did not receive an authoritative snapshot",
+  );
+  return peer;
+}
+function send(peer: Peer, command: ClientCommand) {
+  peer.room.send("command", command);
+}
+async function move(
+  peer: Peer,
+  axisX: number,
+  axisY: number,
+  duration: number,
+  jump = false,
+) {
+  const tick = () =>
+    send(peer, {
+      type: "input",
+      input: { seq: peer.seq++, axisX, axisY, jump },
+    });
+  tick();
+  const timer = setInterval(tick, 40);
+  try {
+    await pause(duration);
+  } finally {
+    clearInterval(timer);
+    send(peer, {
+      type: "input",
+      input: { seq: peer.seq++, axisX: 0, axisY: 0, jump: false },
+    });
+  }
+}
+
+
+async function walkToPortal(peer: Peer) {
+  const start = peer.snapshot!.players.find((player) => player.id === peer.identity.id)!;
+  const portal = HOME_MAP.furniture.find((item) => item.id === HOME_MAP.portal.id)!;
+  const goal = [...portal.usePoints].sort((a, b) => distance(start, a) - distance(start, b))[0]!;
+  const path = findHomePath(start, goal);
+  expect(path).not.toBeNull();
+  const started = Date.now();
+  for (const target of path!.slice(1)) {
+    while (true) {
+      const state = peer.snapshot!.players.find((player) => player.id === peer.identity.id)!;
+      const remaining = distance(state, target);
+      if (remaining < 0.18) break;
+      if (Date.now() - started > 8_000) throw new Error("Could not walk to the portal using authoritative input");
+      // Slow near a waypoint to absorb snapshot and network latency without overshooting.
+      const magnitude = Math.min(1, remaining * 2);
+      send(peer, {type: "input", input: {seq: peer.seq++, axisX: (target.x - state.x) / remaining * magnitude, axisY: (target.y - state.y) / remaining * magnitude, jump: false}});
+      await pause(40);
+    }
+  }
+  send(peer, {type: "input", input: {seq: peer.seq++, axisX: 0, axisY: 0, jump: false}});
+}
+
+describe("real HTTP admission and Colyseus multiplayer", () => {
+  beforeAll(async () => {
+    runtime = createGameServer({ dataPath: ":memory:", origins: [origin] });
+    await runtime.server.listen(0, "127.0.0.1");
+    const address = runtime.httpServer.address();
+    if (!address || typeof address === "string")
+      throw new Error("Could not determine the test port");
+    base = `http://127.0.0.1:${address.port}`;
+    for (const name of [
+      "Nova",
+      "Sage",
+      "Wren",
+      "June",
+      "Ash",
+      "River",
+      "Moss",
+      "Fern",
+      "Rowan",
+    ]) {
+      const { response, data } = await request("/identity", undefined, {
+        name,
+      });
+      expect(response.status).toBe(201);
+      identities.push({
+        id: data.profile.id,
+        name,
+        cookie: response.headers.get("set-cookie")!.split(";")[0]!,
+      });
+    }
+  });
+  afterEach(async () => {
+    await Promise.all(
+      active.map(async (peer) => {
+        if (!peer.left) await peer.room.leave();
+      }),
+    );
+    active = [];
+    await pause(60);
+  });
+  afterAll(async () => {
+    await runtime.server.gracefullyShutdown(false);
+    runtime.store.close();
+  });
+
+  it("admits eight independent identities into one room, shares movement, and refuses capacity forks", async () => {
+    const homeId = await home(identities[0]!, "Eight friends");
+    const peers: Peer[] = [];
+    for (const identity of identities.slice(0, 8))
+      peers.push(await connect(homeId, identity));
+    await until(
+      () => peers.every((peer) => peer.snapshot?.players.length === 8),
+      "Eight clients did not converge",
+    );
+    expect(new Set(peers.map((peer) => peer.room.roomId)).size).toBe(1);
+    expect(
+      new Set(peers[0]!.snapshot!.players.map((player) => player.id)).size,
+    ).toBe(8);
+    const initial = peers[1]!.snapshot!.players.find(
+      (player) => player.id === identities[0]!.id,
+    )!.x;
+    await move(peers[0]!, 1, 0, 450);
+    const remote = await until(
+      () =>
+        peers[1]!.snapshot?.players.find(
+          (player) => player.id === identities[0]!.id,
+        ),
+      "Observer lost the moving player",
+    );
+    expect(remote.x).toBeGreaterThan(initial + 1);
+    expect(remote.x).toBeLessThan(initial + 2.5);
+    const extraTicket = await admission(homeId, identities[8]!);
+    await expect(
+      new Client(base.replace("http:", "ws:")).joinOrCreate("party", {
+        homeId,
+        ticket: extraTicket,
+      }),
+    ).rejects.toThrow();
+    expect(peers[0]!.snapshot!.players.length).toBe(8);
+    const originalToken = peers[0]!.room.reconnectionToken;
+    const replacement = await connect(homeId, identities[0]!, undefined, true);
+    await until(
+      () => peers[0]!.left,
+      "Explicit replacement did not close the original tab",
+    );
+    expect(replacement.room.roomId).toBe(peers[1]!.room.roomId);
+    await until(
+      () => replacement.snapshot?.players.length === 8,
+      "Replacement changed the party capacity",
+    );
+    expect(
+      replacement.snapshot!.players.filter(
+        (player) => player.id === identities[0]!.id,
+      ),
+    ).toHaveLength(1);
+    await expect(
+      new Client(base.replace("http:", "ws:")).reconnect(originalToken),
+    ).rejects.toThrow();
+  });
+
+  it("rejects unauthorized HTTP reads, guessed/replayed room tickets and duplicate sessions", async () => {
+    const homeId = await home(identities[0]!, "Ticket rules");
+    const denied = await request(`/homes/${homeId}`, identities[4]!);
+    expect(denied.response.status).toBe(404);
+    const owner = await connect(homeId, identities[0]!);
+    const client = new Client(base.replace("http:", "ws:"));
+    await expect(
+      client.joinOrCreate("party", { homeId, ticket: "guessed" }),
+    ).rejects.toThrow();
+    const duplicateTicket = await admission(homeId, identities[0]!);
+    await expect(
+      client.joinOrCreate("party", { homeId, ticket: duplicateTicket }),
+    ).rejects.toThrow(/SESSION_ACTIVE/);
+    await expect(
+      client.joinOrCreate("party", { homeId, ticket: duplicateTicket }),
+    ).rejects.toThrow();
+    await pause(100);
+    expect(owner.left).toBe(false);
+    expect(owner.snapshot!.players.map((player) => player.id)).toEqual([
+      identities[0]!.id,
+    ]);
+    const originDenied = await fetch(`${base}/api/homes`, {
+      method: "POST",
+      headers: {
+        Cookie: identities[0]!.cookie,
+        Origin: "https://other.test",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "No" }),
+    });
+    expect(originDenied.status).toBe(403);
+  });
+
+  it("broadcasts accepted chat once, assigns unique IDs, rejects spoofing, and applies rolling rate limits", async () => {
+    const homeId = await home(identities[0]!, "Chat rules");
+    const owner = await connect(homeId, identities[0]!);
+    const friend = await connect(homeId, identities[1]!);
+    send(owner, {
+      type: "chat.send",
+      commandId: "same-client-id",
+      text: "Hello everyone",
+    });
+    await until(
+      () => friend.chats.length === 1,
+      "Friend did not receive the accepted chat",
+    );
+    send(owner, {
+      type: "chat.send",
+      commandId: "same-client-id",
+      text: "Hello everyone",
+    });
+    send(friend, {
+      type: "chat.send",
+      commandId: "same-client-id",
+      text: "Hello Nova",
+    });
+    await until(
+      () => friend.chats.length === 2,
+      "The second sender collided with the first sender ID",
+    );
+    expect(new Set(friend.chats.map((message) => message.id)).size).toBe(2);
+    expect(friend.chats[0]!.senderId).toBe(owner.identity.id);
+    owner.room.send("command", {
+      type: "chat.send",
+      commandId: "spoof",
+      text: "I am the host",
+      senderId: friend.identity.id,
+    });
+    await until(
+      () => owner.notices.some((notice) => notice.code === "INVALID_COMMAND"),
+      "Spoofed sender was not rejected",
+    );
+    for (let i = 0; i < 5; i++)
+      send(owner, {
+        type: "chat.send",
+        commandId: `rate-${i}`,
+        text: `Message ${i}`,
+      });
+    await until(
+      () => owner.notices.some((notice) => notice.code === "RATE_LIMITED"),
+      "Chat flood was not limited",
+    );
+    await until(
+      () => friend.snapshot?.chat.length === 6,
+      "Accepted history did not converge",
+    );
+    expect(
+      friend.chats.filter((message) => message.senderId === owner.identity.id),
+    ).toHaveLength(5);
+    expect(
+      friend.chats.filter((message) => message.text === "Hello everyone"),
+    ).toHaveLength(1);
+    expect(
+      friend.snapshot!.chat.some((message) => message.text === "I am the host"),
+    ).toBe(false);
+  });
+
+  it("PIN rotation removes live access and blocks game, board and old-credential reentry", async () => {
+    const homeId = await home(identities[0]!, "Revocation rules");
+    const owner = await connect(homeId, identities[0]!);
+    const friend = await connect(homeId, identities[1]!);
+    await until(
+      () => owner.snapshot?.players.length === 2,
+      "Second player did not join",
+    );
+    const rotated = await request(
+      `/homes/${homeId}/pin`,
+      identities[0]!,
+      { pin: "654321" },
+      "PUT",
+    );
+    expect(rotated.response.status).toBe(200);
+    await until(
+      () => friend.left,
+      "PIN rotation did not remove the live participant",
+      2_000,
+    );
+    await until(
+      () => owner.snapshot?.players.length === 1,
+      "Removed player remained in the roster",
+    );
+    expect(
+      (await request(`/homes/${homeId}/board`, identities[1]!)).response.status,
+    ).toBe(404);
+    expect(
+      (await request(`/homes/${homeId}/ticket`, identities[1]!, {})).response
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await request(`/homes/${homeId}/join`, identities[1]!, {
+          pin: "123456",
+        })
+      ).response.status,
+    ).toBe(403);
+  });
+
+  it("keeps spectators home, enforces countdown and server finish rules, isolates chat and returns unchanged avatars", async () => {
+    const homeId = await home(identities[0]!, "Portal rules");
+    const owner = await connect(homeId, identities[0]!);
+    const friend = await connect(homeId, identities[1]!);
+    const originalAvatar = owner.snapshot!.players.find(
+      (player) => player.id === owner.identity.id,
+    )!.avatar;
+    send(owner, {
+      type: "chat.send",
+      commandId: "home-chat",
+      text: "Staying in the home history",
+    });
+    send(friend, { type: "race.start" });
+    await until(
+      () => friend.notices.some((notice) => notice.code === "ACCESS_DENIED"),
+      "Nonhost could start the race",
+    );
+    send(owner, { type: "race.ready", ready: true });
+    await until(
+      () => owner.notices.some((notice) => notice.code === "TOO_FAR"),
+      "Ready request did not require portal proximity",
+    );
+    await walkToPortal(owner);
+    send(owner, { type: "race.ready", ready: true });
+    await until(
+      () => owner.snapshot?.race?.readyIds.includes(owner.identity.id),
+      "Racer did not ready at the portal",
+    );
+    send(owner, { type: "race.start" });
+    await until(
+      () =>
+        owner.snapshot?.race?.phase === "countdown" &&
+        owner.snapshot.players.every((player) => player.mode === "race"),
+      "Race countdown did not begin",
+    );
+    expect(owner.snapshot!.chat).toHaveLength(0);
+    await move(owner, 1, 0, 400, true);
+    expect(owner.snapshot!.players[0]!.x).toBe(2);
+    expect(
+      friend.snapshot!.players.every((player) => player.mode === "home"),
+    ).toBe(true);
+    send(owner, {
+      type: "chat.send",
+      commandId: "race-chat",
+      text: "Race instance only",
+    });
+    await until(
+      () =>
+        owner.snapshot?.chat.some(
+          (message) => message.commandId === "race-chat",
+        ),
+      "Race chat was not accepted",
+    );
+    expect(
+      friend.snapshot!.chat.some(
+        (message) => message.text === "Race instance only",
+      ),
+    ).toBe(false);
+    owner.room.send("command", {
+      type: "race.finish",
+      elapsedMs: 1,
+      checkpoint: 4,
+      x: RACE_MAP.finish.x,
+    });
+    await until(
+      () => owner.notices.some((notice) => notice.code === "INVALID_COMMAND"),
+      "Forged finish command was not rejected",
+    );
+    await until(
+      () => owner.snapshot?.race?.phase === "running",
+      "Countdown did not release to running",
+    );
+    expect(owner.snapshot!.race!.results).toHaveLength(0);
+    expect(owner.snapshot!.players[0]!.checkpoint).toBe(0);
+    // An unjumped run reaches the first hazard and cannot invent checkpoint progress.
+    await move(owner, 1, 0, 1_300);
+    expect(owner.snapshot!.players[0]!.checkpoint).toBe(0);
+    expect(owner.snapshot!.race!.results).toHaveLength(0);
+    send(owner, { type: "race.return" });
+    await until(
+      () =>
+        owner.snapshot?.players.some(
+          (player) => player.id === owner.identity.id && player.mode === "home",
+        ),
+      "Racer did not return home",
+    );
+    expect(
+      owner.snapshot!.players.find((player) => player.id === owner.identity.id)!
+        .avatar,
+    ).toEqual(originalAvatar);
+    expect(
+      owner.snapshot!.chat.some(
+        (message) => message.text === "Race instance only",
+      ),
+    ).toBe(false);
+    const voice = await request("/media/token", identities[0]!, {});
+    expect(voice.response.status).toBe(503);
+    expect(voice.data.error.code).toBe("MEDIA_NOT_CONFIGURED");
+  }, 35_000);
+
+  it("runs eight independent racers through every obstacle with validated completion and competition ranks", async () => {
+    const homeId = await home(identities[0]!, "Eight racers");
+    const peers: Peer[] = [];
+    for (const identity of identities.slice(0, 8))
+      peers.push(await connect(homeId, identity));
+    await Promise.all(peers.map((peer) => walkToPortal(peer)));
+    for (const peer of peers) send(peer, { type: "race.ready", ready: true });
+    await until(
+      () => peers[0]!.snapshot?.race?.readyIds.length === 8,
+      "All eight players could not ready at the portal",
+    );
+    send(peers[0]!, { type: "race.start" });
+    await until(
+      () =>
+        peers.every(
+          (peer) =>
+            peer.snapshot?.race?.phase === "running" &&
+            peer.snapshot.players.length === 8,
+        ),
+      "Eight racers did not share the synchronized start",
+    );
+    const obstacles = [
+      ...RACE_MAP.hazards,
+      ...RACE_MAP.platforms.filter((solid) => solid.y < 16),
+    ].sort((a, b) => a.x - b.x);
+    const jumps = new Map<string, boolean>();
+    const drive = setInterval(() => {
+      for (const peer of peers) {
+        const racer = peer.snapshot?.players.find(
+          (player) => player.id === peer.identity.id,
+        );
+        if (
+          !racer ||
+          racer.finishedAt ||
+          peer.snapshot?.race?.phase !== "running"
+        )
+          continue;
+        const obstacle = obstacles.find(
+          (solid) => solid.x + solid.width > racer.x + 0.3,
+        );
+        const jump = Boolean(
+          racer.grounded &&
+            !jumps.get(peer.identity.id) &&
+            obstacle &&
+            obstacle.x - racer.x < 1.8,
+        );
+        send(peer, {
+          type: "input",
+          input: { seq: peer.seq++, axisX: 1, axisY: 0, jump },
+        });
+        jumps.set(peer.identity.id, jump);
+      }
+    }, 40);
+    try {
+      await until(
+        () => peers.every((peer) => peer.snapshot?.race?.phase === "results"),
+        "Eight racers could not complete the course",
+        75_000,
+      );
+    } finally {
+      clearInterval(drive);
+    }
+    const results = peers[0]!.snapshot!.race!.results;
+    expect(results).toHaveLength(8);
+    expect(new Set(results.map((result) => result.playerId)).size).toBe(8);
+    expect(
+      results.every(
+        (result) =>
+          !result.dnf &&
+          result.elapsedMs! >= 59_000 &&
+          result.elapsedMs! < 75_000,
+      ),
+    ).toBe(true);
+    const finishTimes = results
+      .map((result) => result.finishedAt!)
+      .sort((a, b) => a - b);
+    for (const result of results)
+      expect(result.rank).toBe(
+        finishTimes.findIndex((time) => time === result.finishedAt) + 1,
+      );
+    for (const peer of peers)
+      expect(peer.snapshot!.race!.results).toEqual(results);
+    for (const peer of peers) send(peer, { type: "race.return" });
+    await until(
+      () =>
+        peers.every(
+          (peer) =>
+            peer.snapshot?.players.length === 8 &&
+            peer.snapshot.players.every((player) => player.mode === "home"),
+        ),
+      "Eight racers did not return to the same home",
+    );
+  }, 90_000);
+});

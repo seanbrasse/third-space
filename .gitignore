@@ -1,0 +1,17 @@
+node_modules/
+.next/
+.next-production/
+.data/
+.env
+.env.*
+!.env.example
+dist/
+test-results/
+playwright-report/
+coverage/
+.DS_Store
+*.tsbuildinfo
+.dev-logs/
+Third_Space_Local_Build.zip
+
+.pnpm-store/

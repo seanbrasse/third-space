@@ -1,0 +1,28 @@
+{
+  "name": "@third-space/game-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.18.18",
+    "@colyseus/ws-transport": "0.18.4",
+    "@third-space/contracts": "workspace:*",
+    "@third-space/config": "workspace:*",
+    "@third-space/simulation": "workspace:*",
+    "@third-space/data": "workspace:*",
+    "express": "5.2.1",
+    "cors": "2.8.5",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/cors": "2.8.19",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3",
+    "tsx": "4.23.15"
+  }
+}

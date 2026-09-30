@@ -1,0 +1,17 @@
+{
+  "name": "@third-space/simulation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@third-space/config": "workspace:*",
+    "@third-space/contracts": "workspace:*"
+  }
+}

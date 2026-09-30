@@ -1,0 +1,32 @@
+{
+  "name": "third-space",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/workspaces.mjs build",
+    "start": "node scripts/dev.mjs --production",
+    "typecheck": "node scripts/workspaces.mjs typecheck",
+    "test": "vitest run",
+    "test:unit": "vitest run packages apps/web/lib tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "test:production": "node scripts/check-production.mjs",
+    "test:load": "tsx tests/load.ts",
+    "lint": "node scripts/workspaces.mjs typecheck",
+    "assets:validate": "tsx scripts/validate-assets.ts"
+  },
+  "devDependencies": {
+    "@colyseus/sdk": "0.18.4",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.10.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.2"
+  }
+}
