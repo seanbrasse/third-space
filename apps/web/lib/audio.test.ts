@@ -93,6 +93,11 @@ describe("listener audio preferences", () => {
     expect(gains[0].gain.value).toBeCloseTo(0.0325);
     expect(gains[2].gain.value).toBeCloseTo(0.13);
     expect(gains[1].gain.exponentialRampToValueAtTime).toHaveBeenCalledTimes(1);
+    audio.setMix(1, { friend: 0.25 }, new Set(), true);
+    expect(gains[0].gain.value).toBe(0);
+    expect(gains[2].gain.value).toBe(0);
+    audio.setMix(1, { friend: 0.25 }, new Set(), false);
+    expect(gains[2].gain.value).toBeCloseTo(0.13);
     audio.setMix(1, { friend: 0.25 }, new Set(["friend"]));
     expect(gains[0].gain.value).toBe(0);
     audio.play(effect("friend"), snapshot, "self");

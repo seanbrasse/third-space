@@ -51,36 +51,33 @@ export function forestObjectCanvas(item: Furniture, tile: number) {
         r(4, h * .43, 3, h * .15, "#72543c");
     }
     else if (item.kind === "camper") {
-        r(3, 7, w - 6, h - 14, "#2a302f");
-        r(6, 9, w - 12, h - 19, "#c8bea0");
-        r(7, h * .5, w - 14, h * .3, "#698673");
-        r(8, 11, w - 16, 3, "#e7d3a3");
-        r(18, 20, 40, 25, "#4b625f");
-        r(21, 22, 34, 19, "#809b93");
-        r(36, 21, 2, 22, "#e0d3b0");
-        r(w - 60, 19, 31, h - 34, "#53766a");
-        r(w - 54, 24, 20, 20, "#a0b6a3");
-        r(w - 33, 47, 3, 3, "#dac382");
-        r(24, h - 17, 19, 17, "#262c2d");
-        r(w - 46, h - 17, 19, 17, "#262c2d");
-        r(28, h - 13, 11, 9, "#74776b");
-        r(w - 42, h - 13, 11, 9, "#74776b");
-        r(4, h - 27, w - 8, 3, "#c6ac7a");
+        // A pre-rendered overhead object: roof, side wall and end face read separately.
+        const poly=(points:number[][],color:string)=>{g.fillStyle=color;g.beginPath();points.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.closePath();g.fill();};
+        r(9,h-18,w-16,13,"#182824");
+        poly([[8,22],[w-29,10],[w-7,24],[w-7,h-21],[w-29,h-9],[8,h-22]],"#4c6158");
+        poly([[8,22],[w-29,10],[w-7,24],[29,36]],"#e0d3b4");
+        poly([[8,22],[29,36],[29,h-10],[8,h-22]],"#8a9781");
+        r(29,36,w-36,h-49,"#c7bea1");r(29,h-42,w-36,21,"#6c8b78");
+        r(38,43,46,25,"#304a45");r(41,45,39,18,"#92aaa0");r(61,45,2,19,"#d7d2b6");
+        r(w-54,39,29,h-49,"#506d5e");r(w-50,44,20,23,"#8eaba0");r(w-33,73,3,3,"#d9b981");
+        r(44,16,w-92,8,"#b3b399");r(49,18,w-102,3,"#e8dfc2");
+        for(const x of [42,w-48]){r(x,h-20,19,19,"#252c2c");r(x+4,h-17,11,10,"#778176");r(x+7,h-15,4,6,"#acb09a");}
+        r(29,h-24,w-36,3,"#aa9e7a");
     }
     else if (item.kind === "structure") {
-        r(12, h * .32, w - 24, h * .6, "#674e3d");
-        for (let y = h * .35; y < h * .9; y += 8)
-            r(14, y, w - 28, 2, "#352e2b");
-        for (let i = 0; i < 12; i++)
-            r(w / 2 - i * 7, 8 + i * 4, i * 14, 5, "#35483e");
-        r(12, h * .3, w - 24, 5, "#24352f");
-        r(w * .38, h * .53, w * .22, h * .38, "#182729");
-        r(26, h * .46, 28, 27, "#1b302e");
-        r(31, h * .49, 3, 22, "#8a7351");
-        r(27, h * .59, 25, 3, "#8a7351");
-        r(w - 62, h * .47, 25, 26, "#253e35");
-        r(w - 65, h * .56, 31, 4, "#866746");
-        r(w - 55, h * .45, 4, 32, "#866746");
+        const poly=(points:number[][],color:string)=>{g.fillStyle=color;g.beginPath();points.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));g.closePath();g.fill();};
+        r(13,h-24,w-24,17,"#172723");
+        poly([[18,55],[w-21,49],[w-21,h-17],[18,h-10]],"#6b5540");
+        poly([[18,55],[34,67],[34,h-10],[18,h-21]],"#493f33");
+        for(let y=72;y<h-17;y+=9)r(35,y,w-57,2,"#3b342c");
+        // Two roof slopes and a lit ridge rather than a flat triangular placeholder.
+        poly([[8,57],[w*.43,9],[w*.5,48],[24,87]],"#3e5946");
+        poly([[w*.43,9],[w-9,50],[w-20,82],[w*.5,48]],"#2c443a");
+        g.strokeStyle="#637b53";g.lineWidth=3;g.beginPath();g.moveTo(w*.43,9);g.lineTo(w*.5,48);g.stroke();
+        for(let i=0;i<5;i++){r(27+i*8,49+i*4,18,2,"#526b4c");r(w*.55+i*9,32+i*4,16,2,"#3f5845");}
+        r(w*.44,86,31,h-105,"#182c28");r(w*.46,90,7,h-113,"#68523a");r(w*.56,116,3,3,"#b4975f");
+        for(const x of [48,w-64]){r(x,91,25,25,"#1e3630");r(x+3,94,17,17,"#456453");r(x+10,92,3,23,"#9a8058");r(x,103,25,3,"#957d56");}
+        r(46,110,28,4,"#7b6046");r(w-61,89,4,30,"#937854");r(w*.42,h-22,38,7,"#817052");
     }
     else if (item.kind === "tv") {
         r(2, 2, w - 4, h - 14, "#3d382f");

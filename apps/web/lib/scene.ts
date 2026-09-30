@@ -74,6 +74,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     }
     create() {
       this.cameras.main.setBackgroundColor("#e8e6d8").setRoundPixels(true);
+      // Camera follow is finalized during preRender. Project after canvas rendering,
+      // before browser paint, so the DOM screen uses that exact final transform.
+      this.events.on(Phaser.Scenes.Events.RENDER,()=>{
+        const snapshot=bridge.snapshot;if(!snapshot)return;
+        const camera=this.cameras.main,surface=getWorld(snapshot.worldId).mediaSurface;
+        const origin=camera.getWorldPoint(0,0);
+        const point={x:(surface.x*TILE-origin.x)*camera.zoom,y:(surface.y*TILE-origin.y)*camera.zoom};
+        parent.dataset.cameraScrollX=String(camera.scrollX+camera.width/2-camera.width/(2*camera.zoom));
+        parent.dataset.cameraScrollY=String(camera.scrollY+camera.height/2-camera.height/(2*camera.zoom));
+        parent.dispatchEvent(new CustomEvent("third-space:projection",{bubbles:true,detail:{x:point.x,y:point.y,width:surface.width*TILE*camera.zoom,height:(surface.height*TILE-12)*camera.zoom}}));
+      });
       if (this.input.keyboard) {
         this.keys = this.input.keyboard.addKeys(
           "W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,ESC",
@@ -304,7 +315,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         };
         const fireDistance = Math.hypot(self.x - 24, self.y - 24);
         glow(24, 24, 9.6 * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
-        glow(self.x, self.y, 2.1, .8);
+        glow(self.x, self.y, 1.3, .28);
         for (const p of players)
             if (p.flashlightOn && Math.hypot(p.x - self.x, p.y - self.y) < 12)
                 glow(p.x, p.y, 7, .92, p.facing);

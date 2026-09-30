@@ -568,4 +568,14 @@ describe("shared reusable social worlds",()=>{
     propose(host);harness.advance(481);expect(harness.room.media.url).toBe(source.url);expect(guest.snapshot().media.revision).toBe(3);
     harness.send(host,{type:"media.control",action:"source",url:"http://example.com/bad.mp4",revision:3,commandId:"bad"});expect(harness.room.media.revision).toBe(3);
   });
+  it("canonicalizes shared YouTube links with timestamp and rejects unrelated webpages",()=>{
+    const host=harness.fill()[0]!;
+    harness.send(host,{type:"media.control",action:"source",url:"https://youtu.be/M7lc1UVf-VE?t=1m23s",revision:0,commandId:"youtube"});
+    expect(harness.room.media.url).toBe("https://www.youtube.com/watch?v=M7lc1UVf-VE");
+    expect(harness.room.media.position).toBe(83);
+    harness.send(host,{type:"media.control",action:"source",url:"https://netflix.com/watch/123",revision:1,commandId:"webpage"});
+    expect(harness.room.media.revision).toBe(1);
+    expect(host.received<ServerNotice>("notice").at(-1)!.code).toBe("INVALID_MEDIA");
+  });
+
 });

@@ -47,6 +47,7 @@ type Prefs = {
   reducedMotion: boolean;
   soundVolume: number;
   effectsVolume: number;
+  gameSoundsMuted: boolean;
   textMuted: string[];
   soundMuted: string[];
   personVolumes: Record<string, number>;
@@ -58,6 +59,7 @@ const initialPrefs: Prefs = {
   reducedMotion: false,
   soundVolume: 0.7,
   effectsVolume: 0.5,
+  gameSoundsMuted: false,
   textMuted: [],
   soundMuted: [],
   personVolumes: {},
@@ -229,9 +231,10 @@ export default function ThirdSpace() {
   }, []);
   useEffect(() => {
     audio.current?.setMix(
-      prefs.soundVolume,
+      prefs.gameSoundsMuted ? 0 : prefs.soundVolume,
       prefs.personVolumes,
       new Set(prefs.soundMuted),
+      prefs.gameSoundsMuted,
     );
     if (prefsLoaded)
       localStorage.setItem("third-space.preferences", JSON.stringify(prefs));
@@ -1220,7 +1223,7 @@ export default function ThirdSpace() {
                 <span className="voice-reach">Native voice unavailable</span>
               </div>
               <div className="social-buttons">
-                {snapshot?.worldId==="forest"&&!race&&<><button onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"}</span></button><button onClick={()=>send({type:"roast",enabled:!self?.roastingAt})}>♨ <span>{self?.roastingAt?"Stop roasting":"Roast marshmallow"}</span></button></>}
+                {snapshot?.worldId==="forest"&&!race&&<><button onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"}</span></button></>}
                 <button onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>
                 <button onClick={() => setModal("emotes")}>
                   ☺ <span>Emotes</span>
@@ -1508,6 +1511,7 @@ export default function ThirdSpace() {
                       {e}
                     </button>
                   ))}
+                  {snapshot?.worldId==="forest"&&<button onClick={()=>{send({type:"roast",enabled:!self?.roastingAt});setModal(null);}} disabled={!self?.roastingAt&&!!self&&Math.hypot(self.x-24,self.y-24)>4} title="Come near the campfire to roast"><span>♨</span>{self?.roastingAt?"Stop roasting":"Roast marshmallow"}</button>}
                 </div>
                 <label>
                   Say hello to
@@ -1828,8 +1832,10 @@ export default function ThirdSpace() {
                   />
                   Reduced motion
                 </label>
+                <h3>Game sounds</h3>
+                <label className="check"><input aria-label="Mute game sounds" type="checkbox" checked={prefs.gameSoundsMuted} onChange={e=>setPrefs({...prefs,gameSoundsMuted:e.target.checked})}/>Mute game sounds</label>
                 <label>Forest ambience<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
-                <p>Forest ambience and screen audio stay independent of Native voice off.</p>
+                <p>Mute covers fire crackles, wind, animal calls and soundboard effects. Voice and movie volume have separate controls.</p>
                 <h3>Native voice</h3>
                 <div className="service-notice">{voiceReason}</div>
                 <p>

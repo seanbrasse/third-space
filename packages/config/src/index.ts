@@ -236,3 +236,5 @@ export const WORLDS: Record<WorldId,WorldDefinition> = {
 };
 export function getWorld(id: WorldId = "living-room") { return WORLDS[id]; }
 export const WORLD_COUNTDOWN_MS=8_000;
+
+export {resolveMediaLink,type MediaSource} from "./media";
