@@ -51,6 +51,8 @@ export interface PlayerState {
   vy: number;
   facing: Facing;
   mode: "home" | "race";
+  flashlightOn?: boolean;
+  roastingAt?: number;
   avatar: AvatarConfig;
   nativeMode: NativeMode;
   manualMute: boolean;
@@ -100,7 +102,8 @@ const ChatTextSchema = z
   );
 
 export const CommandSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("input"), input: InputSchema }).strict(),
+  z.object({ type: z.literal("input.stop") }).strict(),
+  z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional() }).strict(),
   z
     .object({
       type: z.literal("chat.send"),
@@ -131,6 +134,11 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("race.ready"), ready: z.boolean() }).strict(),
   z.object({ type: z.literal("race.start") }).strict(),
   z.object({ type: z.literal("race.return") }).strict(),
+  z.object({ type: z.literal("world.propose"), worldId: z.enum(["living-room","forest"]), commandId: CommandIdSchema, revision: z.number().int().min(0) }).strict(),
+  z.object({ type: z.literal("world.object"), proposalId: IdSchema }).strict(),
+  z.object({ type: z.literal("flashlight"), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional() }).strict(),
   z.object({ type: z.literal("session.replace") }).strict(),
 ]);
 export type ClientCommand = z.infer<typeof CommandSchema>;
@@ -173,8 +181,14 @@ export interface RaceState {
   readyIds: string[];
   results: RaceResult[];
 }
+export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
+export interface SharedMedia { revision: number; url: string; playing: boolean; position: number; anchorAt: number; }
 export interface RoomSnapshot {
   homeId: string;
+  worldId: "living-room" | "forest";
+  worldRevision: number;
+  worldProposal: WorldProposal | null;
+  media: SharedMedia;
   instanceId: string;
   epoch: string;
   serverTime: number;

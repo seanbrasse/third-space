@@ -18,7 +18,7 @@ export interface Checkpoint extends Rect {
 }
 export interface Furniture {
   id: string;
-  kind: "couch" | "table" | "chair" | "board" | "tv" | "portal" | "bookcase" | "plant" | "rug";
+  kind: "couch" | "table" | "chair" | "board" | "tv" | "portal" | "bookcase" | "plant" | "rug" | "tree" | "campfire" | "camper" | "structure" | "log";
   footprint: Rect;
   collider: Rect | null;
   usePoints: readonly Point[];
@@ -192,3 +192,47 @@ export const RACE_MAP = {
   ] satisfies Checkpoint[],
   finish: { id: "finish", x: 357, y: 0, width: 2, height: 16 },
 } as const;
+
+
+// World maps share tile coordinates, collision and interaction metadata with prediction.
+export type WorldId = "living-room" | "forest";
+export interface WorldMap {
+  id: string; width: number; height: number; spawn: Point;
+  spawns: readonly Point[]; solids: readonly Rect[];
+  furniture: readonly Furniture[]; seats: readonly Seat[];
+}
+export interface WorldDefinition {
+  id: WorldId; name: string; description: string; map: WorldMap;
+  camera: "fit" | "follow"; dark: boolean;
+  fire?: Point; mediaSurface: Rect & { id: string; source: Point };
+}
+const forestSeats: Seat[] = Array.from({length:8}, (_,i)=>({
+  id:`camp-seat-${i+1}`, x:24+Math.cos(i*Math.PI/4)*3.2, y:24+Math.sin(i*Math.PI/4)*3.2,
+}));
+const forestFurniture: Furniture[] = [
+  {id:"campfire",kind:"campfire",footprint:{x:23,y:23,width:2,height:2},collider:{x:23.5,y:23.5,width:1,height:1},usePoints:forestSeats,seats:[]},
+  ...forestSeats.map(s=>({id:s.id+"-log",kind:"log" as const,footprint:{x:s.x-.65,y:s.y-.65,width:1.3,height:1},collider:null,usePoints:[s],seats:[s]})),
+  {id:"forest-camper",kind:"camper",footprint:{x:30,y:20,width:6,height:3},collider:{x:30,y:20.6,width:6,height:2.2},usePoints:[],seats:[]},
+  {id:"forest-screen",kind:"tv",footprint:{x:30,y:23.7,width:4,height:2.1},collider:null,usePoints:[{x:29.5,y:26.3}],seats:[]},
+  {id:"abandoned-cabin",kind:"structure",footprint:{x:12,y:9,width:6,height:5},collider:{x:12,y:9,width:6,height:4},usePoints:[],seats:[]},
+];
+for(let y=3;y<46;y+=3) for(let x=3;x<46;x+=3) {
+  const p={x:x+((x*7+y*3)%5)/8,y:y+((x*3+y*7)%5)/8};
+  const clearing=Math.hypot(p.x-24,p.y-24)<8;
+  const path=Math.abs(p.x-24)<2 || Math.abs(p.y-24)<2 ||
+    (p.x>10 && p.x<19 && p.y>8 && p.y<17) || (p.x>29 && p.x<37 && p.y>18 && p.y<28);
+  if(clearing||path)continue;
+  forestFurniture.push({id:`tree-${x}-${y}`,kind:"tree",footprint:{x:p.x-1,y:p.y-2,width:2,height:3},collider:{x:p.x-.3,y:p.y-.25,width:.6,height:.6},usePoints:[],seats:[]});
+}
+export const FOREST_MAP: WorldMap = {
+  id:"midnight-pines-v1",width:48,height:48,spawn:{x:24,y:28.5},
+  spawns:Array.from({length:8},(_,i)=>({x:21.5+i%4*1.6,y:28.5+Math.floor(i/4)*1.4})),
+  furniture:forestFurniture,seats:forestSeats,
+  solids:[{x:0,y:0,width:48,height:1},{x:0,y:47,width:48,height:1},{x:0,y:0,width:1,height:48},{x:47,y:0,width:1,height:48},...forestFurniture.flatMap(f=>f.collider?[f.collider]:[])],
+};
+export const WORLDS: Record<WorldId,WorldDefinition> = {
+  "living-room":{id:"living-room",name:"The reading lounge",description:"Walnut, velvet, and your people.",map:HOME_MAP,camera:"fit",dark:false,mediaSurface:{id:"world-tv",x:3,y:1.3,width:3,height:1.3,source:{x:4.5,y:3.3}}},
+  forest:{id:"forest",name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},mediaSurface:{id:"forest-screen",x:30,y:23.7,width:4,height:2.1,source:{x:32,y:24.7}}},
+};
+export function getWorld(id: WorldId = "living-room") { return WORLDS[id]; }
+export const WORLD_COUNTDOWN_MS=8_000;

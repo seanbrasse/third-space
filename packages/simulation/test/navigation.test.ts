@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOME_MAP, type Point } from "@third-space/config";
+import { HOME_MAP, getWorld, type Point } from "@third-space/config";
 import { canUseFurniture, createPlayer, distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable, stepHome } from "../src/index";
 
 function verifyPath(path: Point[], start: Point, goal: Point) {
@@ -52,5 +52,16 @@ describe("footprint-aware click navigation", () => {
       expect(canUseFurniture(seat, couch)).toBe(true);
     }
     expect(canUseFurniture(HOME_MAP.spawn, couch)).toBe(false);
+  });
+});
+
+
+describe("bounded forest",()=>{
+  it("has eight reachable safe spawns and eight reachable campfire seats in a finite map",()=>{
+    const map=getWorld("forest").map;expect(map.width).toBe(48);expect(map.seats).toHaveLength(8);expect(map.spawns).toHaveLength(8);
+    for(const spawn of map.spawns){expect(isHomeWalkable(spawn,map)).toBe(true);for(const seat of map.seats){expect(isHomeWalkable(seat,map)).toBe(true);const path=findHomePath(spawn,seat,map);expect(path).not.toBeNull();}}
+    const p=createPlayer("forest","Friend");Object.assign(p,map.spawn);let state=p;
+    for(let i=0;i<1500;i++)state=stepHome(state,{seq:i,axisX:0,axisY:1,jump:false},1/60,map);
+    expect(state.y).toBeLessThan(map.height-1);expect(isHomeWalkable(state,map)).toBe(true);
   });
 });
