@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 import type { WorldBridge, Player } from "./types";
 import {
   HOME_MAP,
+  getWorld,
   RACE_MAP,
   type Furniture,
   type Point,
@@ -16,6 +17,7 @@ import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
 import { homeFloorCanvas } from "./home-art";
 import { cameraFollowX, decayCorrection } from "./presentation";
+import { forestFloorCanvas, forestObjectCanvas, flashlightContains } from "./forest-art";
 const AVATAR_SCALE = 1.65,
   AVATAR_HEAD = 32 * AVATAR_SCALE + 7;
 const TILE = 32,
@@ -44,6 +46,15 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private seq = 0;
     private lastInput = 0;
     private currentMode = "";
+    private currentWorld = "";
+    private currentRevision = -1;
+    private fireArt: Phaser.GameObjects.Graphics | null = null;
+    private roastArt: Phaser.GameObjects.Graphics | null = null;
+    private lightImage: Phaser.GameObjects.Image | null = null;
+    private lightCanvas: HTMLCanvasElement | null = null;
+    private lastLightAt = 0;
+    private get map() { return getWorld(bridge.snapshot?.worldId || "living-room").map; }
+    private get forest() { return bridge.snapshot?.worldId === "forest" && this.currentMode !== "race"; }
     private mapObjects: Phaser.GameObjects.GameObject[] = [];
     private prediction: Player | null = null;
     private authoritativeTime = 0;
@@ -57,6 +68,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private prompt!: Phaser.GameObjects.Text;
     private hoveredFurniture: Furniture | null = null;
     private textureIds = new Map<string, string>();
+    private avatarTextureSequence = 0;
     constructor() {
       super("home");
     }
@@ -114,11 +126,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             height / (race ? RACE_MAP.height * TILE : H),
           ),
         );
-      if (!race) this.cameras.main.centerOn(W / 2, H / 2);
+      if(this.forest) this.cameras.main.setZoom(Math.min(width/(22*TILE),height/(22*TILE)));
+      if (!race && !this.forest) this.cameras.main.centerOn(W / 2, H / 2);
     }
     clearMap() {
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
+      this.fireArt=null;this.roastArt=null;this.lightImage=null;
       this.hoveredFurniture = null;
       this.prompt.setVisible(false);
     }
@@ -128,10 +142,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     }
     drawHome() {
       this.clearMap();
-      const canvas = homeFloorCanvas(TILE);
+      const canvas = this.textures.exists("home-floor-v2") ? null : homeFloorCanvas(TILE);
       this.mapObjects.push(
         this.add
-          .image(0, 0, this.texture("home-floor-v2", canvas))
+          .image(0, 0, canvas ? this.texture("home-floor-v2", canvas) : "home-floor-v2")
           .setOrigin(0)
           .setDepth(0),
       );
@@ -195,7 +209,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       for (const [x, y, t] of [
         [9.5, 2.1, "IDEAS"],
         [17, 15.2, "GARDEN DASH"],
-        [4.5, 2.8, "TV · SOON"],
+        [4.5, 2.8, "MOVIE NIGHT"],
       ] as const) {
         this.mapObjects.push(
           this.add
@@ -210,6 +224,101 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             .setDepth(2),
         );
       }
+    }
+    drawForest() {
+        this.clearMap();
+        this.mapObjects.push(this.add.image(0, 0, this.textures.exists("forest-floor-v1") ? "forest-floor-v1" : this.texture("forest-floor-v1", forestFloorCanvas(TILE))).setOrigin(0).setDepth(0));
+        for (const item of this.map.furniture) {
+            if (item.kind === "campfire")
+                continue;
+            const f = item.footprint, key = `forest-object:${item.kind}:${f.width}:${f.height}`;
+            const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, forestObjectCanvas(item, TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);
+            this.mapObjects.push(image);
+            if (item.usePoints.length) {
+                image.setInteractive({ useHandCursor: true });
+                image.on("pointerdown", () => { if (!bridge.blocked)
+                    this.useFurniture(item); });
+            }
+        }
+        this.fireArt = this.add.graphics().setDepth(24.5 * TILE);
+        this.mapObjects.push(this.fireArt);
+        this.roastArt = this.add.graphics().setDepth(1100);
+        this.mapObjects.push(this.roastArt);
+        this.lightCanvas ??= document.createElement("canvas");
+        this.lightCanvas.width = this.lightCanvas.height = 320;
+        this.lightImage = this.add.image(0, 0, this.texture("forest-darkness", this.lightCanvas)).setOrigin(0).setDepth(1800);
+        this.mapObjects.push(this.lightImage);
+    }
+    lightForest(time: number, self: Player, players: Player[]) {
+        const fire = this.fireArt!, r = this.roastArt!, c = this.lightCanvas!, g = c.getContext("2d")!;
+        fire.clear();
+        const flicker = bridge.reducedMotion ? 1 : 1 + Math.sin(time / 137) * .08 + Math.sin(time / 71) * .04;
+        fire.fillStyle(0x493e32);
+        fire.fillEllipse(24 * TILE, 24.3 * TILE, 56, 25);
+        fire.lineStyle(7, 0x765136);
+        fire.lineBetween(23.45 * TILE, 24.2 * TILE, 24.55 * TILE, 24.6 * TILE);
+        fire.lineBetween(24.55 * TILE, 24.2 * TILE, 23.45 * TILE, 24.6 * TILE);
+        fire.fillStyle(0xd56839);
+        fire.fillTriangle(23.5 * TILE, 24.4 * TILE, 24 * TILE, 24.4 * TILE - 42 * flicker, 24.5 * TILE, 24.4 * TILE);
+        fire.fillStyle(0xf1b75a);
+        fire.fillTriangle(23.65 * TILE, 24.4 * TILE, 24.05 * TILE, 24.4 * TILE - 30 * flicker, 24.35 * TILE, 24.4 * TILE);
+        fire.fillStyle(0xffe0a0);
+        fire.fillTriangle(23.82 * TILE, 24.4 * TILE, 24 * TILE, 24.4 * TILE - 18 * flicker, 24.18 * TILE, 24.4 * TILE);
+        r.clear();
+        for (const p of players)
+            if (p.roastingAt) {
+                const dx = 24 - p.x, dy = 24 - p.y, len = Math.hypot(dx, dy);
+                const x = p.x * TILE, y = p.y * TILE - 17, ex = x + dx / len * 38, ey = y + dy / len * 38;
+                r.lineStyle(2, 0xb39369);
+                r.lineBetween(x, y, ex, ey);
+                r.fillStyle(bridge.snapshot!.serverTime - p.roastingAt > 7000 ? 0xdca66c : 0xffe6bd);
+                r.fillRect(ex - 4, ey - 4, 8, 7);
+            }
+        if (time - this.lastLightAt < 33)
+            return;
+        this.lastLightAt = time;
+        const view = this.cameras.main.worldView;
+        g.clearRect(0, 0, c.width, c.height);
+        g.fillStyle = "rgba(2,8,13,.97)";
+        g.fillRect(0, 0, c.width, c.height);
+        const sx = c.width / view.width, sy = c.height / view.height;
+        const glow = (x: number, y: number, radius: number, strength: number, cone?: string) => {
+            const px = (x * TILE - view.x) * sx, py = (y * TILE - view.y) * sy, rad = radius * TILE * sx;
+            g.save();
+            if (cone) {
+                const a = cone === "up" ? -Math.PI / 2 : cone === "down" ? Math.PI / 2 : cone === "left" ? Math.PI : 0;
+                g.beginPath();
+                g.moveTo(px, py);
+                g.arc(px, py, rad, a - .55, a + .55);
+                g.closePath();
+                g.clip();
+            }
+            const grad = g.createRadialGradient(px, py, 0, px, py, rad);
+            grad.addColorStop(0, `rgba(0,0,0,${strength})`);
+            grad.addColorStop(.38, `rgba(0,0,0,${strength * .85})`);
+            grad.addColorStop(1, "rgba(0,0,0,0)");
+            g.globalCompositeOperation = "destination-out";
+            g.fillStyle = grad;
+            g.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+            g.restore();
+        };
+        const fireDistance = Math.hypot(self.x - 24, self.y - 24);
+        glow(24, 24, 9.6 * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
+        glow(self.x, self.y, 2.1, .8);
+        for (const p of players)
+            if (p.flashlightOn && Math.hypot(p.x - self.x, p.y - self.y) < 12)
+                glow(p.x, p.y, 7, .92, p.facing);
+        // Warm compositing colours avatars, ground and trees in the same light field.
+        g.globalCompositeOperation = "source-over";
+        const fx = (24 * TILE - view.x) * sx, fy = (24 * TILE - view.y) * sy, rr = 9.2 * TILE * sx;
+        const warm = g.createRadialGradient(fx, fy, 0, fx, fy, rr);
+        warm.addColorStop(0, "rgba(255,145,58,.25)");
+        warm.addColorStop(.45, "rgba(234,113,43,.12)");
+        warm.addColorStop(1, "rgba(240,130,60,0)");
+        g.fillStyle = warm;
+        g.fillRect(fx - rr, fy - rr, rr * 2, rr * 2);
+        (this.textures.get("forest-darkness") as Phaser.Textures.CanvasTexture).refresh();
+        this.lightImage!.setPosition(view.x, view.y).setDisplaySize(view.width, view.height);
     }
     drawRace() {
       this.clearMap();
@@ -276,7 +385,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     walkTo(goal: Point, interaction = "") {
       const self = this.prediction;
       if (!self || self.mode !== "home") return;
-      const path = findHomePath(self, goal);
+      const path = findHomePath(self, goal, this.map);
       if (!path) {
         this.cancelWalk();
         this.prompt
@@ -333,7 +442,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         return;
       }
       const occupied = new Set(snapshotSeats(bridge, self.id));
-      const candidates = HOME_MAP.furniture
+      const candidates = this.map.furniture
         .flatMap<Point & { action: string }>((item) =>
           item.seats.length
             ? item.seats
@@ -341,7 +450,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                 .map((s) => ({ ...s, action: `seat:${s.id}` }))
             : item.usePoints.map((p) => ({ ...p, action: item.kind })),
         )
-        .filter((point) => isHomeSegmentWalkable(self, point))
+        .filter((point) => isHomeSegmentWalkable(self, point, this.map))
         .sort((a, b) => distance(self, a) - distance(self, b));
       if (candidates[0] && distance(self, candidates[0]) <= 1.5)
         bridge.interact(candidates[0].action);
@@ -351,7 +460,14 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         JSON.stringify(player.avatar) + player.facing + frame + !!player.seatId;
       let key = this.textureIds.get(signature);
       if (!key) {
-        key = `avatar:${this.textureIds.size}`;
+        if(this.textureIds.size>=256){
+          const visible=new Set([...this.nodes.values()].map(node=>node.texture));
+          for(const [signature,key] of this.textureIds){
+            if(!visible.has(key)){this.textures.remove(key);this.textureIds.delete(signature);}
+            if(this.textureIds.size<=192)break;
+          }
+        }
+        key = `avatar:${this.avatarTextureSequence++}`;
         this.textureIds.set(signature, key);
         this.texture(
           key,
@@ -370,13 +486,14 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!snapshot) return;
       const self = snapshot.players.find((p) => p.id === bridge.selfId);
       const mode = self?.mode || "home";
-      if (mode !== this.currentMode) {
+      if (mode !== this.currentMode || snapshot.worldId!==this.currentWorld || snapshot.worldRevision!==this.currentRevision) {
+        this.currentWorld=snapshot.worldId;this.currentRevision=snapshot.worldRevision;
         this.currentMode = mode;
         this.cancelWalk();
         this.inputHistory = [];
         this.correction = { x: 0, y: 0 };
         this.prediction = null;
-        mode === "race" ? this.drawRace() : this.drawHome();
+        mode === "race" ? this.drawRace() : this.forest ? this.drawForest() : this.drawHome();
         this.fit();
       }
       const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(
@@ -405,7 +522,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           if (mode === "race" && snapshot.race?.phase === "running")
             this.prediction = stepRace(this.prediction, h.input, h.dt);
           else if (mode === "home")
-            this.prediction = stepHome(this.prediction, h.input, h.dt);
+            this.prediction = stepHome(this.prediction, h.input, h.dt, this.map);
         }
         this.correction =
           previous && distance(previous, this.prediction) < 3 && !self.seatId
@@ -459,6 +576,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             this.prediction,
             input,
             Math.min(delta / 1000, 0.04),
+            this.map,
           );
       }
       this.correction.x = decayCorrection(
@@ -544,7 +662,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           x: p.x + (local ? this.correction.x : 0),
           y: p.y + (local ? this.correction.y : 0),
         };
-        if (local && mode === "home" && !isHomeSegmentWalkable(p, rendered)) {
+        if (local && mode === "home" && !isHomeSegmentWalkable(p, rendered, this.map)) {
           this.correction = { x: 0, y: 0 };
           rendered.x = p.x;
           rendered.y = p.y;
@@ -558,7 +676,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         node.sprite
           .setDepth(node.sprite.y + (local ? 0.01 : 0))
           .setAlpha(p.connected ? (mode === "race" && !local ? 0.78 : 1) : 0.4);
-        const showName = this.hoveredId === p.id || this.clickedId === p.id;
+        const canSee=!this.forest || local || (!!self && Math.hypot(p.x-self.x,p.y-self.y)<14 && (Math.hypot(p.x-24,p.y-24)<9 || snapshot.players.some(light=>flashlightContains(light,p))));
+        node.sprite.setVisible(canSee);if(node.sprite.input)node.sprite.input.enabled=canSee;
+        const showName = canSee && (this.hoveredId === p.id || this.clickedId === p.id);
         node.label
           .setText(`${p.name} · ${local ? "You" : "Click to interact"}`)
           .setPosition(node.sprite.x, node.sprite.y - AVATAR_HEAD)
@@ -584,7 +704,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                   .join("\n")
               : "",
           )
-          .setVisible(bridge.bubbles && messages.length > 0);
+          .setVisible(canSee && bridge.bubbles && messages.length > 0);
       }
       const localNode = this.nodes.get(bridge.selfId);
       this.marker.clear();
@@ -614,6 +734,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             ),
             (RACE_MAP.height * TILE) / 2,
           );
+      }
+      if(this.forest && localNode && self){
+        const camera=this.cameras.main,vw=this.scale.width/camera.zoom,vh=this.scale.height/camera.zoom;
+        camera.centerOn(cameraFollowX(localNode.sprite.x,this.map.width*TILE,vw),cameraFollowX(localNode.sprite.y,this.map.height*TILE,vh));
+        this.lightForest(time,{...self,x:localNode.sprite.x/TILE,y:localNode.sprite.y/TILE},snapshot.players);
       }
       this.target.clear();
       if (this.destination) {
@@ -645,7 +770,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         localId: bridge.selfId,
         avatarScale: String(AVATAR_SCALE),
         avatarHeight: String(32 * AVATAR_SCALE),
-        roomTheme: "walnut-velvet",
+        roomTheme: this.forest ? "midnight-pines" : "walnut-velvet",
+        worldId: snapshot.worldId,
+        worldRevision: String(snapshot.worldRevision),
+        renderFrame: String(this.game.loop.frame),
+        avatarTextureCount: String(this.textureIds.size),
+        flashlightOn: String(self?.flashlightOn),
+        roastingAt: String(self?.roastingAt??0),
         selfAvatar: JSON.stringify(self?.avatar || {}),
         seatId: self?.seatId || "",
         authoritativeX: String(self?.x || 0),
@@ -662,9 +793,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         ),
         cameraZoom: String(camera.zoom),
         tileSize: String(TILE),
-        worldWidth: String(mode === "home" ? HOME_MAP.width : RACE_MAP.width),
+        worldWidth: String(mode === "home" ? this.map.width : RACE_MAP.width),
         worldHeight: String(
-          mode === "home" ? HOME_MAP.height : RACE_MAP.height,
+          mode === "home" ? this.map.height : RACE_MAP.height,
         ),
         hoveredPlayerId: this.hoveredId,
         visibleNameCount: String(visibleNames),
@@ -681,6 +812,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         bridge.touch.jump = false;
       }
       for (const effect of bridge.effects.splice(0)) {
+        if(effect.expiresAt<Date.now())continue;
         const p = snapshot.players.find((p) => p.id === effect.sourceId);
         if (!p || p.mode !== mode) continue;
         const emoji =
@@ -714,7 +846,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       }
     }
   }
-  return new Phaser.Game({
+  const game=new Phaser.Game({
     type: Phaser.CANVAS,
     parent,
     width: parent.clientWidth,
@@ -726,4 +858,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     render: { roundPixels: true },
     audio: { noAudio: true },
   });
+  // Rendering sleeps independently; the room socket, voice and media remain alive.
+  const visibility=()=>{if(document.hidden)game.loop.sleep();else game.loop.wake();};
+  document.addEventListener("visibilitychange",visibility);
+  game.events.once(Phaser.Core.Events.READY,visibility);
+  game.events.once(Phaser.Core.Events.DESTROY,()=>document.removeEventListener("visibilitychange",visibility));
+  return game;
 }

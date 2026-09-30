@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
-import { HOME_MAP, GAME_CONFIG } from "@third-space/config";
+import { HOME_MAP, GAME_CONFIG, getWorld } from "@third-space/config";
 import { DEFAULT_AVATAR, EMOTE_IDS, SOUND_IDS } from "@third-space/contracts";
 import {
   api,
@@ -19,6 +19,8 @@ import {
 import { SoundboardAudio } from "../lib/audio";
 import { readPersonVolumes } from "../lib/person-volume";
 import PersonVolume from "./PersonVolume";
+import WorldMenu from "./WorldMenu";
+import SharedWatching from "./SharedWatching";
 import { AvatarCustomizer } from "./AvatarPreview";
 const World = dynamic(() => import("./World"), {
   ssr: false,
@@ -88,6 +90,7 @@ export default function ThirdSpace() {
     [prefs, setPrefs] = useState<Prefs>(initialPrefs),
     [prefsLoaded, setPrefsLoaded] = useState(false),
     [chatOpen, setChatOpen] = useState(true),
+    [watchExpanded,setWatchExpanded]=useState(false),
     [peopleOpen, setPeopleOpen] = useState(false),
     [selectedPersonId, setSelectedPersonId] = useState(""),
     [draft, setDraft] = useState(""),
@@ -127,7 +130,7 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (room.current) room.current.send("command", command);
+    if (room.current) room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision}:command);
   }, []);
   if (!bridgeRef.current)
     bridgeRef.current = {
@@ -152,6 +155,8 @@ export default function ThirdSpace() {
   bridge.mutedText = new Set(prefs.textMuted);
   bridge.reducedMotion = prefs.reducedMotion;
   bridge.interact = (object) => {
+    if(object==="tv"){setWatchExpanded(true);return;}
+    if(object==="campfire"){send({type:"roast",enabled:true});return;}
     if (object.startsWith("seat:")) {
       send({ type: "seat", seatId: object.split(":")[1] });
       return;
@@ -262,6 +267,7 @@ export default function ThirdSpace() {
     const reset = () => {
       bridge.touch = { axisX: 0, axisY: 0, jump: false };
       bridge.blocked = true;
+      send({type:"input.stop"});
     };
     window.addEventListener("blur", reset);
     window.addEventListener("orientationchange", reset);
@@ -379,7 +385,8 @@ export default function ThirdSpace() {
       const modeChanged = bridge.snapshot?.instanceId !== data.instanceId;
       lastInstance.current = data.instanceId;
       bridge.snapshot = data;
-      if (modeChanged || Date.now() - snapshotUiAt.current >= 200) {
+      audio.current?.setWorld(data,identityRef.current?.id||"",prefsRef.current.effectsVolume);
+      if (modeChanged || (!document.hidden && Date.now() - snapshotUiAt.current >= 200)) {
         snapshotUiAt.current = Date.now();
         setSnapshot(data);
       }
@@ -419,7 +426,7 @@ export default function ThirdSpace() {
         );
         return;
       }
-      bridge.effects.push(effect);
+      if(!document.hidden){bridge.effects.push(effect);if(bridge.effects.length>64)bridge.effects.shift();}
       if (effect.type === "sound" && bridge.snapshot)
         audio.current?.play(
           effect,
@@ -440,6 +447,8 @@ export default function ThirdSpace() {
       setPending([]);
       setUnread(0);
       setModal(null);
+      setWatchExpanded(false);
+      bridge.effects=[];
       bridge.liveBubbleIds.clear();
       bridge.touch = { axisX: 0, axisY: 0, jump: false };
       requestAnimationFrame(() =>
@@ -470,6 +479,8 @@ export default function ThirdSpace() {
     });
     connected.onLeave((code: number) => {
       room.current = null;
+      audio.current?.setWorld(null,"",0);
+      setWatchExpanded(false);
       setConnection(
         code === 4001 ? "Session replaced in another tab" : "Disconnected",
       );
@@ -537,6 +548,8 @@ export default function ThirdSpace() {
     }
   }
   async function leave() {
+    audio.current?.setWorld(null,"",0);
+    setWatchExpanded(false);
     leaving.current = true;
     await room.current?.leave();
     room.current = null;
@@ -864,7 +877,10 @@ export default function ThirdSpace() {
                   <button
                     key={h.id}
                     onClick={() => {
-                      void connect(h).catch((e) => setError(e.message));
+                      void connect(h).catch((e) => {
+                        if(/SESSION_ACTIVE|active session/.test(e.message))setReplaceHome(h);
+                        setError(e.message);
+                      });
                     }}
                   >
                     {h.name}
@@ -887,7 +903,7 @@ export default function ThirdSpace() {
                 {race ? "GARDEN DASH" : "YOUR LITTLE CORNER OF THE INTERNET"}
               </span>
               <h1>
-                {race ? "A little friendly competition." : home.name}
+                {race ? "A little friendly competition." : snapshot?.worldId==="forest" ? "Midnight Pines" : home.name}
                 <span className="room-flower">✦</span>
               </h1>
             </div>
@@ -929,7 +945,8 @@ export default function ThirdSpace() {
             </div>
           </section>
           <section className="play-area">
-            <div className={`world-shell ${race ? "race-view" : "home-view"}`}>
+            <div className={`world-shell ${race ? "race-view" : "home-view"} ${snapshot?.worldId==="forest"&&!race?"forest-view":""}`}>
+              <WorldMenu snapshot={snapshot} send={send}/>
               <div className="world-topline">
                 <span>
                   ☀{" "}
@@ -975,6 +992,7 @@ export default function ThirdSpace() {
                   </button>
                 </div>
               )}
+              <SharedWatching snapshot={snapshot} getSnapshot={()=>bridge.snapshot} selfId={identity?.id||""} expanded={watchExpanded} onExpand={setWatchExpanded} send={send}/>
               <div className="world-bottomline">
                 <span>
                   ◇{" "}
@@ -1202,6 +1220,8 @@ export default function ThirdSpace() {
                 <span className="voice-reach">Native voice unavailable</span>
               </div>
               <div className="social-buttons">
+                {snapshot?.worldId==="forest"&&!race&&<><button onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"}</span></button><button onClick={()=>send({type:"roast",enabled:!self?.roastingAt})}>♨ <span>{self?.roastingAt?"Stop roasting":"Roast marshmallow"}</span></button></>}
+                <button onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>
                 <button onClick={() => setModal("emotes")}>
                   ☺ <span>Emotes</span>
                 </button>
@@ -1755,7 +1775,7 @@ export default function ThirdSpace() {
                   onClick={() =>
                     send({
                       type: "seat",
-                      seatId: self?.seatId ? null : HOME_MAP.seats[0].id,
+                      seatId: self?.seatId ? null : getWorld(snapshot?.worldId).map.seats[0].id,
                     })
                   }
                 >
@@ -1808,6 +1828,8 @@ export default function ThirdSpace() {
                   />
                   Reduced motion
                 </label>
+                <label>Forest ambience<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
+                <p>Forest ambience and screen audio stay independent of Native voice off.</p>
                 <h3>Native voice</h3>
                 <div className="service-notice">{voiceReason}</div>
                 <p>
@@ -1983,7 +2005,7 @@ export default function ThirdSpace() {
                 <button
                   className="primary"
                   onClick={() => {
-                    send({ type: "seat", seatId: HOME_MAP.seats[0].id });
+                    send({ type: "seat", seatId: getWorld(snapshot?.worldId).map.seats[0].id });
                     setModal(null);
                   }}
                 >
