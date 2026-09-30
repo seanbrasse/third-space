@@ -15,6 +15,7 @@ import {
   type VoiceMode,
   type WorldProposal,
   type SharedMedia,
+  type WorldSoundEvent,
 } from "@third-space/contracts";
 import {
   createPlayer,
@@ -393,6 +394,7 @@ export class PartyRoom extends Room {
   private command(client: Client, id: string, command: ClientCommand) {
     const p = this.players.get(id);
     if (!p || !p.connected) return;
+    if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     switch (command.type) {
       case "world.propose": {
         const key=id+":"+command.commandId;
@@ -769,7 +771,7 @@ export class PartyRoom extends Room {
     const map=getWorld(worldId).map;
     // Includes grace-reserved avatars; reconnect never restores the old map.
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
-    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;});
+    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.respawnAt;});
     this.intents.clear();
     this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
     this.sendSnapshots();
@@ -781,6 +783,11 @@ export class PartyRoom extends Room {
     if (this.race.phase === "countdown" && now >= this.race.startAt)
       this.race.phase = "running";
     for (const [id, p] of this.players) {
+      if(p.respawnAt){
+        if(now<p.respawnAt){p.vx=p.vy=0;continue;}
+        Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000});delete p.respawnAt;this.intents.delete(id);
+      }
+      if(p.caughtAt&&now-p.caughtAt>2500)delete p.caughtAt;
       const intent = this.intents.get(id);
       const input =
         p.connected && intent && now - intent.receivedAt < 250
@@ -808,14 +815,17 @@ export class PartyRoom extends Room {
         }
       }
     }
+    const previousEncounter=this.encounter?.state?.id;
     const caught=this.encounter?.update(now,[...this.players.values()]);
+    const encounter=this.encounter?.state;
+    if(encounter?.id!==previousEncounter&&encounter?.giggleAt)this.worldSound({id:this.epoch+":"+this.worldRevision+":"+encounter.id+":giggle",kind:"giggle",x:encounter.x,y:encounter.y,createdAt:now,expiresAt:now+1200});
     if(caught){
       const player=this.players.get(caught)!;
-      const spawn=this.findHomeSpawn(caught);
-      Object.assign(player,spawn,{vx:0,vy:0,respawnCount:(player.respawnCount??0)+1,haloUntil:now+5000});
-      player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
+      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.respawnAt=now+900;
+      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+encounter!.id+":slash",kind:"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
+      player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
       delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
-      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT","The clown caught you. Back by the fire — you're safe here.");
+      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT","The clown caught you. Returning to the fire...");
       this.sendSnapshots();
     }
     if (this.race.phase === "running" && now >= this.race.endAt) {
@@ -826,6 +836,9 @@ export class PartyRoom extends Room {
     this.checkRaceCompletion();
     for (const [key, v] of this.proposals)
       if (v.effect.expiresAt < now) this.proposals.delete(key);
+  }
+  private worldSound(event:WorldSoundEvent){
+    for(const [id,client] of this.clientsByUser){const listener=this.players.get(id);if(listener?.connected&&listener.mode==="home"&&distance(listener,event)<=12)client.send("world.sound",event);}
   }
   private recordDnf(p: PlayerState, reason: RaceResult["reason"]) {
     if (this.race.results.some((r) => r.playerId === p.id)) return;

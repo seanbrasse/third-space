@@ -5,6 +5,8 @@ import { distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable } from '@
 export class ForestEncounter {
     state: ForestStalker | null = null;
     private nextAt = 0;
+    private campAt = 0;
+    private allSafe = false;
     private serial = 0;
     private lastMove = 0;
     private lastPath = 0;
@@ -24,41 +26,86 @@ export class ForestEncounter {
                     this.cover.push({ point, id: item.id });
         }
     }
-    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; }
+    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; }
     private interval() { return this.world.stalker!.intervalMs * (.85 + this.random() * .3); }
     visibleTo(player: PlayerState) { return player.mode === 'home' && this.state && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
-    private retreat(now: number) { if (this.state) {
-        this.state.phase = 'retreat';
-        this.state.phaseUntil = now + 900;
-    } this.path = []; }
+    private retreat(now: number) {
+        if (this.state) {
+            this.state.phase = 'retreat';
+            this.state.phaseUntil = now + 900;
+        }
+        this.path = [];
+    }
+    private spawn(point: Point, coverId: string, targetId: string, intent: "hunt" | "perimeter", now: number) {
+        this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.random() < .45 ? { giggleAt: now } : {}) };
+        this.lastMove = now;
+        this.lastPath = 0;
+    }
     /** Returns a caught identity once. PartyRoom alone performs the respawn. */
     update(now: number, players: readonly PlayerState[]): string | null {
         const rules = this.world.stalker!, fire = this.world.fire!, map = this.world.map;
         if (!this.nextAt)
             this.reset(now);
+        const home = players.filter(p => p.connected && p.mode === "home");
+        const allSafe = home.length > 0 && home.every(p => distance(p, fire) <= rules.safeRadius);
+        if (allSafe && !this.allSafe)
+            this.campAt = now + rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs);
+        if (!allSafe && this.allSafe) {
+            this.nextAt = now + this.interval();
+            this.campAt = 0;
+        }
+        this.allSafe = allSafe;
         if (!this.state) {
+            if (allSafe) {
+                if (now < this.campAt)
+                    return null;
+                this.campAt = now + rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs);
+                const candidates = this.cover.filter(c => distance(c.point, fire) <= rules.safeRadius + 4 && home.some(p => distance(p, c.point) <= rules.viewRadius));
+                if (!candidates.length)
+                    return null;
+                const c = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
+                const viewer = home.reduce((a, b) => distance(a, c.point) < distance(b, c.point) ? a : b);
+                this.spawn(c.point, c.id, viewer.id, "perimeter", now);
+                return null;
+            }
             if (now < this.nextAt)
                 return null;
             this.nextAt = now + this.interval();
-            const eligible = players.filter(p => p.connected && p.mode === 'home' && distance(p, fire) > rules.safeRadius + .5 && (p.haloUntil ?? 0) <= now);
+            const eligible = home.filter(p => distance(p, fire) > rules.safeRadius + .5 && (p.haloUntil ?? 0) <= now && !p.respawnAt);
             const candidates = eligible.flatMap(p => this.cover.filter(c => { const d = distance(p, c.point); return d >= 2.5 && d <= 7; }).map(c => ({ p, c })));
             if (!candidates.length) {
                 this.nextAt = now + 5000;
                 return null;
             }
             const { p, c } = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
-            this.state = { id: String(++this.serial), x: c.point.x, y: c.point.y, targetId: p.id, coverId: c.id, phase: 'peek', startedAt: now, phaseUntil: now + rules.peekMs };
-            this.lastMove = now;
-            this.lastPath = 0;
+            this.spawn(c.point, c.id, p.id, "hunt", now);
             return null;
         }
         const s = this.state;
         if (s.phase === 'retreat') {
+            const remaining = Math.max(0, (s.phaseUntil - now) / 900);
+            s.x = s.originX! + (s.x - s.originX!) * remaining;
+            s.y = s.originY! + (s.y - s.originY!) * remaining;
             if (now >= s.phaseUntil)
                 this.state = null;
             return null;
         }
         const target = players.find(p => p.id === s.targetId);
+        if (s.intent === "perimeter") {
+            if (s.phase === "peek") {
+                const p = target ?? home[0];
+                if (p) {
+                    const d = distance({ x: s.originX!, y: s.originY! }, p) || 1, amount = .5 * Math.min(1, (now - s.startedAt) / 900), next = { x: s.originX! + (p.x - s.originX!) / d * amount, y: s.originY! + (p.y - s.originY!) / d * amount };
+                    if (distance(next, fire) > rules.safeRadius + .5 && isHomeSegmentWalkable({ x: s.originX!, y: s.originY! }, next, map)) {
+                        s.x = next.x;
+                        s.y = next.y;
+                    }
+                }
+                if (now >= s.phaseUntil)
+                    this.retreat(now);
+            }
+            return null;
+        }
         if (!target?.connected || target.mode !== 'home' || distance(target, fire) <= rules.safeRadius || (target.haloUntil ?? 0) > now) {
             this.retreat(now);
             return null;

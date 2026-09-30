@@ -54,6 +54,8 @@ export interface PlayerState {
   flashlightOn?: boolean;
   roastingAt?: number;
   respawnCount?: number;
+  caughtAt?: number;
+  respawnAt?: number;
   haloUntil?: number;
   avatar: AvatarConfig;
   nativeMode: NativeMode;
@@ -185,7 +187,8 @@ export interface RaceState {
 }
 export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
 export interface SharedMedia { revision: number; url: string; playing: boolean; position: number; anchorAt: number; }
-export interface ForestStalker {id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
+export interface WorldSoundEvent {id:string;kind:"giggle"|"slash";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
+export interface ForestStalker {intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
   stalker?: ForestStalker | null;
   homeId: string;
@@ -212,6 +215,7 @@ export interface ServerNotice {
 }
 export interface ServerMessageMap {
   snapshot: RoomSnapshot;
+  "world.sound": WorldSoundEvent;
   chat: ChatMessage;
   effect: SocialEffect;
   notice: ServerNotice;

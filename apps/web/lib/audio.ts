@@ -1,13 +1,52 @@
+import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
+import type { WorldSoundEvent } from "@third-space/contracts";
 import type { Effect, Snapshot } from "./types";
 import { listenerGain } from "./person-volume";
 export class SoundboardAudio {
   private context: AudioContext | null = null;
   private environmentOutput: GainNode | null = null;
   private gameMuted = false;
+  private samples=new Map<GameSoundKind,AudioBuffer>();
+  private stepAt=new Map<string,number>();
+  private heard=new Set<string>();
+  private soundInstance="";
+  private gameNodes=0;
+  private gameOutput(ctx:AudioContext){if(!this.environmentOutput){this.environmentOutput=ctx.createGain();this.environmentOutput.gain.value=this.gameMuted?0:1;this.environmentOutput.connect(ctx.destination);}return this.environmentOutput;}
+  private cue(kind:GameSoundKind,x:number,y:number,self:{x:number;y:number},volume:number,own=false){
+    const ctx=this.context;if(!ctx||ctx.state!=="running"||this.gameMuted||this.gameNodes>=16)return;
+    const d=Math.hypot(x-self.x,y-self.y),level=gameSoundGain(kind,d,volume)*(own ? .45 : 1);if(level<=0)return;
+    let buffer=this.samples.get(kind);if(!buffer){const data=gameSoundSamples(kind,ctx.sampleRate);buffer=ctx.createBuffer(1,data.length,ctx.sampleRate);buffer.getChannelData(0).set(data);this.samples.set(kind,buffer);}
+    const source=ctx.createBufferSource(),gain=ctx.createGain(),pan=ctx.createStereoPanner();source.buffer=buffer;gain.gain.value=level;pan.pan.value=Math.max(-1,Math.min(1,(x-self.x)/8));
+    source.connect(gain);gain.connect(pan);pan.connect(this.gameOutput(ctx));this.gameNodes++;source.start();source.onended=()=>{source.disconnect();gain.disconnect();pan.disconnect();this.gameNodes=Math.max(0,this.gameNodes-1);};
+  }
+  playWorld(event:WorldSoundEvent,snapshot:Snapshot,selfId:string,volume:number){
+    if(event.expiresAt<snapshot.serverTime||this.heard.has(event.id))return;
+    this.heard.add(event.id);if(this.heard.size>256)this.heard.delete(this.heard.values().next().value!);
+    const self=snapshot.players.find(p=>p.id===selfId);if(!self||self.mode!=="home")return;
+    // The victim hears the impact at full personal game level, before their respawn.
+    this.cue(event.kind,event.x,event.y,event.victimId===selfId?event:self,volume);
+  }
+  private movement(snapshot:Snapshot|null,selfId:string,volume:number){
+    if(!snapshot){this.stepAt.clear();this.heard.clear();this.soundInstance="";return;}
+    const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);if(!ctx||ctx.state!=="running"||!snapshot||!self)return;
+    if(this.soundInstance!==snapshot.instanceId){this.soundInstance=snapshot.instanceId;this.stepAt.clear();this.heard.clear();}
+    const now=snapshot.serverTime;
+    const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
+    for(const p of snapshot.players){
+      if(!p.connected||p.respawnAt||p.seatId||(p.mode==="race"&&!p.grounded)||Math.hypot(p.vx,p.vy)<.2||this.muted.has(p.id))continue;
+      if(now-(this.stepAt.get(p.id)??0)<390)continue;
+      this.stepAt.set(p.id,now);this.cue("player-step",p.x,p.y,self,volume,p.id===selfId);
+    }
+    const s=snapshot.stalker;if(s?.phase==="chase"){
+      const target=snapshot.players.find(p=>p.id===s.targetId),d=target?Math.hypot(s.x-target.x,s.y-target.y):8;
+      if(now-(this.stepAt.get("clown")??0)>=clownStepInterval(d)){this.stepAt.set("clown",now);this.cue("clown-step",s.x,s.y,self,volume);}
+    }else this.stepAt.delete("clown");
+  }
   private environment: {wind:AudioBufferSourceNode;fire:AudioBufferSourceNode;windGain:GainNode;fireGain:GainNode;filter:BiquadFilterNode;fireFilter:BiquadFilterNode} | null=null;
   private lastEnvironmentAt=0;
   private howlBucket=0;
   setWorld(snapshot: Snapshot|null,selfId:string,volume:number){
+    this.movement(snapshot,selfId,volume);
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);
     if(!ctx||ctx.state!=="running"||!self||self.mode!=="home"||snapshot?.worldId!=="forest"){
       if(this.environment){this.environment.wind.stop();this.environment.fire.stop();this.environment.wind.disconnect();this.environment.fire.disconnect();this.environment.windGain.disconnect();this.environment.fireGain.disconnect();this.environment.filter.disconnect();this.environment.fireFilter.disconnect();this.environment=null;}return;
@@ -132,6 +171,6 @@ export class SoundboardAudio {
     this.context = null;
     this.environmentOutput = null;
     this.environment = null;
-    this.active.clear();
+    this.active.clear();this.samples.clear();this.stepAt.clear();this.heard.clear();this.gameNodes=0;
   }
 }

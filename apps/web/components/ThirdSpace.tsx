@@ -20,6 +20,7 @@ import { SoundboardAudio } from "../lib/audio";
 import { readPersonVolumes } from "../lib/person-volume";
 import PersonVolume from "./PersonVolume";
 import WorldMenu from "./WorldMenu";
+import DeathVeil from "./DeathVeil";
 import SharedWatching from "./SharedWatching";
 import { AvatarCustomizer } from "./AvatarPreview";
 const World = dynamic(() => import("./World"), {
@@ -350,6 +351,7 @@ export default function ThirdSpace() {
     }
   }, [modal, home, notify]);
   async function connect(targetHome: Home, replaceExisting = false) {
+    void audio.current?.unlock().catch(()=>{});
     setConnection("Joining your private home…");
     setError("");
     leaving.current = false;
@@ -396,6 +398,9 @@ export default function ThirdSpace() {
       setConnection(
         document.hidden ? "Session paused · tab in background" : "Connected",
       );
+    });
+    connected.onMessage("world.sound",(event:import("@third-space/contracts").WorldSoundEvent)=>{
+      if(bridge.snapshot)audio.current?.playWorld(event,bridge.snapshot,identityRef.current?.id||"",prefsRef.current.effectsVolume);
     });
     connected.onMessage("chat", (message: Message) => {
       if (seenChat.current.has(message.id)) return;
@@ -696,6 +701,7 @@ export default function ThirdSpace() {
   }, [snapshot]);
   return (
     <main className={`app ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
+      <DeathVeil caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
         <a className="brand" href="/" aria-label="Third Space home">
           <span className="brand-mark">
@@ -1834,8 +1840,8 @@ export default function ThirdSpace() {
                 </label>
                 <h3>Game sounds</h3>
                 <label className="check"><input aria-label="Mute game sounds" type="checkbox" checked={prefs.gameSoundsMuted} onChange={e=>setPrefs({...prefs,gameSoundsMuted:e.target.checked})}/>Mute game sounds</label>
-                <label>Forest ambience<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
-                <p>Mute covers fire crackles, wind, animal calls and soundboard effects. Voice and movie volume have separate controls.</p>
+                <label>Ambience &amp; movement<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
+                <p>Mute covers ambience, footsteps, clown sounds and soundboard effects. Voice and movie volume have separate controls.</p>
                 <h3>Native voice</h3>
                 <div className="service-notice">{voiceReason}</div>
                 <p>

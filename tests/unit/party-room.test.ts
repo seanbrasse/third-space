@@ -15,6 +15,7 @@ import type {
   SocialEffect,
   ChatMessage,
   ServerNotice,
+  WorldSoundEvent,
 } from "../../packages/contracts/src/index";
 
 type AuthorityClient = Parameters<PartyRoom["onJoin"]>[0];
@@ -586,6 +587,10 @@ describe("shared reusable social worlds",()=>{
     const encountered=c.received<RoomSnapshot>("snapshot").find(s=>s.stalker);
     expect(encountered?.stalker?.targetId).toBe(c.auth.userId);
     expect(clients[1]!.received<RoomSnapshot>("snapshot").every(s=>!s.stalker)).toBe(true);
+    expect(harness.room.players.get(c.auth.userId)!.respawnAt).toBeGreaterThan(Date.now());
+    harness.send(c,{type:"input",input:{seq:1,axisX:1,axisY:0,jump:false},worldRevision:1,lifeRevision:1});
+    expect(harness.room.intents.has(c.auth.userId)).toBe(false);
+    harness.advance(60);
     const p=harness.room.players.get(c.auth.userId)!;
     expect(p.respawnCount).toBe(1);expect(p.haloUntil).toBeGreaterThan(Date.now());
     expect(Math.hypot(p.x-24,p.y-24)).toBeLessThan(9);
@@ -607,6 +612,19 @@ describe("shared reusable social worlds",()=>{
     expect(c.snapshot().worldId).toBe("forest");expect(c.snapshot().stalker).toBeNull();
     expect(harness.room.players.get(c.auth.userId)?.respawnCount).toBeUndefined();
     expect(harness.room.players.get(c.auth.userId)?.connected).toBe(true);
+  });
+
+  it("delivers one giggle and catch impact only to nearby home listeners",()=>{
+    vi.spyOn(Math,"random").mockReturnValue(.2);const clients=harness.fill(),c=clients[0]!;propose(c);harness.advance(481);Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});
+    for(let i=0;i<2100&&!c.snapshot().stalker;i+=3)harness.advance(3);
+    expect(c.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="giggle")).toHaveLength(1);
+    Object.assign(harness.room.players.get(clients[1]!.auth.userId)!,{x:25,y:11});
+    for(let i=0;i<1000&&!harness.room.players.get(c.auth.userId)!.respawnAt;i+=3)harness.advance(3);
+    const slash=c.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash");expect(slash).toHaveLength(1);expect(slash[0]!.victimId).toBe(c.auth.userId);
+    expect(clients[1]!.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash")).toHaveLength(1);
+    expect(clients[2]!.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash")).toHaveLength(0);
+    const p=harness.room.players.get(c.auth.userId)!;expect(Date.now()-p.caughtAt!).toBeLessThan(50);expect(p.respawnAt).toBeGreaterThan(Date.now());expect(Math.hypot(p.x-24,p.y-24)).toBeGreaterThan(9);
+    harness.advance(60);expect(harness.room.players.get(c.auth.userId)!.haloUntil).toBeGreaterThan(Date.now());
   });
 
 });
