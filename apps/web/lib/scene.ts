@@ -12,6 +12,7 @@ import {
   stepRace,
   findHomePath,
   isHomeSegmentWalkable,
+  isHomeWalkable,
 } from "@third-space/simulation";
 import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
@@ -400,7 +401,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!path) {
         this.cancelWalk();
         this.prompt
-          .setText("Choose a clear spot on the floor")
+          .setText(
+            isHomeWalkable(goal, this.map)
+              ? "No clear path there. Try a nearby spot."
+              : "Something is in the way. Click beside it.",
+          )
           .setPosition(self.x * TILE, self.y * TILE - 35)
           .setVisible(true);
         this.time.delayedCall(1600, () => {
