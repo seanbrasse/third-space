@@ -320,3 +320,5 @@ export function parseCommand(value: unknown): ClientCommand | null {
   const result = CommandSchema.safeParse(value);
   return result.success ? result.data : null;
 }
+
+export { voiceGroup, voiceGain, voicePair, VOICE_OFF, type VoiceContext, type VoicePeer, type VoiceSettings, type VoiceState, type VoiceToken } from "./voice-policy";

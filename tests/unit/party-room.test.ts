@@ -381,6 +381,9 @@ describe("eight-player authoritative party without network listeners", () => {
     ).toHaveLength(1);
     harness.ready(clients.slice(0, 7));
     harness.send(source, { type: "voice.mode", mode: "room" });
+    harness.snapshots();
+    expect(source.snapshot().voiceMode).toBe("room");
+    expect(spectator.snapshot().voiceMode).toBe("room");
     harness.send(source, { type: "race.start" });
     harness.send(source, { type: "voice.mode", mode: "proximity" });
     harness.send(spectator, { type: "voice.mode", mode: "proximity" });
@@ -404,7 +407,7 @@ describe("eight-player authoritative party without network listeners", () => {
       "Home only",
     ]);
     expect(source.snapshot().voiceMode).toBe("proximity");
-    expect(spectator.snapshot().voiceMode).toBe("room");
+    expect(spectator.snapshot().voiceMode).toBe("proximity");
     expect(
       spectator
         .received<ServerNotice>("notice")

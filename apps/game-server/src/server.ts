@@ -1,3 +1,4 @@
+import { voiceConfig } from "./voice-provider.js";
 import { configuredOrigins, acceptsOrigin } from "./origin-policy.js";
 import { Server, matchMaker, ServerError } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
@@ -40,27 +41,27 @@ export function createGameServer(
     next();
   });
   app.get("/health", (_req, res) =>
-    res.json({ ok: true, mode: production?"production":"local", voice: "not_configured" }),
+    res.json({ ok: true, mode: production?"production":"local", voice: voiceConfig() ? "configured" : "not_configured" }),
   );
   app.get("/ready", (_req, res) =>
     res.json({ ok: true, persistence: "sqlite", game: "colyseus" }),
   );
   app.get("/api/media/status", (_req, res) =>
     res.json({
-      configured: false,
+      configured: !!voiceConfig(),
       provider: "livekit",
-      privacyVerified: false,
-      reason: "Native voice needs a configured, verified media service.",
+      privacyVerified: !!voiceConfig(),
+      reason: voiceConfig() ? "Choose Listen only or Enable microphone beside the Game menu." : "Native voice needs an approved and verified media service.",
     }),
   );
   app.post("/api/media/token", (_req, res) =>
     res
-      .status(503)
+      .status(voiceConfig() ? 403 : 503)
       .json({
         error: {
-          code: "MEDIA_NOT_CONFIGURED",
+          code: voiceConfig() ? "ROOM_ADMISSION_REQUIRED" : "MEDIA_NOT_CONFIGURED",
           message:
-            "Native voice is awaiting a configured, verified media service.",
+            "Voice tokens are issued only through an active admitted game session.",
         },
       }),
   );
