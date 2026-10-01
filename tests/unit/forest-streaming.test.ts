@@ -146,8 +146,8 @@ describe('forest renderer resource lifetime and coverage', () => {
     const r = rig(320, 320, map); r.move(17, 10); r.renderer.update(new Set());
     const props = r.live().filter(i => i.texture.startsWith('forest-prop:') || i.texture.startsWith('forest-prop-v3:'));
     expect(props).toHaveLength(1); expect(props[0]!.x).toBe(11 * TILE);
-    const event = { stopPropagation: vi.fn() }; props[0]!.handlers.get('pointerdown')!(null, 0, 0, event);
-    expect(event.stopPropagation).toHaveBeenCalledOnce(); expect(r.use).toHaveBeenCalledExactlyOnceWith(spanning);
+    const event = { stopPropagation: vi.fn() }, pointer={wasTouch:true}; props[0]!.handlers.get('pointerdown')!(pointer, 0, 0, event);
+    expect(event.stopPropagation).toHaveBeenCalledOnce(); expect(r.use).toHaveBeenCalledExactlyOnceWith(spanning, pointer);
     r.move(100, 85); r.renderer.update(new Set()); expect(props[0]!.destroyed).toBe(true);
     expect(JSON.stringify(map)).toBe(original); r.renderer.destroy();
   });

@@ -15,7 +15,7 @@ export class ForestMapPresentation {
   private objects=new Map<string,Phaser.GameObjects.Image>();
   private objectTextures=new Set<string>();
   private cells=new Map<string,Furniture[]>();
-  constructor(private scene:Phaser.Scene,private map:WorldMap,private tile:number,private use:(item:Furniture)=>void){
+  constructor(private scene:Phaser.Scene,private map:WorldMap,private tile:number,private use:(item:Furniture,pointer:Phaser.Input.Pointer)=>void){
     const size=FOREST_STREAMING.chunkTiles;
     for(const item of map.furniture){
       if(item.kind==='campfire')continue;
@@ -59,7 +59,7 @@ export class ForestMapPresentation {
       const texture=`forest-prop-v3:${style}:${f.width}:${f.height}`;
       if(!this.scene.textures.exists(texture)){this.scene.textures.addCanvas(texture,id==='bramblewick-story-board'?forestStoryBoardCanvas(this.tile):livingEnvironmentObjectCanvas(item,this.tile)??authoredForestObjectCanvas(item,this.tile)??forestObjectCanvas(item,this.tile));this.objectTextures.add(texture);}
       const image=this.scene.add.image(f.x*this.tile,f.y*this.tile,texture).setOrigin(0).setDepth(livingEnvironmentIsFloor(id)?1:(f.y+f.height-.4)*this.tile);
-      if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on('pointerdown',(_p:Phaser.Input.Pointer,_x:number,_y:number,event:Phaser.Types.Input.EventData)=>{event.stopPropagation();this.use(item);});}
+      if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on('pointerdown',(_p:Phaser.Input.Pointer,_x:number,_y:number,event:Phaser.Types.Input.EventData)=>{event.stopPropagation();this.use(item,_p);});}
       this.objects.set(id,image);
     }
   }

@@ -112,6 +112,7 @@ export const InputSchema = z
     axisY: z.number().finite().min(-1).max(1),
     jump: z.boolean(),
     sprint: z.boolean().optional(),
+    look: z.enum(["up", "down", "left", "right"]).optional(),
     sprintPress: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   })
   .strict();

@@ -30,6 +30,7 @@ export type Home = {
 };
 export type WorldBridge = {
   exitRequest?:number;
+  exitWalkRequest?:boolean;
   story?:import('../../../packages/contracts/src/forest-story').ForestStorySnapshot|null;
   snapshot: Snapshot | null;
   selfId: string;

@@ -405,6 +405,7 @@ export function stepHome(
           ? "down"
           : "up";
   }
+  if (player.connected && input.look) next.facing = input.look;
   const sprintStep = stepSprint(next, !!input.sprint, magnitude > 0, now, safeTime(dt));
   Object.assign(next, sprintStep.player);
   const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier * (next.respawnAt ? 1 : potionMultipliers(next.potionEffects ?? [], now).speed);

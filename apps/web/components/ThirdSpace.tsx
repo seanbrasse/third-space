@@ -1323,11 +1323,11 @@ export default function ThirdSpace({ updates = [] }: { updates?: PublishedReleas
                 <span>
                   {race
                     ? "← → MOVE · SPACE JUMP"
-                    : "CLICK TO WALK · WASD / ARROWS · HOLD SPACE SPRINT · F FLASHLIGHT"}
+                    : "WASD / ARROWS MOVE · MOUSE AIM · E INTERACT · HOLD SPACE SPRINT"}
                 </span>
               </div>
               <World bridge={bridge}>
-                {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Walk to exit</button>}
+                {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" onPointerDown={event=>{bridge.exitWalkRequest=event.pointerType==="touch";}} onKeyDown={()=>{bridge.exitWalkRequest=false;}} disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Exit</button>}
                 <ForestStoryBoard open={storyOpen} initialTab={storyTab} living={living} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
                   onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])}
                   actionsAvailable={storyActionsAvailable} unavailableReason={storyUnavailableReason}
@@ -1562,6 +1562,7 @@ export default function ThirdSpace({ updates = [] }: { updates?: PublishedReleas
                       className={String(key)}
                       aria-label={`Move ${key}`}
                       onPointerDown={(e) => {
+                        if(e.pointerType!=="touch")return;
                         e.currentTarget.setPointerCapture(e.pointerId);
                         bridge.touch.axisX = Number(x);
                         bridge.touch.axisY = Number(y);

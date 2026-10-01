@@ -1,0 +1,13 @@
+# Desktop keyboard movement and mouse aim
+
+Desktop WASD/arrows are the movement input. Ground/furniture clicks no longer enqueue a path, including the interior exit control. Mouse movement supplies a validated optional cardinal `look` value in the existing sequenced input; authoritative simulation changes facing without translating or clearing the seat. Mouse aim therefore still works while sitting around the fire. Existing clients that omit `look` retain movement-based facing. No client position, duration or unbounded angle is accepted.
+
+E operates nearby NPCs, clues, apple trees, backpacks, seats and doors through existing authoritative commands and range/LOS checks. A distant interaction reports “Move closer, then press E to interact.” Inventory UI and existing player/mob/loot/NPC pointer commands retain their server validation and never add travel. Knife damage/range/cooldowns and safety rules are unchanged.
+
+Pathfinding remains only for actual touch events. Phaser's per-event `wasTouch` and native `pointerType` distinguish touch from mouse on hybrid devices; viewport width never grants a mouse permission to travel. Touch D-pad presses still move, but mouse presses on that responsive control do not. The nearby exit button acts immediately in range; outside range only a touch gesture may start the existing exit walk. Desktop/keyboard activation asks the player to move closer.
+
+All UI focus, chat/typing/modifier, native overlay event shields and sprint release handling remain in place. Hover labels and the application’s accessible instructions now describe E and keyboard movement.
+
+Release note `keyboard-movement` remains draft until the sole release owner verifies the paired production candidate. This branch is based on released072e9e6, separate from PR34. Integrate it with PR34 before the next promotion; both touch scene/ThirdSpace imports and nearby survival interaction. The duplicate survival helper is intentionally identical to PR34 and should be retained once, preserving the Stolen Lantern additions and public Updates workflow. No3D files, service/provider activation or data migration are included.
+
+Current browser evidence covers desktop1440 and narrow390 mouse/keyboard/focus, touch floor travel on a touch-capable device, mouse behavior on that same hybrid context, and actual two-touch D-pad+sprint/release. Before paired release, exercise ordinary interior entry/exit, nearby E, inventory/knife actions and hosted media/fullscreen regressions on the exact combined candidate. Existing deployment harnesses that use mouse waypoint travel must navigate with keyboard input on desktop.

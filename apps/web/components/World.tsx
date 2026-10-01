@@ -42,7 +42,7 @@ export default function World({ bridge, children }: { bridge: WorldBridge; child
       ref={parent}
       role="application"
       tabIndex={0}
-      aria-label="Multiplayer pixel world. Click or tap open floor to walk there, or use arrow keys and WASD. Click a seat to sit; E interacts with nearby objects. Hover over a friend to see their name, or click their avatar to interact. The people menu offers the same controls with a keyboard."
+      aria-label="Multiplayer pixel world. Use arrow keys or WASD to move and the mouse to aim. E interacts with nearby objects and seats. Touch controls and taps on open floor move on touch screens. Hover over a friend to see their name, or click their avatar to interact. The people menu offers the same controls with a keyboard."
     >
       {children}
       {!error && (!expected || rendered !== expected) && <div className="world-busy" role="status"><span className="loading-spinner" aria-hidden="true"/>Preparing your space…</div>}

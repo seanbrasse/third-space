@@ -1,3 +1,5 @@
+import {pointerAllowsTravel, pointerFacing} from './pointer-controls';
+import {nearestSurvivalInteraction} from './survival-interaction';
 import {observeWorldContainer} from './world-container-size';
 import {LivingEffectsPresentation} from './living-effects-presentation';
 import {livingInteriorFloorCanvas,livingInteriorObjectCanvas} from './living-environment-art';
@@ -121,6 +123,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private correction = { x: 0, y: 0 };
     private path: Point[] = [];
     private destination: Point | null = null;
+    private pointerLook: Player["facing"] | undefined;
     private pendingInteraction = "";
     private racePromptArmed=true;
     private target!: Phaser.GameObjects.Graphics;
@@ -204,15 +207,25 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           pointer: Phaser.Input.Pointer,
           objects: Phaser.GameObjects.GameObject[],
         ) => {
+          if (!pointerAllowsTravel(pointer)) { this.cancelWalk(); return; }
+          this.pointerLook = undefined;
           if (objects.length || bridge.blocked || this.currentMode !== "home")
             return;
           this.clickedId = "";
           this.walkTo({ x: pointer.worldX / TILE, y: pointer.worldY / TILE });
         },
       );
+      this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+        if (pointerAllowsTravel(pointer)) { this.pointerLook=undefined; return; }
+        if (bridge.blocked || isGameInputBlocked(document.activeElement) || !this.prediction || this.currentMode!=="home") return;
+        const point=this.cameras.main.getWorldPoint(pointer.x,pointer.y);
+        this.pointerLook=pointerFacing(this.prediction,{x:point.x/TILE,y:point.y/TILE})??this.pointerLook;
+      });
       // DOM scrolling/layout shifts do not always update Phaser's cached input bounds.
       // Refresh before the manager converts the native touch/mouse event.
-      const refreshBounds=()=>{ if(this.scale?.canvas?.isConnected) this.scale.updateBounds(); };
+      const refreshBounds=(event?:Event)=>{if(event?.type==='pointerdown'){
+        const pointer=event as PointerEvent;if(pointer.pointerType==='mouse')this.cancelWalk();else if(pointer.pointerType==='touch')this.pointerLook=undefined;
+      }if(this.scale?.canvas?.isConnected)this.scale.updateBounds();};
       const canvas=this.game.canvas;
       for(const type of ["mousedown","touchstart","pointerdown"])canvas.addEventListener(type,refreshBounds,{capture:true,passive:true});
       document.addEventListener("scroll",refreshBounds,true);
@@ -315,7 +328,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             this.useFurniture(item, {
               x: pointer.worldX / TILE,
               y: pointer.worldY / TILE,
-            });
+            }, pointerAllowsTravel(pointer));
         });
       }
       for (const [x, y, kind] of [
@@ -357,7 +370,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     }
     drawForest() {
         this.clearMap();
-        if(this.forest)this.forestMapPresentation=new ForestMapPresentation(this,this.map,TILE,item=>{if(!bridge.blocked)this.useFurniture(item);});
+        if(this.forest)this.forestMapPresentation=new ForestMapPresentation(this,this.map,TILE,(item,pointer)=>{if(!bridge.blocked)this.useFurniture(item,undefined,pointerAllowsTravel(pointer));});
         else this.mapObjects.push(this.add.image(0,0,this.textures.exists("asylum-floor-v1")?"asylum-floor-v1":this.texture("asylum-floor-v1",asylumFloorCanvas(TILE))).setOrigin(0).setDepth(0));
         for (const item of this.forest?[]:this.map.furniture) {
             if (item.kind === "campfire" || this.forest && bridge.snapshot?.survival?.appleTrees.some(tree => tree.id === item.id))
@@ -367,8 +380,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             this.mapObjects.push(image);
             if (item.usePoints.length) {
                 image.setInteractive({ useHandCursor: true });
-                image.on("pointerdown", () => { if (!bridge.blocked)
-                    this.useFurniture(item); });
+                image.on("pointerdown", (pointer:Phaser.Input.Pointer) => { if (!bridge.blocked)
+                    this.useFurniture(item,undefined,pointerAllowsTravel(pointer)); });
             }
         }
         if(this.forest){
@@ -413,7 +426,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       for(const item of interior.map.furniture){
         const f=item.footprint,key=`interior-prop:${interior.id}:${item.id}`;
         const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,livingInteriorObjectCanvas(item,TILE,interior.style)??forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
-        if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on("pointerdown",()=>{if(!bridge.blocked)this.useFurniture(item);});}
+        if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on("pointerdown",(pointer:Phaser.Input.Pointer)=>{if(!bridge.blocked)this.useFurniture(item,undefined,pointerAllowsTravel(pointer));});}
         this.mapObjects.push(image);
       }
       this.mapObjects.push(this.add.text(interior.exit.x*TILE,interior.exit.y*TILE+12,"EXIT · FOREST ↓",{fontFamily:"monospace",fontSize:"9px",color:"#ead8b4",backgroundColor:"#273d32",padding:{x:4,y:2}}).setOrigin(.5).setDepth(1000));
@@ -586,7 +599,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           .setText(
             isHomeWalkable(goal, this.map)
               ? "No clear path there. Try a nearby spot."
-              : "Something is in the way. Click beside it.",
+              : "Something is in the way. Tap beside it.",
           )
           .setPosition(self.x * TILE, self.y * TILE - 35)
           .setVisible(true);
@@ -599,7 +612,12 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.destination = goal;
       this.pendingInteraction = interaction;
     }
-    useFurniture(item: Furniture, clicked?: Point) {
+    showMoveCloser() {
+      const self=this.prediction;if(!self)return;
+      this.prompt.setText("Move closer, then press E to interact.").setPosition(self.x*TILE,self.y*TILE-35).setVisible(true);
+      this.time.delayedCall(1800,()=>this.prompt.setVisible(false));
+    }
+    useFurniture(item: Furniture, clicked?: Point, allowTravel=false) {
       const self = this.prediction;
       if (!self) return;
       const occupied = new Set(
@@ -618,7 +636,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       const selected = options[0];
       if (!selected) return;
       this.clickedId = "";
-      this.walkTo(selected, selected.action);
+      if(allowTravel){this.pointerLook=undefined;this.walkTo(selected, selected.action);}
+      else {this.cancelWalk();this.showMoveCloser();}
     }
     furnitureAction(item:Furniture){return item.id==="bramblewick-story-board"?"story-board":FOREST_BUILDINGS.find(b=>b.id===item.id)?.interiorId??(bridge.snapshot?.worldId.startsWith("interior:")&&item.kind==="portal"?"exit-interior":item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind);}
     interact() {
@@ -642,6 +661,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const clue=storyWorldAnchors(bridge).filter(a=>distance(self,a)<=1.8&&isHomeSegmentWalkable(self,a,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
       if(clue){bridge.send(clue.command);return;}
+      const survival=this.forest?nearestSurvivalInteraction(self,bridge.snapshot?.survival,bridge.snapshot?.serverTime??0,this.map):undefined;
+      if(survival){bridge.send(survival);return;}
       const occupied = new Set(snapshotSeats(bridge, self.id));
       const candidates = this.map.furniture
         .flatMap<Point & { action: string }>((item) =>
@@ -655,6 +676,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         .sort((a, b) => distance(self, a) - distance(self, b));
       if (candidates[0] && distance(self, candidates[0]) <= 1.5)
         bridge.interact(candidates[0].action);
+      else this.showMoveCloser();
     }
     avatarTexture(player: Player, frame: number) {
       const strength=!player.respawnAt&&player.mode==='home'&&potionMultipliers(player.potionEffects??[],bridge.snapshot?.serverTime??0).body>1;
@@ -755,7 +777,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         if(mode!=='home'||!snapshot.worldId.startsWith('interior:')||self?.respawnAt)this.lastExitRequest=bridge.exitRequest??0;
         else if(active&&this.prediction){
           this.lastExitRequest=bridge.exitRequest??0;
-          const exit=this.map.furniture.find(item=>item.kind==='portal');if(exit)this.useFurniture(exit);
+          const exit=this.map.furniture.find(item=>item.kind==='portal');
+          if(exit){
+            const point=exit.usePoints.find(p=>distance(self!,p)<=1.5&&isHomeSegmentWalkable(self!,p,this.map));
+            if(point){this.cancelWalk();bridge.interact(this.furnitureAction(exit));}
+            else if(bridge.exitWalkRequest)this.useFurniture(exit,undefined,true);
+            else {this.cancelWalk();this.showMoveCloser();}
+          }
         }
       }
       const controls = this.movement.read();
@@ -789,8 +817,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       }
       const jump = active && (controls.jump || bridge.touch.jump);
       const sprint = active && mode === "home" && (controls.sprint || bridge.touch.sprint === true);
+      const look=active&&mode==="home"?this.pointerLook:undefined;
       if (this.prediction) {
-        const input = { seq: this.seq, axisX, axisY, jump, sprint };
+        const input = { seq: this.seq, axisX, axisY, jump, sprint, ...(look?{look}:{}) };
         if (mode === "race" && snapshot.race?.phase === "running")
           this.prediction = stepRace(
             this.prediction,
@@ -1068,17 +1097,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (this.hoveredFurniture) {
         const f = this.hoveredFurniture.footprint;
         const text = this.hoveredFurniture.seats.length
-          ? "Click to sit"
+          ? "E nearby · sit"
           : this.hoveredFurniture.kind === "portal"
-            ? "Click to play Garden Dash"
+            ? "E nearby · enter"
             : this.hoveredFurniture.kind === "board"
-              ? "Click to open the idea board"
-              : "Click to explore";
+              ? "E nearby · open the idea board"
+              : "E nearby · explore";
         this.prompt
           .setText(text)
           .setPosition((f.x + f.width / 2) * TILE, f.y * TILE - 4)
           .setVisible(true);
-      } else if (this.prompt.text.startsWith("Click"))
+      } else if (this.prompt.text.startsWith("E nearby"))
         this.prompt.setVisible(false);
       const camera = this.cameras.main;
       this.forestMapPresentation?.update(new Set(snapshot.survival?.appleTrees.map(t=>t.id)??[]));
@@ -1123,6 +1152,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         seatId: self?.seatId || "",
         authoritativeX: String(self?.x || 0),
         authoritativeY: String(self?.y || 0),
+        authoritativeFacing: self?.facing || "",
+        interactionHint:this.prompt.visible?this.prompt.text:"",
         renderX: String((localNode?.sprite.x || 0) / TILE),
         renderY: String((localNode?.sprite.y || 0) / TILE),
         cameraScrollX: String(
@@ -1154,7 +1185,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.seq = nextInputSeq;
         const dt = Math.min((time - this.lastInput) / 1000, 0.05);
         this.lastInput = time;
-        const input = { seq: this.seq, axisX, axisY, jump, sprint };
+        const input = { seq: this.seq, axisX, axisY, jump, sprint, ...(look?{look}:{}) };
         this.inputHistory.push({ input, dt, at: predictedNow });
 
         if (this.inputHistory.length > 100) this.inputHistory.shift();

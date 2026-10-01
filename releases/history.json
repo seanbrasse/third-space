@@ -2,6 +2,17 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "keyboard-movement",
+      "status": "draft",
+      "date": null,
+      "dateKind": "release",
+      "title": "Move with the keyboard, aim with the mouse",
+      "changes": [
+        "On desktop, use WASD or arrow keys to move and the mouse to face your surroundings. Clicking the world no longer starts walking.",
+        "Press E near people and objects to interact. Touch movement and nearby item actions remain available."
+      ]
+    },
+    {
       "id": "public-updates",
       "status": "published",
       "date": "2026-10-01",

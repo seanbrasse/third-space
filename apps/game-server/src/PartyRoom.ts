@@ -1201,7 +1201,7 @@ export class PartyRoom extends Room {
         if(p.connected&&getWorld(p.zone??this.worldId).dark){
           Object.assign(p,stepFlashlight({flashlightBattery:p.flashlightBattery??1,flashlightOn:p.flashlightOn??false},dt));
         }
-        if (p.seatId) Object.assign(p, stepHome(p, neutral(p.lastInputSeq), dt, this.mapFor(p), now-dt*1000));
+        if (p.seatId) Object.assign(p, stepHome(p, {...neutral(p.lastInputSeq),...(input.look?{look:input.look}:{})}, dt, this.mapFor(p), now-dt*1000));
         if (!p.seatId) {
           const next=stepHome(p,input,dt,this.mapFor(p),now-dt*1000);this.players.set(id,next);
           const door=next.zone?{x:10,y:17.5}:ASYLUM_DOOR;
