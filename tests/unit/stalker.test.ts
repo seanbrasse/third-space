@@ -23,7 +23,7 @@ describe('one shared forest encounter', () => {
         expect(e.state).toBeNull();
     } });
     it('shows the same single stalker only in its local area', () => { const { encounter: e, p } = fixture(); spawn(e, p); expect(e.visibleTo(p)?.id).toBe(e.state!.id); const far = { ...p, x: 2, y: 2 }; expect(e.visibleTo(far)).toBeNull(); expect(e.visibleTo({ ...p, mode: 'race' })).toBeNull(); });
-    it('pursues a moving target, catches once and then retreats', () => { const { encounter: e, p } = fixture(); spawn(e, p); e.update(34000, [p]); expect(e.state?.phase).toBe('chase'); const before = { ...e.state! }; p.x = 37; p.y = 19; e.update(34100, [p]); expect(distance(e.state!, p)).toBeLessThan(distance(before, p)); let catches = 0; for (let now = 34200; now < 50000; now += 100)
+    it('pursues a moving target, catches once and then retreats', () => { const { encounter: e, p } = fixture(); spawn(e, p); e.update(34000, [p]); expect(e.state?.phase).toBe('chase'); const before = { ...e.state! }; p.x = 37; p.y = 19; e.update(34100, [p]); expect(distance(e.state!, p)).toBeLessThan(distance(before, p)); let catches = 0; for (let now = 34200; now < 60000; now += 100)
         if (e.update(now, [p]))
             catches++; expect(catches).toBe(1); expect(e.state).toBeNull(); });
     it('breaks off immediately when the target returns to fire, disconnects or enters a race', () => { for (const reason of ['safe', 'offline', 'race']) {
@@ -41,6 +41,9 @@ describe('one shared forest encounter', () => {
         expect(e.update(34100, [p])).toBeNull();
         expect(e.state?.phase).toBe('retreat');
         e.update(35100, [p]);
+        expect(e.visibleTo({ ...p, connected: true, mode: 'home' })).toBeNull();
+        expect(e.state?.phase).toBe('retreat');
+        e.update(49100, [p]);
         expect(e.state).toBeNull();
     } });
     it('routes around map solids and cannot catch through a wall', () => { const w = { ...world, map: { ...world.map, solids: [{ x: 33, y: 16, width: 6, height: 1 }] } }; const { encounter: e, p } = fixture(w); spawn(e, p); e.update(34000, [p]); let previous = { ...e.state! }; for (let now = 34100; now < 45000; now += 100) {
@@ -57,7 +60,7 @@ describe('one shared forest encounter', () => {
     e.reset(1000);e.update(1000,[p]);e.update(450999,[p]);expect(e.state).toBeNull();e.update(451000,[p]);
     expect(e.state?.intent).toBe("perimeter");expect(e.state?.phase).toBe("peek");expect(distance(e.state!,w.fire!)).toBeGreaterThan(w.stalker!.safeRadius);
     expect(e.visibleTo(p)).not.toBeNull();const origin={x:e.state!.originX!,y:e.state!.originY!};
-    e.update(451900,[p]);expect(distance(e.state!,origin)).toBeGreaterThan(0);expect(e.update(454000,[p])).toBeNull();expect(e.state?.phase).toBe("retreat");e.update(455000,[p]);expect(e.state).toBeNull();
+    e.update(451900,[p]);expect(distance(e.state!,origin)).toBeGreaterThan(0);expect(e.update(454000,[p])).toBeNull();expect(e.state?.phase).toBe("retreat");e.update(455000,[p]);expect(e.visibleTo(p)).toBeNull();e.update(469000,[p]);expect(e.state).toBeNull();
     e.update(751000,[p]);expect(e.state).toBeNull();
   });
   it("a perimeter peek never converts into a hunt if someone wanders outside",()=>{

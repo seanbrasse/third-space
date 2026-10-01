@@ -1,4 +1,5 @@
 "use client";
+import { reportVisiblePlayback } from "../lib/watching-presence";
 import {getWorld} from "@third-space/config";
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
@@ -77,6 +78,7 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
             const serverNow = clock.current.server + Date.now() - clock.current.client;
             const target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0);
             const now = performance.now(), state = p.getPlayerState(), policy = sync.current;
+            reportVisiblePlayback(root.current, state === 1, playbackId);
             // Only align on join/source or an explicit shared playback command.
             // Decoder delays and keyframe rounding must never trigger a seek loop.
             // Queue-only revisions do not change this anchor.

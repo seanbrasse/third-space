@@ -114,6 +114,10 @@ export class SoundboardAudio {
       );
     }
   }
+  async resumeAfterGesture() {
+    // A real gesture may recover browser suspension; never create audio or change mute here.
+    if (this.context && this.context.state !== "running" && this.context.state !== "closed") await this.unlock();
+  }
   async unlock() {
     this.context ??= new AudioContext();
     await this.context.resume();

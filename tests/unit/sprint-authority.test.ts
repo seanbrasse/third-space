@@ -111,3 +111,37 @@ describe("real room sprint authority", () => {
     expect(p.sprintReadyAt).toBe(readyAt);
   });
 });
+
+// Accepted transport sequences must remain independent of movement integration.
+describe("input acknowledgements without movement", () => {
+  it("acknowledges accepted neutral packets while seated, including after intent cleanup", () => {
+    const p = room.players.get(id)!; p.seatId = "camp-seat-0";
+    for (const seq of [5000, 10000, 15000])
+      command(client, { type: "input", input: { seq, axisX: 0, axisY: 0, jump: false } });
+    expect(p.lastInputSeq).toBe(15000);
+    (room as unknown as { intents: Map<string, unknown> }).intents.delete(id);
+    command(client, { type: "input", input: { seq: 15001, axisX: 0, axisY: 0, jump: false } });
+    expect(p.lastInputSeq).toBe(15001);
+    expect(p.seatId).toBe("camp-seat-0");
+  });
+  it("keeps seated acknowledgement through a real drop/reconnect", async () => {
+    room.players.get(id)!.seatId = "camp-seat-0";
+    command(client, { type: "input", input: { seq: 9000, axisX: 0, axisY: 0, jump: false } });
+    vi.spyOn(room, "allowReconnection").mockResolvedValue(client);
+    await room.onDrop(client);
+    room.onReconnect(client);
+    command(client, { type: "input", input: { seq: 10001, axisX: 0, axisY: 0, jump: false } });
+    expect(room.players.get(id)!.lastInputSeq).toBe(10001);
+    expect(room.players.get(id)!.connected).toBe(true);
+  });
+  it("acknowledges frozen race lobby but still rejects oversized and stale inputs", () => {
+    const p = room.players.get(id)!; p.mode = "race";
+    command(client, { type: "input", input: { seq: 5000, axisX: 0, axisY: 0, jump: false } });
+    expect(p.lastInputSeq).toBe(5000);
+    command(client, { type: "input", input: { seq: 5001, axisX: 0, axisY: 0, jump: false }, worldRevision: -1 });
+    expect(p.lastInputSeq).toBe(5000);
+    command(client, { type: "input", input: { seq: 15001, axisX: 0, axisY: 0, jump: false } });
+    expect(p.lastInputSeq).toBe(5000);
+    expect(client.send).toHaveBeenCalledWith("notice", expect.objectContaining({code:"INVALID_INPUT"}));
+  });
+});

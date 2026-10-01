@@ -494,3 +494,25 @@ describe("router HTTP boundary", () => {
     }
   });
 });
+
+describe('explicit PIN verification for existing access',()=>{
+ it('rejects incorrect explicit PIN even for an owner or an admitted guest',()=>{const {store,home,owner,guest}=fixture();store.joinHome(home.id,guest.id,{pin:'123456'});code(()=>store.joinHome(home.id,guest.id,{pin:'654321'}),'INVALID_CREDENTIAL');code(()=>store.joinHome(home.id,owner.id,{pin:'654321'}),'INVALID_CREDENTIAL');expect(store.joinHome(home.id,guest.id,{}).id).toBe(home.id);expect(store.joinHome(home.id,guest.id,{pin:'123456'}).id).toBe(home.id);});
+ it('rate limits existing-grant PIN guesses and cannot verify without admission',()=>{const {store,home,owner,outsider}=fixture();code(()=>store.verifyHomePin(home.id,outsider.id,'123456'),'ACCESS_DENIED');for(let i=0;i<5;i++)code(()=>store.verifyHomePin(home.id,owner.id,'654321'),'INVALID_CREDENTIAL');code(()=>store.verifyHomePin(home.id,owner.id,'123456'),'RATE_LIMITED');});
+ it('rotation invalidates an old PIN and does not return the PIN or hash',()=>{const {store,home,owner}=fixture();const updated=store.rotatePin(home.id,owner.id,'654321');expect(updated.settingsRevision).toBeGreaterThan(home.settingsRevision);code(()=>store.verifyHomePin(home.id,owner.id,'123456'),'INVALID_CREDENTIAL');expect(store.verifyHomePin(home.id,owner.id,'654321')).toEqual(updated);expect(JSON.stringify(updated)).not.toMatch(/654321|123456|verifier/);});
+});
+
+describe('PIN sharing HTTP verification',()=>{
+ it('checks submitted PIN with existing owner grant and keeps credentials out of responses',async()=>{
+  const store=new LocalStore({path:':memory:'});stores.push(store);
+  const identity=store.createIdentity({name:'Host'}),home=store.createHome(identity.profile.id,{name:'Pines',pin:'123456'});
+  const app=express();app.use('/api',createDataRouter(store,{allowedOrigins:['http://localhost:3000']}));
+  const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
+  const base=`http://127.0.0.1:${(server.address() as {port:number}).port}/api`;
+  const headers={origin:'http://localhost:3000','content-type':'application/json',cookie:`ts_local=${identity.session}`};
+  try {
+    const wrong=await fetch(`${base}/homes/${home.id}/join`,{method:'POST',headers,body:JSON.stringify({pin:'654321'})});expect(wrong.status).toBe(403);
+    const right=await fetch(`${base}/homes/${home.id}/join`,{method:'POST',headers,body:JSON.stringify({pin:'123456'})});expect(right.status).toBe(200);expect(await right.json()).toEqual({home});
+    const noIdentity=await fetch(`${base}/homes/${home.id}/join`,{method:'POST',headers:{origin:'http://localhost:3000','content-type':'application/json'},body:JSON.stringify({pin:'123456'})});expect(noIdentity.status).toBe(401);
+  } finally {await new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve()));}
+ });
+});

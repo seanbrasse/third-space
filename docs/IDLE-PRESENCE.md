@@ -1,0 +1,13 @@
+# Presence and idle policy
+
+Connected players receive an inactivity warning after 15 minutes without meaningful input, then have a further 3 minutes to move, interact, or press “I’m here”. Deadlines originate at the game server and are delivered only in that participant’s snapshot. Neutral movement packets, network pings, snapshot traffic, background rendering and another player’s video do not renew activity.
+
+The client reports watching only while its actual YouTube player reports PLAYING (or its direct-file player is playing and ready) and the surface intersects the viewport with visible ancestors. Hidden documents never report watching. The server accepts this heartbeat only for an admitted connected player in the asylum with the current shared playback ID while shared playback is playing. No client timestamps are accepted. This is a cooperation signal, not an anti-cheat guarantee: the server cannot independently prove a browser’s visibility. Reports are throttled to one every 5 seconds, so stopping reports starts inactivity from the last accepted report. A visible buffering/paused/blocked player is not automatically exempt; interaction still resets inactivity.
+
+Activity commands and reconnects check expiry before renewing deadlines, so late queued input or a restored suspended tab cannot revive an expired session.
+
+At 18 minutes the server removes presence, clears player-specific room state and transfers host to an eligible connected owner/moderator through the existing policy, then closes with code 4012. The browser clears its saved reconnection token and displays an inactivity-specific explanation instead of automatically reconnecting. Room access and saved customization remain intact, so a deliberate fresh join works.
+
+Disconnected players follow the existing independent 30-second Colyseus reconnection reservation. A drop immediately publishes connected=false; final leave removes the reserved avatar. A reconnect during that grace retains position and idle deadline. Closed/suspended mobile applications may not notify the server immediately: transport detection precedes the 30-second reservation. This change does not invent an unverified browser close signal or alter Colyseus transport ping detection.
+
+Verification: controllable server clock covers exact warning/kick boundaries, neutral/stale inputs, explicit cancellation, playback validation, stopped heartbeat expiry, disconnected reservation, reconnect, host handoff and fresh rejoin. DOM policy tests cover visible versus hidden/paused/offscreen surfaces. Production browser warning/timeout and actual-device transport detection still require integrated verification.

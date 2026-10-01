@@ -1,0 +1,11 @@
+# Live campsite discovery and session info
+
+Join friends lists currently active, PIN-protected campsites. The server projects only home ID, display name, Midnight Pines label, connected participant count, capacity and full status. Disconnected reconnection reservations count toward full capacity but not the displayed connected count. Empty/disconnected-only/disposed authorities and invitation-only rooms do not appear. The directory refreshes every ten seconds; successful admission remains server-authoritative and can fail if a room fills after selection. There is no guarantee of a reserved place merely by choosing a listing.
+
+The listing never includes PINs, PIN hashes, profile IDs, invite tokens, admission tickets or session tokens. Existing rate limits and server-side PIN checking remain in place. Explicit PIN submissions are now verified even if the identity already has a valid grant; otherwise a wrong PIN could accidentally be remembered as verified.
+
+Session info in the room header reveals/copies the PIN the participant submitted successfully. This is stored only in sessionStorage under profile/home ID and settings revision, and survives refresh of that tab. Creating or rotating a PIN remembers the accepted value too. Opening session info checks current admitted home metadata, so PIN rotation invalidates older remembered values. PINs are hidden by default. Storage and clipboard may be unavailable; UI provides a manual fallback.
+
+The server continues storing a salted scrypt verifier, not recoverable plaintext. An invite-admitted participant, saved-home entrant or new tab without a remembered PIN must re-enter the current PIN for server verification, or ask the owner for it/an invite. This intentionally does not recover forgotten PINs or deliver a plaintext PIN to every admitted participant. A separate encrypted/recoverable room passcode design would be needed if automatic reveal to invite-only entrants is required.
+
+Tests: directory projection/lifecycle, explicit-PIN HTTP/store authority, rate limit and rotation, tab/profile isolation and invalid/corrupt storage. The new two-client Playwright case covers actual directory selection, wrong PIN rejection, reveal and refresh; run after integration into the preview.

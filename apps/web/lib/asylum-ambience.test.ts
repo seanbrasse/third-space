@@ -12,7 +12,7 @@ function fixture() {
         state: AudioContextState = 'running'; sampleRate = 8000; currentTime = 1; destination = {};
         constructor() { contexts.push(this); }
         resume = vi.fn(async () => { this.state = 'running'; }); close = vi.fn(async () => {});
-        createGain() { const g = { ...node(), gain: { value: 0, cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() } }; gains.push(g); return g; }
+        createGain() { const g = { ...node(), gain: { value: 0, cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn(), setValueAtTime: vi.fn() } }; gains.push(g); return g; }
         createBiquadFilter() { const f = { ...node(), frequency: { value: 0 }, Q: { value: 0 } }; filters.push(f); return f; }
         createStereoPanner() { const p = { ...node(), pan: { value: 0 } }; pans.push(p); return p; }
         createBuffer(_: number, length: number) { const data = new Float32Array(length), b = { getChannelData: () => data }; buffers.push(b); return b; }
