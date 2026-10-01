@@ -14,7 +14,7 @@ function context() {
     class Context {
         state = 'running'; sampleRate = 8000; destination = {}; currentTime = 0;
         resume = vi.fn(async () => {}); close = vi.fn(async () => {});
-        createGain() { return { ...node(), gain: { value: 1, setTargetAtTime: vi.fn() } }; }
+        createGain() { return { ...node(), gain: { value: 1, setTargetAtTime: vi.fn(), cancelScheduledValues: vi.fn() } }; }
         createStereoPanner() { return { ...node(), pan: { value: 0 } }; }
         createBiquadFilter() { return { ...node(), frequency: { value: 0 } }; }
         createBuffer(_: number, length: number) { const data = new Float32Array(length); return { getChannelData: () => data }; }
