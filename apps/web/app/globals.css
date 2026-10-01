@@ -2395,6 +2395,12 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .shared-watching .youtube-player,.shared-watching .youtube-player iframe{width:480px;height:270px;min-width:480px;min-height:270px;transform-origin:0 0;border:0}
 .shared-watching.surface .youtube-player{pointer-events:none}.tv-open-controls{position:absolute;inset:0;color:#fff4d5;background:transparent;font-size:18px;display:flex;align-items:start;justify-content:end;padding:3px}.tv-open-controls:hover{background:#0002}
 .video-queue{padding:0;list-style:none}.video-queue li{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:5px 0}.video-queue span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.video-queue button{flex:none}
+/* Keep each video-control group separate, including when buttons wrap on mobile. */
+.watching-controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px 10px}
+.watching-controls>:is(p,label,form,.watching-actions,.video-queue,small){flex:0 0 100%;min-width:0}
+.watching-controls p,.watching-controls button{margin:0}
+.watching-controls form{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:0}
+.watching-controls form>label{flex:0 0 100%;min-width:0}
 .shared-watching:fullscreen .youtube-watching{height:calc(100dvh - 280px);min-height:200px}.shared-watching:fullscreen .watching-controls{max-height:230px;overflow:auto}
 /* Header controls reserve their own space, including on short/narrow screens. */
 .world-topline{flex-wrap:wrap;gap:8px 12px;align-items:center}
