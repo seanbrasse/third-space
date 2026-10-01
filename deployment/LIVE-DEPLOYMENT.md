@@ -1,50 +1,29 @@
 # Third Space live deployment
 
-Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://third-space-seanbrasse.fly.dev/health. Provisioned September 30, 2026, New York time, after Sean's explicit payment/deployment approval.
+Friends URL: **https://third-space-topaz.vercel.app**. Backend health/readiness: https://third-space-seanbrasse.fly.dev/health and /ready. Existing accounts and resources were used after Sean approved payment and deployment; no additional service or credential grants were created.
 
-## Exact release
+## Current exact release
 
-- Frontend source commit: `5c3006de683cb5438b412f566f9f5673d32d077d`, including lead main `68f5f12087292c89be04edeb8dfdeb2a655a8584` (PR #13 projector/race/map, #14 asylum audio, #15 shared over-video playback and flashlight charging), merged hosting PR #11, scoped watching gaps and mobile entry contrast.
-- Vercel production deployment: `dpl_2cCXiB8Wn2sjq1N8uSxarW9ZXSyG`, https://third-space-2nidlad6l-seanbrasse-gmailcoms-projects.vercel.app. The stable production alias is public; the individual deployment URL and previews remain protected.
-- Backend image: `registry.fly.io/third-space-seanbrasse:release-5c3006d`, digest `sha256:89e736bc94ba710dd80d5d2314a148993c575f77f4315ca97e308f21123454df`. The running image carries the full frontend commit in its OCI revision label. The existing machine updated at 03:27:18 UTC and frontend promotion completed at 03:27:43 UTC on October 1. Later session/idle/mobile/encounter fixes are pending the lead’s next candidate.
-- Hosting configuration fixes resolve the Dockerfile relative to `deployment/fly.toml`, while the build context remains the repository root. Local build only, `--ha=false`, no remote builder.
+Frontend and backend source: **79e6bdb931f663b314fd5a2689f24379073730be**, merged PR20, including PR18 device activation/authoritative source, PR19 larger projector and the prior PR16/17 contrast/movement/session/mobile fixes.
 
-## Approved resources and cost
+Vercel READY production deployment: `dpl_5ez5CmvPa1sdqeFMobrPB8rju6a1`, https://third-space-9w2ocs2yp-seanbrasse-gmailcoms-projects.vercel.app. The public stable alias resolves to this deployment; individual deployment URLs and previews remain protected. Frontend metadata matches the source SHA.
 
-Exactly one Fly machine `2874440daddd98`, `iad`, two shared CPUs, 512 MiB, always on; one encrypted 1 GB volume `vol_42kjoqqqmk98d034` mounted at `/data`. Daily snapshots enabled, retention five days. Initial snapshot `vs_R76y0blX70gPfk8RAkP2z` reached created state, approximately 38 MB. Included shared IPv4 and IPv6; no dedicated IPv4, spare machine, extra database, paid support or remote builder.
+Fly image: `registry.fly.io/third-space-seanbrasse:release-79e6bdb`, digest `sha256:f1387501a48a3b553ed5a38da47ac8260b5a83f105a5b9b71bbd8cafa97971ed`. Existing machine `2874440daddd98` updated at 2026-10-01T04:25:43Z. Its OCI revision matches the frontend source. Health/readiness pass.
 
-Published resource base: $3.89/month compute + $0.15/month volume = **$4.04/month before tax and usage**. North American egress $0.02/GB; first 10 GB snapshot storage free, excess $0.08/GB/month. This is an estimate, not a spending cap. [Official pricing](https://fly.io/pricing/).
+## Projector and playback verification
 
-## Hosted validation
+The expanded viewer grows from 560 to 960 px. Desktop picture measured 958×539 px; phones use nearly all available width at 16:9. Short landscape screens reserve control space. Controls scroll independently, fullscreen enter/exit and collapsing work. In-room map geometry is unchanged; its further frame enlargement belongs to the scene/config owner.
 
-- Production frontend loads publicly with no error overlay; backend HTTPS `/health` and `/ready` pass. Fly health check passes on the configured port and persistent mount.
-- Direct and Vercel-rewritten API reject missing/unapproved mutation Origins. Matchmaking rejects missing/unapproved Origins. Valid secure WebSocket handshakes succeed; an unapproved Origin rejects the same valid reservation before an approved-Origin handshake succeeds.
-- Session cookies returned through the frontend have HttpOnly, Secure and SameSite=Strict. Wrong PIN rejected, correct PIN joined.
-- Two independent Chrome contexts passed customization, shared movement/chat/board changes and saved-room reload. Refresh/offline reconnection passed.
-- Interior navigation, independently entering while a friend stays outdoors, charger/static TV, refresh recovery and returning to the forest passed a hosted followup. The initial legacy exit test expected coordinates after clicking an interactive exit; the actual click had already returned the player to the forest. The followup accepts that intended transition rather than comparing unrelated coordinates.
-- Real YouTube playback, two clients: collapsed TV 30 samples/client, about 29.92 seconds advancement; expanded 60 samples/client, about 60.75/60.74 seconds advancement. No sampled paused frames, media errors or page errors. These verify the tested sources and intervals, not every provider video, network or autoplay policy.
-- Direct HTTPS MP4 playback and shared play/pause/seek passed with two browsers. Shared queue add/remove/next passed. Button pairs have measured **10 px gaps on desktop and 390 px mobile**, and screenshots were visually inspected.
-- Restarted only the new Fly machine: synthetic owner identity, home access and board note survived; a new secure room admission succeeded after restart. No local SQLite file or synthetic fixture database was uploaded.
-- Emulated mobile browser: tapping moves the player, sustained touch on the directional arrow moves the player, settings and reload passed. A precise tap-position check remains an identified issue below; the broader movement check does not erase it.
+Fresh hosted checks pass at 1440×1000, 1024×768, 844×390, 390×844 and 320×568 with no panel overflow or page errors. Two actual Chrome clients advance through eight YouTube samples each with zero sampled pauses/media errors; the picture remains visible while hovering shared controls, confirmed from a screenshot. A deterministic mobile gesture-policy adapter passes late join, four-second blocked-device recovery, source replacement/draft separation, queue advancement, reopening and phone bounds. Recovery aligned the two clients within 0.036 seconds. This adapter is not physical iOS verification.
 
-- Mobile join-screen labels, customization helper text and tabs now use matching light/dark surfaces; phone text is 11–12 px. Fresh production browser checks at 320 px, 390 px and 1440 px in both themes measured minimum text contrast 5.32:1 in light mode and 5.99:1 in dark mode, with no horizontal overflow or page errors. Screenshots inspected; input entry and mode switching worked. Vercel production build passed.
+Independent workspace typecheck and 13 scoped media tests pass, and the production Next build passes. An actual amd64 entrypoint boots under 512 MiB/no swap, returns readiness and shows no OOM. Backend code is identical across PR19/20; this startup result is not a concurrency benchmark. Earlier full PR17 validation passed 282 tests and hosted PIN/directory, precise mobile taps, Boost/refill, sequence guard/ack/reconnect and contrast checks. Prior hosted Origin/cookie/WebSocket/persistence checks remain recorded in the deployment handoff.
 
-## Latest checkpoint verification
+## Resources and remaining work
 
-PR #15 reconciliation passed 226 unit/integration tests, workspace typechecking, production Next build and amd64 container build. The actual production entrypoint boots under 512 MiB with no swap, no OOM; smoke sample 235.7 MiB is not a capacity benchmark. Hosted charging test passes fresh OFF/full charge, walk-up dock charging and refresh. Two actual Chrome contexts passed PIN join, walking asylum admission, 16:9 projector geometry/title, shared over-video Play/Pause and 30 real YouTube samples per client: about 29.44 seconds advancement, zero sampled pauses/media/page errors, maximum sampled client difference about 0.177 seconds. Public JavaScript contains the projector/shared-play action; frontend metadata and backend image revision match exactly. Pre-rollout snapshot requested on the same existing disk.
+Exactly one always-on Fly machine in iad, two shared CPUs/512 MiB; one encrypted 1 GB SQLite volume `vol_42kjoqqqmk98d034` at /data. Included shared IPv4/IPv6 and daily volume snapshots with five-day retention. The approved starting estimate was $4.04/month before tax/usage. No replicas, remote builder, extra database, plans or unrelated projects changed. The isolated deployment builder is stopped and its disposable smoke container removed; the lead's preview/browser/dirty trees were untouched.
 
-## Limits and followup
+Physical iPhone playback and actual game-audio audibility remain unverified. Snapshot creation is verified; restoration is not tested. Native voice and Google login remain unconfigured. SQLite authority must not be replicated without a shared persistence/presence design. Process restarts reset transient room state; high WAN concurrency is not guaranteed by the 512 MiB startup check.
 
-Native voice and Google login are not configured. This is one SQLite authority; process restart resets transient room state. Do not add replicas without shared persistence/presence design. Daily backups and initial snapshot creation are verified; snapshot restoration is not yet tested. Actual physical phones and larger WAN concurrency remain user testing; local 512 MiB load measurements do not guarantee shared-CPU performance at 64 players.
+The lead-owned mobile e2e retains obsolete exact picture heights from before PR19. `task-3/larger-projector-mobile-test.patch` replaces them with aspect/width checks and must be guarded-integrated with the lead's active test edits. Portable hosted acceptance already uses this adapted check. The further in-room projector frame and newer forest/social changes remain with the implementation lead.
 
-**Observed mobile tap offset:** with a 390×844 touch context after scrolling to the world, requesting map point (27,28) produced a Phaser move target around (27,28.87). Movement reached that target, about 0.8–0.87 tiles below the intended point. This is reproducible and distinct from connectivity. DOM projection: canvas top 55 px, zoom 0.5028409, scrollY 416, touchY 296.36 px; target discrepancy equals about 14 screen pixels. A stale Phaser canvas/input bound after layout/scroll is an inference to investigate. Directional touch controls pass. The scene owner should refresh/reconcile actual canvas bounds before converting a fresh touch to world coordinates and retain a real-touch regression. This lane has not edited the scene owner’s source to resolve it.
-
-All browser fixtures/logs/screenshots remain local and excluded from uploads. No session cookies, PIN grants, credential values or database contents are included in this record. Local deployment-only build VM is stopped; active local preview and other applications/projects were left untouched.
-
-## Prepared dark-control followup (not yet live)
-
-The settings screenshot shows pale labels and cream segmented controls in dark mode. A scoped CSS candidate fixes settings/room button backgrounds, text, borders, selected/disabled/hover/focus states and notices; keeps disabled semantics and leaves light-theme computed styles unchanged. Actual settings checks at 390/1440 px measure minimum 6.06:1 text contrast, readable disabled outlines and a 3 px keyboard focus indicator.
-
-A distinct CSS cascade bug paints the full-size YouTube overlay solid green on hover through the generic dark button rule. Decoder playback continues underneath, so successful timing samples alone do not prove a visible picture. The followup keeps this overlay transparent while preserving its shared-control label. Physical iOS autoplay/gesture behavior is not verified; the supplied phone screenshot still shows the old small box-TV frame, suggesting an already-open tab with an old bundle. Ask for reload before treating it as the latest-build layout.
-
-An existing long-lived tab may retain a sequence above 10000 after the backend process restart creates an authority with sequence 0; scene code retains its counter with Math.max. This is a source-backed resync hypothesis for the reported range error, not a diagnosis from that user’s tab. Fresh-session movement passes; the lead owns the protocol correction and must retain server validation.
+Detailed sanitized evidence: `task-3/deploy-repo/.data/pr20-release-proof.json`, `.data/pr20-live-acceptance.log`. Private synthetic fixtures, credentials and SQLite contents are excluded from commits and deployment uploads. This documentation commit needs no app redeployment; the running source remains the SHA above.
