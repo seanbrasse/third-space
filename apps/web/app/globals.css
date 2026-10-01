@@ -730,6 +730,8 @@ small {
   width: 100%;
 }
 .world-canvas canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   image-rendering: pixelated;
 }
@@ -2141,6 +2143,7 @@ fieldset {
 .home-view .world-canvas {
   grid-area: world;
   width: 100%;
+  min-width: 0;
   height: auto;
   min-height: 0;
   aspect-ratio: 1;
@@ -2432,7 +2435,7 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .stamina-track{height:8px;flex:1;max-width:260px;min-width:40px;border:1px solid #9dad84;border-radius:5px;background:#152c24;overflow:hidden}
 .stamina-fill{height:100%;background:#b5d49b}
 .stamina-hud[data-phase="boosting"] .stamina-fill{background:#f0c276}
-@media(max-width:850px){.world-shell.home-view{grid-template-areas:"top" "world" "bottom" "people" "chat"}}
+@media(max-width:850px){.world-shell.home-view{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "world" "bottom" "people" "chat"}}
 @media(max-width:650px){
  .home-view .world-topline>span:first-child{flex-basis:calc(100% - 95px);min-height:30px;display:flex;align-items:center}
  .world-topline>span:nth-child(2){margin-left:0;flex:1 1 160px;min-width:160px}

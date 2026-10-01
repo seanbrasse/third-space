@@ -1,0 +1,22 @@
+import {afterEach, expect, it, vi} from 'vitest';
+import {observeWorldContainer} from './world-container-size';
+afterEach(() => vi.unstubAllGlobals());
+it('coalesces actual container changes, ignores hidden/unchanged bounds and cancels on game destruction', () => {
+  let changed = () => {}, runFrame = () => {}, width = 390, height = 350;
+  const disconnect = vi.fn(), removeEventListener = vi.fn(), resize = vi.fn(), cancel = vi.fn();
+  vi.stubGlobal('ResizeObserver', class { constructor(fn:()=>void){changed=fn;} observe=vi.fn(); disconnect=disconnect; });
+  vi.stubGlobal('requestAnimationFrame', vi.fn((fn:()=>void)=>{runFrame=fn;return 1;}));
+  vi.stubGlobal('cancelAnimationFrame', cancel);
+  vi.stubGlobal('window', {addEventListener:vi.fn(),removeEventListener});
+  const stop=observeWorldContainer({getBoundingClientRect:()=>({width,height})} as HTMLElement,resize);
+  changed();changed();expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+  runFrame();expect(resize).toHaveBeenCalledTimes(1);
+  changed();runFrame();expect(resize).toHaveBeenCalledTimes(1);
+  height=410;changed();runFrame();expect(resize).toHaveBeenCalledTimes(2);
+  width=640;height=248;changed();runFrame();expect(resize).toHaveBeenCalledTimes(3);
+  width=0;changed();runFrame();expect(resize).toHaveBeenCalledTimes(3);
+  width=640;changed();runFrame();expect(resize).toHaveBeenCalledTimes(4);
+  width=390;changed();stop();runFrame();changed();
+  expect(resize).toHaveBeenCalledTimes(4);expect(disconnect).toHaveBeenCalledOnce();expect(cancel).toHaveBeenCalledWith(1);
+  expect(removeEventListener).toHaveBeenCalledWith('resize',expect.any(Function));
+});
