@@ -1,0 +1,16 @@
+.env
+.env.*
+**/.env
+**/.env.*
+**/.data/**
+**/*.sqlite
+**/*.sqlite-*
+**/node_modules/**
+.pnpm-store/**
+**/.next/**
+**/.next-production/**
+**/.next-recovery/**
+test-results/**
+playwright-report/**
+coverage/**
+.dev-logs/**

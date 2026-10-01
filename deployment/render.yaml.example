@@ -1,0 +1,25 @@
+# Reference only: applying this creates billed infrastructure; requires approval.
+services:
+  - type: web
+    name: third-space-game
+    runtime: docker
+    plan: 0.5c-512mb
+    region: virginia
+    numInstances: 1
+    dockerfilePath: ./deployment/Dockerfile.game-server
+    dockerContext: .
+    healthCheckPath: /ready
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GAME_HOST
+        value: 0.0.0.0
+      - key: DATA_PATH
+        value: /data/third-space.sqlite
+      - key: WEB_ORIGIN
+        sync: false
+    disk:
+      name: third-space-data
+      mountPath: /data
+      sizeGB: 1
