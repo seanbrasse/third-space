@@ -4,6 +4,7 @@ import {createAuthoredForestNPCs} from './authored-forest-npcs';
 import {FOREST_INTERIORS,WARD_CACHE_ANCHORS} from '../../../packages/config/src/authored-forest';
 import {SharedForestStoryStore} from '../../../packages/data/src/forest-story-store';
 import {STORY_RAIDERS,STORY_GUARDIAN,type ForestStoryEvent} from '../../../packages/simulation/src/forest-story';
+import {canUseForestStory,canDiscussForestStory} from '../../../packages/simulation/src/forest-story-access';
 import type {ForestStorySnapshot} from '../../../packages/contracts/src/forest-story';
 import type {ForestNPC} from '../../../packages/contracts/src/forest-npc';
 import {ForestCombatEncounters,type ForestCombatant} from './ForestCombatEncounters';
@@ -535,8 +536,8 @@ export class PartyRoom extends Room {
       if (state && p.mode === "home" && p.zone === "asylum" && this.media.playing && this.media.playbackId === command.playbackId && this.cooled(id, "idle-watching", 4000)) recordWatching(state, Date.now());
       return;
     }
-    if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     if(command.type.startsWith("story.")){this.storyCommand(client,p,command as Extract<ClientCommand,{type:`story.${string}`}>);return;}
+    if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     if(command.type==="mob.attack"){
       if(!this.freshWorldAction(p,command)||p.zone)return this.notice(client,"MOB_STALE","Return outside to face the threat.",command.commandId);
       if(!this.survival.acceptCommand(p.id,command.commandId,Date.now()))return;
@@ -973,7 +974,7 @@ export class PartyRoom extends Room {
   }
 
   private freshWorldAction(p:PlayerState,c:{worldRevision:number;lifeRevision:number;zoneRevision:number}){
-    return this.worldId==="forest"&&!this.worldProposal&&p.connected&&p.mode==="home"&&!p.respawnAt&&c.worldRevision===this.worldRevision&&c.lifeRevision===(p.respawnCount??0)&&c.zoneRevision===(p.zoneRevision??0);
+    return canUseForestStory(this.worldId,!!this.worldProposal,p)&&c.worldRevision===this.worldRevision&&c.lifeRevision===(p.respawnCount??0)&&c.zoneRevision===(p.zoneRevision??0);
   }
   private storyEventId(userId:string,commandId:string){return `user:${createHash('sha256').update(JSON.stringify([userId,commandId])).digest('hex')}`;}
   private nearAnchor(p:PlayerState,point:{x:number;y:number},range=2.5){return distance(p,point)<=range&&isHomeSegmentWalkable(p,point,this.mapFor(p));}
@@ -998,13 +999,15 @@ export class PartyRoom extends Room {
     if(result.status==="inventory-conflict"){this.survival.restoreApples(id,result.snapshot.personal.inventory.apples);return false;}
     return true;
   }
-  private applyStory(client:Client,event:ForestStoryEvent){
+  private applyStory(client:Client,event:ForestStoryEvent,replyCommandId?:string){
     let result:ReturnType<SharedForestStoryStore['apply']>;
     try{result=this.story.apply(this.homeId,event);}
-    catch{this.notice(client,"STORY_SAVE_FAILED","The discovery could not be saved. Please try again.",event.eventId);return;}
+    catch{this.notice(client,"STORY_SAVE_FAILED","The discovery could not be saved. Please try again.",replyCommandId??event.eventId);return;}
     // Delivery is separate from the durable commit. Never report a saved discovery as failed.
     try{this.broadcastStory();}catch{this.notice(client,"STORY_REFRESH","Your discovery is saved. Reopen the journal to refresh it.");}
-    if(result.status!=="unchanged")this.notice(client,"STORY_UPDATE",result.message,event.eventId);
+    // A journal action also needs an acknowledgement when it made no change.
+    // Durable receipt identity remains server-generated and separate from the UI reply.
+    if(replyCommandId||result.status!=="unchanged")this.notice(client,"STORY_UPDATE",result.message,replyCommandId??event.eventId);
   }
   private keeperNPC():ForestNPC|undefined{
     const chapter=this.storyAuthority?.state.chapter;if(chapter!=="rescue"&&chapter!=="complete")return;
@@ -1042,8 +1045,8 @@ export class PartyRoom extends Room {
         if(!interior?.clue||command.evidenceId!==expected||!this.nearAnchor(p,interior.clue.point,1.8))return this.notice(client,"TOO_FAR","Walk beside the clue first.",command.commandId);
         this.applyStory(client,{...base,kind:"inspect",evidenceId:command.evidenceId});
       }else if(command.type==="story.accuse"){
-        const orin=this.npcs?.get("npc:wizard-orin-vale");if(p.zone||!orin||orin.phase==="respawning"||!this.nearAnchor(p,orin))return this.notice(client,"TOO_FAR","Discuss the evidence beside Orin.",command.commandId);
-        this.applyStory(client,{...base,kind:"accuse",suspectId:command.suspectId});
+        const orin=this.npcs?.get("npc:wizard-orin-vale");if(!canDiscussForestStory(this.worldId,!!this.worldProposal,p,orin,this.mapFor(p)))return this.notice(client,"TOO_FAR","Discuss the evidence beside Orin.",command.commandId);
+        this.applyStory(client,{...base,kind:"accuse",suspectId:command.suspectId},command.commandId);
       }
       const idle=this.idlePresence.get(p.id);if(idle)recordActivity(idle,Date.now());
     }catch{this.notice(client,"STORY_SAVE_FAILED","The discovery could not be saved. Please try again.",command.commandId);}

@@ -21,6 +21,9 @@ import { inventoryHotkey, gameHotkey, isEditingTarget, shouldOpenChat } from "..
 import { useCallback, useEffect, useRef, useState } from "react";
 import ForestStoryBoard from './ForestStoryBoard';
 import type {ForestStorySnapshot} from '../../../packages/contracts/src/forest-story';
+import {canUseForestStory,canDiscussForestStory} from '../../../packages/simulation/src/forest-story-access';
+import {useStoryActions} from '../lib/use-story-actions';
+import type {StoryAction} from '../lib/story-actions';
 import {climateLabel} from '../lib/world-climate-model';
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
@@ -104,6 +107,7 @@ function id() {
 }
 export default function ThirdSpace() {
   const [story,setStory]=useState<ForestStorySnapshot|null>(null),[storyOpen,setStoryOpen]=useState(false);
+  const {pending:pendingStoryAction,notice:storyNotice,submit:submitStoryAction,acknowledge:acknowledgeStoryAction,reset:resetStoryActions,dismissNotice:dismissStoryNotice}=useStoryActions();
   const [identity, setIdentity] = useState<Identity | null>(null),
     [homes, setHomes] = useState<Home[]>([]),
     [visits, setVisits] = useState<HomeVisit[]>([]),
@@ -220,11 +224,26 @@ export default function ThirdSpace() {
   const send = useCallback((command: Record<string, unknown>) => {
     if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || command.type === "npc.interact" || command.type === "interior.enter" || command.type === "mob.attack")) {
       const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
-      if(!snapshot || !player || !bridgeRef.current?.transportConnected)return;
-      command={...command,commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
+      if(!snapshot || !player || !bridgeRef.current?.transportConnected)return false;
+      const journalAction=command.type==='story.reward'||command.type==='story.accuse';
+      command={...command,commandId:journalAction&&typeof command.commandId==="string"?command.commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
     }
-    if (room.current) room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision,zoneRevision:bridgeRef.current?.snapshot?.players.find(p=>p.id===identityRef.current?.id)?.zoneRevision??0}:command);
+    if(!room.current)return false;
+    room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision,zoneRevision:bridgeRef.current?.snapshot?.players.find(p=>p.id===identityRef.current?.id)?.zoneRevision??0}:command);
+    return true;
   }, []);
+  function actOnStory(action:StoryAction){
+    const owner=room.current;
+    if(!owner){resetStoryActions();notify('Reconnect, then try the journal action again.');return;}
+    submitStoryAction(owner,action,commandId=>{
+      const current=bridgeRef.current?.snapshot,player=current?.players.find(p=>p.id===identityRef.current?.id);
+      if(!owner.connection?.isOpen||!current||!bridgeRef.current?.transportConnected)return false;
+      if(!canUseForestStory(current.rootWorldId??current.worldId,!!current.worldProposal,player))return 'Your view changed. Wait until you can explore, then try again.';
+      if(action.type==='story.accuse'&&!canDiscussForestStory(current.rootWorldId??current.worldId,!!current.worldProposal,player,current.npcs?.find(n=>n.id==='npc:wizard-orin-vale'),getWorld('forest').map))return 'Move beside Orin with a clear path, then try again.';
+      return send({...action,commandId});
+    });
+  }
+  function openStoryBoard(){dismissStoryNotice();setStoryOpen(true);send({type:'story.read'});}
   if (!bridgeRef.current)
     bridgeRef.current = {
       snapshot: null,
@@ -259,7 +278,7 @@ export default function ThirdSpace() {
   bridge.mutedText = new Set(prefs.textMuted);
   bridge.reducedMotion = prefs.reducedMotion;
   bridge.interact = (object) => {
-    if(object==="story-board"){setStoryOpen(true);send({type:"story.read"});return;}
+    if(object==="story-board"){openStoryBoard();return;}
     if(object.startsWith("interior:")){send({type:"interior.enter",interiorId:object});return;}
     if(object==="exit-interior"){send({type:"interior.enter",interiorId:"outside"});return;}
     if(object==="enter-asylum"||object==="exit-asylum"){send({type:"area.enter",area:object==="enter-asylum"?"asylum":"forest"});return;}
@@ -498,6 +517,7 @@ export default function ThirdSpace() {
     }
   }, [modal, home, notify]);
   async function connect(targetHome: Home, replaceExisting = false, resumeToken?: string, automatic=false, profileReady=false) {
+    resetStoryActions('Reconnecting. Reopen the journal to check your last action.');
     if(automatic&&(!mounted.current||leaving.current))throw new Error("Connection cancelled.");
     const generation=++connectGeneration.current;
     void audio.current?.unlock().catch(()=>{});
@@ -556,6 +576,8 @@ export default function ThirdSpace() {
     connected.onMessage("story.snapshot",(data:ForestStorySnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.story=data;setStory(data);});
     const acceptSnapshot=(data: Snapshot) => {
       if(room.current!==connected||leaving.current)return;
+      const previous=bridge.snapshot,previousSelf=previous?.players.find(p=>p.id===bridge.selfId),nextSelf=data.players.find(p=>p.id===bridge.selfId);
+      if(previous&&(previous.instanceId!==data.instanceId||previous.worldRevision!==data.worldRevision||previousSelf?.respawnCount!==nextSelf?.respawnCount||(!previousSelf?.respawnAt&&nextSelf?.respawnAt)))resetStoryActions('Your view changed. Check the journal before trying again.');
       remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
         setDraft("");
@@ -637,6 +659,8 @@ export default function ThirdSpace() {
         .catch((e) => notify(e.message));
     });
     connected.onMessage("transition", () => {
+      if(room.current!==connected||leaving.current)return;
+      resetStoryActions('Your view changed. Check the journal before trying again.');
       setDraft("");
       setPending([]); chatSubmissions.current.clear();
       setUnread(0);
@@ -652,6 +676,8 @@ export default function ThirdSpace() {
     connected.onMessage(
       "notice",
       (data: { code: string; message: string; commandId?: string }) => {
+        if(room.current!==connected||leaving.current)return;
+        acknowledgeStoryAction(connected,data);
         notify(data.message);
         if (data.commandId) {
           chatSubmissions.current.fail(data.commandId);
@@ -666,6 +692,7 @@ export default function ThirdSpace() {
     enableDeltas();
     connected.onDrop(() => {
       if(room.current!==connected||leaving.current)return;
+      resetStoryActions('Connection interrupted. Reopen the journal after reconnecting to check your action.');
       bridge.transportConnected = false;
       setConnection("Reconnecting…");
       bridge.blocked = true;
@@ -681,6 +708,7 @@ export default function ThirdSpace() {
     });
     connected.onLeave((code: number) => {
       if(room.current!==connected)return;
+      resetStoryActions('Connection interrupted. Reopen the journal after reconnecting to check your action.');
       room.current=null;bridge.transportConnected=false;audio.current?.setWorld(null,"",0);
       if(leaving.current||!mounted.current)return;
       if (code === 4012) {
@@ -761,6 +789,7 @@ export default function ThirdSpace() {
     }
   }
   async function leave() {
+    resetStoryActions();
     audio.current?.setWorld(null,"",0);
     setWatchExpanded(false);
     leaving.current = true;bridge.transportConnected=false;connectGeneration.current++;forgetSession();
@@ -896,6 +925,10 @@ export default function ThirdSpace() {
       (m) => !prefs.textMuted.includes(m.senderId),
     );
   const survivalSelf=snapshot?.survival?.players.find(p=>p.id===identity?.id);
+  const storyConnected=bridge.transportConnected&&!!room.current?.connection?.isOpen;
+  const storyActionsAvailable=storyConnected&&!!snapshot&&canUseForestStory(snapshot.rootWorldId??snapshot.worldId,!!snapshot.worldProposal,self);
+  const canDiscussStory=storyActionsAvailable&&!!snapshot&&canDiscussForestStory(snapshot.rootWorldId??snapshot.worldId,!!snapshot.worldProposal,self,snapshot.npcs?.find(n=>n.id==='npc:wizard-orin-vale'),getWorld('forest').map);
+  const storyUnavailableReason=storyActionsAvailable?undefined:!storyConnected?'Reconnect to act on this journal.':self?.respawnAt?'Journal actions return after you respawn.':snapshot?.worldProposal?'Wait for the world change before acting on this journal.':'Return to the forest to act on this journal.';
   useEffect(() => {
     if (!snapshot) return;
     for (const message of snapshot.chat) acknowledgeChat(message);
@@ -1169,7 +1202,7 @@ export default function ThirdSpace() {
                 <button onClick={() => setModal("board")}>
                   ▤ <span>Idea board</span>
                 </button>
-                <button onClick={()=>{setStoryOpen(true);send({type:"story.read"});}}>▧ <span>World journal</span></button>
+                <button onClick={openStoryBoard}>▧ <span>World journal</span></button>
                 <button
                   className="play-button"
                   onClick={() => setModal("portal")}
@@ -1229,7 +1262,11 @@ export default function ThirdSpace() {
               </div>
               <World bridge={bridge}>
                 {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Walk to exit</button>}
-                <ForestStoryBoard open={storyOpen} snapshot={story} notice={toast} onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])} onClaimReward={rewardId=>send({type:"story.reward",rewardId})} canAccuse={!self?.zone&&!!self&&!!snapshot?.npcs?.some(n=>n.id==="npc:wizard-orin-vale"&&n.phase!=="respawning"&&Math.hypot(n.x-self.x,n.y-self.y)<=2.5)} onAccuse={suspectId=>send({type:"story.accuse",suspectId})}/>
+                <ForestStoryBoard open={storyOpen} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
+                  onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])}
+                  actionsAvailable={storyActionsAvailable} unavailableReason={storyUnavailableReason}
+                  onClaimReward={rewardId=>actOnStory({type:'story.reward',rewardId})} pendingRewardId={pendingStoryAction?.type==='story.reward'?pendingStoryAction.targetId:null}
+                  canAccuse={canDiscussStory} onAccuse={suspectId=>actOnStory({type:'story.accuse',suspectId})} pendingAccusationId={pendingStoryAction?.type==='story.accuse'?pendingStoryAction.targetId:null}/>
                 {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
                   const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
                   if(!player||!inventory?.equipped)return;

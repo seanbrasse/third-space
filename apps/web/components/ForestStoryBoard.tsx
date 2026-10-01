@@ -11,9 +11,11 @@ export interface ForestStoryBoardProps {
   /** Root should use restoreGameFocus so another newly opened panel keeps focus. */
   onFocusGame?:()=>void;
   onClaimReward?:(rewardId:string)=>void;
+  actionsAvailable?:boolean;
+  unavailableReason?:string;
   pendingRewardId?:string|null;
   onAccuse?:(suspectId:string)=>void;
-  /** Server-derived proximity/room permission; the distant physical board is read-only. */
+  /** Shared authority predicate applied to the latest snapshot; server revalidates every request. */
   canAccuse?:boolean;
   pendingAccusationId?:string|null;
   notice?:string|null;
@@ -40,7 +42,7 @@ function LeadCard({lead,titles}:{lead:StoryLead;titles:ReadonlyMap<string,string
 
 /** Discovered-only view: no imports of the authored mystery or future quest graph.
  * Mount persistently inside .world-shell so native dialog also works in fullscreen. */
-export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice}:ForestStoryBoardProps){
+export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,actionsAvailable=true,unavailableReason,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice}:ForestStoryBoardProps){
   const dialog=useRef<HTMLDialogElement>(null),close=useRef<HTMLButtonElement>(null),wasOpen=useRef(false),restore=useRef(onFocusGame);
   restore.current=onFocusGame;
   const [tab,setTab]=useState<StoryBoardTab>('leads');
@@ -96,19 +98,19 @@ export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onCl
             {!active.length&&!resolved.length&&<p className="story-empty">No notices yet. Talk to the people you meet; a small conversation can become the first thread.</p>}
             {!!resolved.length&&<section aria-label="Resolved leads"><h3 className="story-section-label">What we have settled</h3>{resolved.map(lead=><LeadCard key={lead.id} lead={lead} titles={titles}/>)}</section>}
             {!!rewards.length&&<section className="story-rewards" aria-label="Your rewards"><h3>Your keepsakes</h3><p>Shared discoveries; a thank-you of your own.</p>{rewards.map(reward=><article key={reward.id}><div><strong>{reward.title}</strong><span>{reward.apples>0?`${reward.apples} apples · `:''}Keepsake badge</span></div>
-              {reward.status==='claimed'?<span className="story-reward-claimed">Collected ✓</span>:onClaimReward?<button type="button" disabled={!!pendingRewardId} onClick={()=>onClaimReward(reward.id)}>{pendingRewardId===reward.id?'Collecting…':'Collect reward'}</button>:<span>Ready to collect</span>}
+              {reward.status==='claimed'?<span className="story-reward-claimed">Collected ✓</span>:onClaimReward?<button type="button" disabled={!actionsAvailable||!!pendingRewardId||!!pendingAccusationId} onClick={()=>onClaimReward(reward.id)}>{pendingRewardId===reward.id?'Collecting…':'Collect reward'}</button>:<span>Ready to collect</span>}
             </article>)}</section>}
           </>}
           {tab==='evidence'&&<>{snapshot.story.evidence.length?<div className="story-evidence-grid">{snapshot.story.evidence.map(e=>{const source=people.find(p=>p.id===e.sourceNpcId);return <article className="story-evidence" key={e.id}><span className="story-paper-pin" aria-hidden="true"/><h3>{e.title}</h3><p>{e.text}</p>{source&&<small>Shared by {source.name}</small>}</article>;})}</div>:<p className="story-empty">Nothing has been pinned here yet. Discovered clues will remain for everyone who comes after.</p>}</>}
           {tab==='people'&&<>{discussionReady&&<p className="story-discussion-help" id={`${id}-discussion-help`}>{canAccuse?'You have the accounts and evidence. Discuss the borrowed face with Orin.':'Speak beside Orin to compare the evidence.'}</p>}{people.length?<ul className="story-people">{people.map(person=><li key={person.id}><h3>{person.name}</h3>{person.contributions.map(line=><p key={line}>{line}</p>)}
             {person.testimony&&<blockquote>{person.testimony}</blockquote>}{person.accused&&<p className="story-recorded">Accusation recorded in this world.</p>}
             {!!person.leadTitles.length&&<small>Connected to {person.leadTitles.join(' · ')}</small>}
-            {discussionReady&&onAccuse&&snapshot.story.suspects.some(s=>s.id===person.id)&&<button className="story-discuss-face" type="button" aria-describedby={`${id}-discussion-help`} disabled={!canAccuse||!!pendingAccusationId||person.accused} onClick={()=>onAccuse(person.id)}>{person.accused?'Already discussed':pendingAccusationId===person.id?'Discussing…':'Discuss this face with Orin'}</button>}
+            {discussionReady&&onAccuse&&snapshot.story.suspects.some(s=>s.id===person.id)&&<button className="story-discuss-face" type="button" aria-describedby={`${id}-discussion-help`} disabled={!actionsAvailable||!canAccuse||!!pendingRewardId||!!pendingAccusationId||person.accused} onClick={()=>onAccuse(person.id)}>{person.accused?'Already discussed':pendingAccusationId===person.id?'Discussing…':'Discuss this face with Orin'}</button>}
           </li>)}</ul>:<p className="story-empty">Names and connections appear as this world meets people and hears their stories.</p>}</>}
           {tab==='recap'&&<>{snapshot.story.recap.length?<ol className="story-recap">{snapshot.story.recap.map((note,index)=><li key={note.id}><span aria-hidden="true">{index+1}</span><p>{note.text}</p></li>)}</ol>:<p className="story-empty">This page is waiting for its first shared memory.</p>}</>}
         </div>
       </>:<div className="story-board-scroll"><p className="story-empty" role="status">Opening this world’s journal…</p></div>}
-      <footer className="story-board-footer"><span>Friends can follow other leads while you are away.</span>{notice&&<p role="status">{notice}</p>}</footer>
+      <footer className="story-board-footer"><span>Friends can follow other leads while you are away.</span>{(unavailableReason||notice)&&<p role="status">{unavailableReason||notice}</p>}</footer>
     </div>
   </dialog>;
 }
