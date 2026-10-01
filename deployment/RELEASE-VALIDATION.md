@@ -15,3 +15,7 @@ Source release: `41b3edb26c0b890fe875299630bc555444ef78c4`, merged YouTube hotfi
 ## Limits
 
 The short milestone 9 test contains no media actions because control now requires an indoor location; the lead separately verified two-browser YouTube playback and controls. Earlier longer base tests, including translated amd64, remain in [MEMORY-TEST.md](MEMORY-TEST.md). Local ARM64 performance does not establish Fly amd64 shared-CPU capacity or WAN latency. The load test uses SDK connections, not browser devices. Hosted TLS, Vercel rewrites/session behavior, origin enforcement, reconnection, room PINs, direct/YouTube media and restart/snapshot recovery remain acceptance gates after provisioning.
+
+## Public Updates requirement for future releases
+
+Follow [the public-history release checklist](../releases/README.md) for every player-visible release. Add a draft entry before review, keep it unpublished through the initial rollout, then let the release owner publish the established date only after production verification. Run `pnpm releases:validate`; the root production build and unit suite also enforce the catalog schema and newest-first dates. Document internal-only releases in the handoff when no public entry is appropriate.

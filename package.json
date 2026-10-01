@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "node scripts/workspaces.mjs build",
+    "build": "tsx scripts/validate-release-history.ts && node scripts/workspaces.mjs build",
     "start": "node scripts/dev.mjs --production",
     "typecheck": "node scripts/workspaces.mjs typecheck",
     "test": "vitest run",
@@ -19,7 +19,8 @@
     "test:production": "node scripts/check-production.mjs",
     "test:load": "tsx tests/load.ts",
     "lint": "node scripts/workspaces.mjs typecheck",
-    "assets:validate": "tsx scripts/validate-assets.ts"
+    "assets:validate": "tsx scripts/validate-assets.ts",
+    "releases:validate": "tsx scripts/validate-release-history.ts"
   },
   "devDependencies": {
     "@colyseus/sdk": "0.18.4",
