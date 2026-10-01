@@ -1,5 +1,6 @@
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
 import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
+import { RacePresentation } from "./race-presentation";
 import { GameKeyboard, isGameInputBlocked } from "./game-keyboard";
 import {asylumFloorCanvas,asylumObjectCanvas} from "./asylum-art";
 import * as Phaser from "phaser";
@@ -46,6 +47,7 @@ function snapshotSeats(bridge: WorldBridge, selfId: string) {
 }
 export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
+    private racePresentation: RacePresentation | null = null;
     private nodes = new Map<string, Node>();
     private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
     private movement = new GameKeyboard();
@@ -102,7 +104,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const point={x:(surface.x*TILE-origin.x)*camera.zoom,y:(surface.y*TILE-origin.y)*camera.zoom};
         parent.dataset.cameraScrollX=String(camera.scrollX+camera.width/2-camera.width/(2*camera.zoom));
         parent.dataset.cameraScrollY=String(camera.scrollY+camera.height/2-camera.height/(2*camera.zoom));
-        parent.dispatchEvent(new CustomEvent("third-space:projection",{bubbles:true,detail:{instanceId:snapshot.instanceId,x:point.x,y:point.y,width:surface.width*TILE*camera.zoom,height:(surface.height*TILE-12)*camera.zoom}}));
+        parent.dispatchEvent(new CustomEvent("third-space:projection",{bubbles:true,detail:{instanceId:snapshot.instanceId,x:point.x,y:point.y,width:surface.width*TILE*camera.zoom,height:surface.height*TILE*camera.zoom}}));
       });
       if (this.input.keyboard) {
         this.keys = this.input.keyboard.addKeys(
@@ -184,6 +186,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!race && !this.forest) this.cameras.main.centerOn(W / 2, H / 2);
     }
     clearMap() {
+      this.racePresentation = null;
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
       this.stalkerSprite=null;this.stalkerId="";
@@ -475,6 +478,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             .setDepth(1),
         );
       }
+      this.racePresentation = new RacePresentation(this, TILE, this.mapObjects);
     }
     cancelWalk() {
       this.path = [];
@@ -598,6 +602,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         mode === "race" ? this.drawRace() : this.dark ? this.drawForest() : this.drawHome();
         this.fit();
       }
+      if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
       const typing = isGameInputBlocked(document.activeElement);
       const active =
         !bridge.blocked &&

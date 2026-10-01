@@ -1,10 +1,13 @@
 import { ForestAmbience } from "./forest-ambience";
+import { AsylumAmbience, asylumAudioLocation } from "./asylum-ambience";
 import {ambienceSamples} from "./ambience";
+import { RaceAudio } from "./race-audio";
 import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
 import type { WorldSoundEvent } from "@third-space/contracts";
 import type { Effect, Snapshot } from "./types";
 import { listenerGain } from "./person-volume";
 export class SoundboardAudio {
+  private race = new RaceAudio();
   private context: AudioContext | null = null;
   private environmentOutput: GainNode | null = null;
   private gameMuted = false;
@@ -51,6 +54,7 @@ export class SoundboardAudio {
     }else if(wolf?.phase!=="chase")this.stepAt.delete("werewolf");
   }
   private forestAmbience: ForestAmbience | null = null;
+  private asylumAmbience: AsylumAmbience | null = null;
   private lastWorld: {snapshot:Snapshot|null;selfId:string;volume:number} | null = null;
   private wasOutside = false;
   private lastEnvironmentAt=0;
@@ -58,12 +62,16 @@ export class SoundboardAudio {
   private natureNodes=new Set<AudioBufferSourceNode>();
   setWorld(snapshot: Snapshot|null,selfId:string,volume:number){
     this.lastWorld={snapshot,selfId,volume};
+    this.race.setWorld(this.context,snapshot,selfId,volume);
     this.movement(snapshot,selfId,volume);
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);
     const outside=!!self&&self.connected&&self.mode==="home"&&!self.zone&&snapshot?.worldId==="forest";
     if(ctx)this.forestAmbience??=new ForestAmbience(ctx,this.gameOutput(ctx));
     if(!snapshot)this.forestAmbience?.clear();
     else this.forestAmbience?.update({outside,x:self?.x??0,y:self?.y??0,volume});
+    const indoor = asylumAudioLocation(snapshot,selfId,volume);
+    if(ctx&&indoor.inside)this.asylumAmbience??=new AsylumAmbience(ctx,this.gameOutput(ctx));
+    this.asylumAmbience?.update(indoor);
     if(!outside){
       for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
       this.wasOutside=false;return;
@@ -92,6 +100,7 @@ export class SoundboardAudio {
     gameMuted = false,
   ) {
     this.gameMuted = gameMuted;
+    this.race.setMuted(gameMuted);
     if(this.environmentOutput)this.environmentOutput.gain.value=gameMuted?0:1;
     this.master = gameMuted ? 0 : master;
     this.personVolumes = personVolumes;
@@ -169,8 +178,10 @@ export class SoundboardAudio {
     }, 800);
   }
   dispose() {
+    this.asylumAmbience?.dispose();this.asylumAmbience=null;
     this.forestAmbience?.dispose();this.forestAmbience=null;this.lastWorld=null;this.wasOutside=false;
     for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
+    this.race.dispose();
     void this.context?.close();
     this.context = null;
     this.environmentOutput = null;

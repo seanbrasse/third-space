@@ -131,68 +131,7 @@ export const HOME_MAP = {
   zones: [{ id: "home", x: 0, y: 0, width: 20, height: 20 }],
 } as const;
 
-export const RACE_MAP = {
-  id: "garden-dash-v2",
-  width: 360,
-  height: 18,
-  spawn: { x: 2, y: 15.7 },
-  platforms: [
-    { x: 0, y: 16, width: 360, height: 2 },
-    ...[0, 90, 180, 270].flatMap((section) =>
-      [13, 29, 46, 64].map((x) => ({
-        x: section + x,
-        y: 15,
-        width: 2,
-        height: 1,
-      })),
-    ),
-  ] satisfies Rect[],
-  hazards: [
-    ...[0, 90, 180, 270].flatMap((section) => [
-      { x: section + 9, y: 15.4, width: 1, height: 0.6 },
-      { x: section + 24, y: 15.4, width: 1.1, height: 0.6 },
-      { x: section + 40, y: 15.4, width: 1.2, height: 0.6 },
-      { x: section + 58, y: 15.4, width: 1.2, height: 0.6 },
-      { x: section + 71, y: 15.4, width: 1.2, height: 0.6 },
-    ]),
-  ] satisfies Rect[],
-  checkpoints: [
-    {
-      id: "checkpoint-1",
-      x: 83,
-      y: 0,
-      width: 1,
-      height: 16,
-      spawn: { x: 84.5, y: 15.7 },
-    },
-    {
-      id: "checkpoint-2",
-      x: 173,
-      y: 0,
-      width: 1,
-      height: 16,
-      spawn: { x: 174.5, y: 15.7 },
-    },
-    {
-      id: "checkpoint-3",
-      x: 263,
-      y: 0,
-      width: 1,
-      height: 16,
-      spawn: { x: 264.5, y: 15.7 },
-    },
-    {
-      id: "checkpoint-4",
-      x: 350,
-      y: 0,
-      width: 1,
-      height: 16,
-      spawn: { x: 351.5, y: 15.7 },
-    },
-  ] satisfies Checkpoint[],
-  finish: { id: "finish", x: 357, y: 0, width: 2, height: 16 },
-} as const;
-
+export { RACE_MAP, RACE_STAGES, RACE_BOOST, type RacePickup, type RacePickupKind } from './race-course';
 
 // World maps share tile coordinates, collision and interaction metadata with prediction.
 export type WorldId = "living-room" | "forest" | "asylum";
@@ -243,7 +182,7 @@ const asylumFurniture:Furniture[]=[
  {id:"broken-cabinet",kind:"bookcase",footprint:{x:15,y:13.5,width:2.5,height:2},collider:{x:15,y:14,width:2.5,height:1.4},usePoints:[],seats:[]},
 
  ...asylumSeats.map(s=>({id:s.id,kind:"log" as const,footprint:{x:s.x-.6,y:s.y-.6,width:1.2,height:1},collider:null,usePoints:[s],seats:[s]})),
- {id:"asylum-tv",kind:"tv",footprint:{x:8.5,y:3,width:3,height:2},collider:{x:8.5,y:3.5,width:3,height:1.5},usePoints:[{x:10,y:5.6}],seats:[]},
+ {id:"asylum-tv",kind:"tv",footprint:{x:6.75,y:2.4,width:6.5,height:4.1},collider:{x:6.75,y:5.9,width:6.5,height:.4},usePoints:[{x:10,y:6.8}],seats:[]},
  {id:"asylum-exit",kind:"portal",footprint:{x:9,y:18,width:2,height:1},collider:null,usePoints:[{x:10,y:17.5}],seats:[]},
  {id:"charger",kind:"chair",footprint:{x:16,y:8.5,width:1,height:1.5},collider:null,usePoints:[{x:16.5,y:9.5}],seats:[{id:"charger-seat",x:16.5,y:9.5}]},
 ];
@@ -251,7 +190,7 @@ export const ASYLUM_MAP:WorldMap={id:"asylum-v1",width:20,height:20,spawn:{x:10,
 export const FLASHLIGHT_SECONDS=30;
 export const WORLDS: Record<WorldId,WorldDefinition> = {
   "living-room":{id:"living-room",name:"The reading lounge",description:"Walnut, velvet, and your people.",map:HOME_MAP,camera:"fit",dark:false,mediaSurface:{id:"world-tv",x:3,y:1.3,width:3,height:1.3,source:{x:4.5,y:3.3}}},
-  asylum:{id:"asylum",name:"The abandoned asylum",description:"A candle, worn cushions and a flickering box TV.",map:ASYLUM_MAP,camera:"fit",dark:true,fire:{x:10,y:10},mediaSurface:{id:"asylum-tv",x:8.6875,y:3.15625,width:2.25,height:1.75,source:{x:10,y:5.6}}},
+  asylum:{id:"asylum",name:"The abandoned asylum",description:"A candle, worn cushions and a battered projector screen.",map:ASYLUM_MAP,camera:"fit",dark:true,fire:{x:10,y:10},mediaSurface:{id:"asylum-tv",x:7,y:2.65,width:6,height:3.375,source:{x:10,y:6.8}}},
   forest:{id:"forest",mediaEnabled:false,name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},stalker:{safeRadius:9,viewRadius:10,intervalMs:30000,campMinMs:300000,campMaxMs:600000,peekMs:3000,chaseMs:14000},mediaSurface:{id:"camp-tv",x:31.375,y:23.875,width:2.25,height:.9375,source:{x:32.5,y:26}}},
 };
 export function getWorld(id: WorldId = "living-room") { return WORLDS[id]; }

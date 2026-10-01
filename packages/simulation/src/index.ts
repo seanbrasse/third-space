@@ -13,6 +13,8 @@ import {
   type PlayerState,
   type VoiceMode,
 } from "@third-space/contracts";
+import { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
+export { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
 import { sprintMultiplier } from "./sprint";
 export { SPRINT, requestSprint, cancelSprint, sprintStatus, sprintMultiplier } from "./sprint";
 
@@ -43,6 +45,8 @@ export function createPlayer(
     connected: true,
     lastInputSeq: -1,
     checkpoint: 0,
+    flashlightBattery: 1,
+    flashlightOn: false,
   };
 }
 
@@ -300,6 +304,12 @@ export function resetRacePlayer(player: PlayerState): PlayerState {
     ...player,
     mode: "race",
     ...RACE_MAP.spawn,
+    raceSpeedBoostSeconds: 0,
+    raceJumpBoostSeconds: 0,
+    racePickupIds: [],
+    raceJumpCount: 0,
+    raceDeathCount: 0,
+    racePickupCount: 0,
     vx: 0,
     vy: 0,
     checkpoint: 0,
@@ -317,6 +327,8 @@ export function respawnRacePlayer(player: PlayerState): PlayerState {
   return {
     ...player,
     ...getCheckpointSpawn(player.checkpoint),
+    raceSpeedBoostSeconds: 0,
+    raceJumpBoostSeconds: 0,
     vx: 0,
     vy: 0,
     grounded: true,
@@ -351,17 +363,19 @@ export function stepRace(
       if (next.respawnTimer <= EPSILON) next = respawnRacePlayer(next);
       continue;
     }
+    next = stepRaceBoosts(next, step);
     next.coyoteTime = next.grounded
       ? GAME_CONFIG.raceCoyoteSeconds
       : Math.max(0, (next.coyoteTime ?? 0) - step);
     if ((next.jumpBuffer ?? 0) > 0 && (next.coyoteTime ?? 0) > 0) {
-      next.vy = GAME_CONFIG.raceJumpVelocity;
+      next.vy = GAME_CONFIG.raceJumpVelocity * raceJumpMultiplier(next);
+      next.raceJumpCount = (next.raceJumpCount ?? 0) + 1;
       next.grounded = false;
       next.coyoteTime = 0;
       next.jumpBuffer = 0;
     }
     next.jumpBuffer = Math.max(0, (next.jumpBuffer ?? 0) - step);
-    next.vx = axis * GAME_CONFIG.raceSpeed;
+    next.vx = axis * GAME_CONFIG.raceSpeed * raceSpeedMultiplier(next);
     if (axis !== 0) next.facing = axis > 0 ? "right" : "left";
     next.vy = Math.min(
       GAME_CONFIG.raceTerminalVelocity,
@@ -385,6 +399,8 @@ export function stepRace(
       RACE_MAP.hazards.some((hazard) => overlapsPlayer(next, hazard)) ||
       next.y > RACE_MAP.height + 1
     ) {
+      next = clearRaceBoosts(next);
+      next.raceDeathCount = (next.raceDeathCount ?? 0) + 1;
       next.respawnTimer = GAME_CONFIG.hazardRespawnSeconds;
       next.vx = 0;
       next.vy = 0;

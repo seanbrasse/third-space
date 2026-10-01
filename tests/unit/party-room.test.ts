@@ -454,11 +454,12 @@ describe("eight-player authoritative party without network listeners", () => {
     const obstacles = [
       ...RACE_MAP.hazards,
       ...RACE_MAP.platforms.filter((solid) => solid.y < 16),
+      ...RACE_MAP.gaps.map(g=>({...g,y:16,height:2})),
     ].sort((a, b) => a.x - b.x);
     const held = new Map<string, boolean>();
     let seq = 1;
     harness.advance(4_300, (tick) => {
-      if (tick % 2 || harness.room.race.phase !== "running") return;
+      if (harness.room.race.phase !== "running") return;
       for (const client of clients) {
         const player = harness.room.players.get(client.auth.userId)!;
         if (player.finishedAt) continue;
@@ -470,7 +471,7 @@ describe("eight-player authoritative party without network listeners", () => {
           player.grounded &&
             !held.get(player.id) &&
             obstacle &&
-            obstacle.x - player.x < 1.8,
+            obstacle.x - player.x < ((player.raceSpeedBoostSeconds??0)>0?2.1:obstacle.y>=15.3&&obstacle.y<16?1.4:1.8),
         );
         harness.send(client, {
           type: "input",
@@ -490,8 +491,8 @@ describe("eight-player authoritative party without network listeners", () => {
         (result) =>
           !result.dnf &&
           result.rank === 1 &&
-          result.elapsedMs! >= 59_000 &&
-          result.elapsedMs! < 62_000,
+          result.elapsedMs! >= 50_000 &&
+          result.elapsedMs! < 65_000,
       ),
     ).toBe(true);
     for (const player of harness.room.players.values())
@@ -526,7 +527,7 @@ describe("shared reusable social worlds",()=>{
     expect(new PartyRoom().worldId).toBe("forest");
     const forest = new Harness("forest");
     try { const c=forest.join(forest.identities[0]!);const p=forest.room.players.get(c.auth.userId)!;
-      expect(c.snapshot().worldId).toBe("forest");expect(p.flashlightOn).toBe(true);
+      expect(c.snapshot().worldId).toBe("forest");expect(p.flashlightOn).toBe(false);
       expect(getWorld("forest").map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);
     } finally {forest.close();}
   });
@@ -553,7 +554,7 @@ describe("shared reusable social worlds",()=>{
     expect(harness.room.worldId).toBe("forest");expect(harness.room.worldRevision).toBe(1);
     const map=getWorld("forest").map,ps=[...harness.room.players.values()];
     expect(new Set(ps.map(p=>p.x+":"+p.y)).size).toBe(8);
-    ps.forEach(p=>{expect(map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);expect(p.mode).toBe("home");expect(p.flashlightOn).toBe(true);expect(p.seatId).toBeUndefined();});
+    ps.forEach(p=>{expect(map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);expect(p.mode).toBe("home");expect(p.flashlightOn).toBe(false);expect(p.seatId).toBeUndefined();});
     clients.forEach((c,i)=>{expect(c.snapshot().worldRevision).toBe(1);expect(harness.room.players.get(c.auth.userId)!.avatar).toEqual(oldAvatars[i]);});
     const p=harness.room.players.get(clients[0]!.auth.userId)!,x=p.x;
     harness.send(clients[0]!,{type:"input",input:{seq:9,axisX:1,axisY:0,jump:false},worldRevision:0});harness.advance(5);expect(harness.room.players.get(p.id)!.x).toBe(x);
@@ -661,9 +662,26 @@ describe("shared media queue",()=>{
 describe("campsite-only runtime",()=>{
  it("reserves eight unique seat spawns and keeps reservations across reconnect",()=>{harness.room.worldId="forest";const clients=harness.fill();const seats=getWorld("forest").map.seats;expect(new Set(clients.map(c=>harness.room.players.get(c.auth.userId)!.seatId)).size).toBe(8);for(const c of clients){const p=harness.room.players.get(c.auth.userId)!;expect(seats.find(s=>s.id===p.seatId)).toMatchObject({x:p.x,y:p.y});}const a=clients[0]!,before={...harness.room.players.get(a.auth.userId)!};const replacement=harness.authenticate(a.auth.userId);harness.room.onJoin(replacement.authority(),{replaceExisting:true});expect(harness.room.players.get(a.auth.userId)).toMatchObject({x:before.x,y:before.y,seatId:before.seatId});});
  it("rejects retired destinations without changing saved room data",()=>{harness.room.worldId="forest";const c=harness.join(harness.identities[0]!);harness.send(c,{type:"world.propose",worldId:"living-room",revision:0,commandId:"retired"});expect(harness.room.worldId).toBe("forest");expect(harness.room.worldProposal).toBeNull();expect(c.received<ServerNotice>("notice").map(n=>n.code)).toEqual(["WORLD_UNAVAILABLE"]);expect(harness.store.getHome(harness.homeId)).toBeTruthy();});
- it("starts racing only after explicit confirmation at the cabin and returns safely without repeated entry",()=>{harness.room.worldId="forest";const c=harness.join(harness.identities[0]!);harness.advance(1);let p=harness.room.players.get(c.auth.userId)!;delete p.seatId;Object.assign(p,{x:15,y:14.5});harness.advance(1);expect(harness.room.race.phase).toBe("lobby");harness.send(c,{type:"race.enter"});expect(harness.room.race.phase).toBe("countdown");expect(harness.room.players.get(c.auth.userId)!.mode).toBe("race");const raceId=harness.room.race.id;harness.send(c,{type:"race.enter"});expect(harness.room.race.id).toBe(raceId);harness.send(c,{type:"race.return"});harness.advance(2);expect(harness.room.players.get(c.auth.userId)!.mode).toBe("home");expect(harness.room.race.phase).toBe("lobby");});
+ it("starts racing only after explicit confirmation at the cabin and returns safely without repeated entry",()=>{harness.room.worldId="forest";const c=harness.join(harness.identities[0]!);harness.advance(1);let p=harness.room.players.get(c.auth.userId)!;delete p.seatId;Object.assign(p,{x:15,y:14.5});harness.advance(1);expect(harness.room.race.phase).toBe("lobby");harness.send(c,{type:"race.enter"});expect(harness.room.race.phase).toBe("waiting");expect(harness.room.players.get(c.auth.userId)!.mode).toBe("race");harness.send(c,{type:"race.ready",ready:true});expect(harness.room.race.phase).toBe("countdown");const raceId=harness.room.race.id;harness.send(c,{type:"race.enter"});expect(harness.room.race.id).toBe(raceId);harness.send(c,{type:"race.return"});harness.advance(2);expect(harness.room.players.get(c.auth.userId)!.mode).toBe("home");expect(harness.room.race.phase).toBe("lobby");});
 });
 
 it("indoor seat spawns preserve all eight player identities and hide the TV outdoors",()=>{harness.room.worldId="forest";const clients=harness.fill();for(const c of clients){const p=harness.room.players.get(c.auth.userId)!;Object.assign(p,{x:69,y:13.5});harness.send(c,{type:"area.enter",area:"asylum"});expect(p.id).toBe(c.auth.userId);expect(p.zone).toBe("asylum");expect(p.seatId).toMatch(/^asylum-cushion-/);expect(c.snapshot().players.some(v=>v.id===c.auth.userId)).toBe(true);}expect(new Set([...harness.room.players.values()].map(p=>p.seatId)).size).toBe(8);expect(getWorld("forest").mediaEnabled).toBe(false);expect(getWorld("forest").map.furniture.some(f=>f.kind==="tv")).toBe(false);});
 
-it("confirmed cabin friends share the same countdown without resetting it; running late joins stay outside",()=>{harness.room.worldId="forest";const [a,b,c]=harness.fill();for(const client of [a,b,c]){Object.assign(harness.room.players.get(client!.auth.userId)!,{x:15,y:14.5});}harness.send(a!,{type:"race.enter"});const start=harness.room.race.startAt,id=harness.room.race.id;harness.advance(60);harness.send(b!,{type:"race.enter"});expect(harness.room.race.startAt).toBe(start);expect(harness.room.race.id).toBe(id);expect(harness.room.players.get(b!.auth.userId)!.mode).toBe("race");harness.advance(130);harness.send(c!,{type:"race.enter"});expect(harness.room.players.get(c!.auth.userId)!.mode).toBe("home");expect(c!.received<ServerNotice>("notice").at(-1)?.code).toBe("RACE_ACTIVE");});
+it("one shared waiting lobby freezes racers, bridges outside voice eligibility and starts only when all joined ready",()=>{
+ harness.room.worldId="forest";const [a,b,c]=harness.fill();for(const client of [a,b,c])Object.assign(harness.room.players.get(client!.auth.userId)!,{x:15,y:14.5});
+ harness.send(a!,{type:"race.enter"});const id=harness.room.race.id;expect(harness.room.race.phase).toBe("waiting");harness.advance(120);expect(harness.room.players.get(a!.auth.userId)!.x).toBe(RACE_MAP.spawn.x);
+ harness.send(b!,{type:"race.enter"});expect(harness.room.race.id).toBe(id);expect(harness.room.race.joinedIds).toEqual([a!.auth.userId,b!.auth.userId]);
+ expect(a!.snapshot().voiceScope?.mode).toBe("room");expect(a!.snapshot().voiceScope?.participantIds).toContain(c!.auth.userId);expect(c!.snapshot().voiceScope?.instanceId).toBe(a!.snapshot().voiceScope?.instanceId);
+ harness.send(a!,{type:"race.ready",ready:true});expect(harness.room.race.phase).toBe("waiting");harness.send(b!,{type:"race.ready",ready:true});expect(harness.room.race.phase).toBe("countdown");expect(a!.snapshot().voiceScope?.participantIds).not.toContain(c!.auth.userId);
+ harness.send(c!,{type:"race.enter"});expect(harness.room.players.get(c!.auth.userId)!.mode).toBe("home");expect(c!.received<ServerNotice>("notice").at(-1)?.code).toBe("RACE_ACTIVE");
+});
+it("leaving waiting lobby clears membership without a DNF and lets remaining ready racer start",()=>{
+ harness.room.worldId="forest";const [a,b]=harness.fill();for(const client of [a,b])Object.assign(harness.room.players.get(client!.auth.userId)!,{x:15,y:14.5});
+ harness.send(a!,{type:"race.enter"});harness.send(b!,{type:"race.enter"});harness.send(a!,{type:"race.ready",ready:true});harness.send(b!,{type:"race.return"});expect(harness.room.race.phase).toBe("countdown");expect(harness.room.race.results).toHaveLength(0);expect(harness.room.race.joinedIds).toEqual([a!.auth.userId]);
+});
+it("walking across asylum thresholds enters and exits safely without immediate bounce or stale movement",()=>{
+ harness.room.worldId="forest";const a=harness.join(harness.identities[0]!);let p=harness.room.players.get(a.auth.userId)!;delete p.seatId;Object.assign(p,{x:69,y:14.05});
+ harness.send(a,{type:"input",zoneRevision:0,input:{seq:1,axisX:0,axisY:-1,jump:false}});harness.advance(2);p=harness.room.players.get(a.auth.userId)!;expect(p.zone).toBe("asylum");expect(p.id).toBe(a.auth.userId);expect(p.zoneRevision).toBe(1);
+ harness.advance(100);delete p.seatId;Object.assign(p,{x:10,y:17.05});harness.send(a,{type:"input",zoneRevision:1,input:{seq:2,axisX:0,axisY:1,jump:false}});harness.advance(2);p=harness.room.players.get(a.auth.userId)!;expect(p.zone).toBeUndefined();expect(p.zoneRevision).toBe(2);expect(getWorld("forest").map.solids.some(solid=>overlapsPlayer(p,solid))).toBe(false);
+ const position={x:p.x,y:p.y};harness.send(a,{type:"input",zoneRevision:1,input:{seq:3,axisX:0,axisY:-1,jump:false}});harness.advance(90);p=harness.room.players.get(a.auth.userId)!;expect(p.zone).toBeUndefined();expect({x:p.x,y:p.y}).toEqual(position);
+});
