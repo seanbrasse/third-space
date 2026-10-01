@@ -128,10 +128,10 @@ export class ForestCombatEncounters {
     }
   }
 
-  strike(actor: ForestCombatant, mobId: string, targetLifeRevision: number, now: number, humans: readonly ForestCombatant[], spendSwing: SpendKnifeSwing): ForestMobStrikeResult {
+  strike(actor: ForestCombatant, mobId: string, targetLifeRevision: number, now: number, humans: readonly ForestCombatant[], spendSwing: SpendKnifeSwing, damage:number=SURVIVAL.attackDamage): ForestMobStrikeResult {
     const encounter = this.encounters.find(e => e.mobs.some(m => m.state.id === mobId));
     const mob = encounter?.mobs.find(m => m.state.id === mobId);
-    if (!Number.isFinite(now) || !encounter || !mob || !encounter.enabled || encounter.cleared || encounter.state.phase === 'resetting' || encounter.state.phase === 'defeated' || mob.state.health <= 0 || targetLifeRevision !== mob.state.lifeRevision)
+    if (!Number.isFinite(now) || !Number.isFinite(damage) || damage<=0 || damage>100 || !encounter || !mob || !encounter.enabled || encounter.cleared || encounter.state.phase === 'resetting' || encounter.state.phase === 'defeated' || mob.state.health <= 0 || targetLifeRevision !== mob.state.lifeRevision)
       return { ok: false, reason: 'That threat is no longer available' };
     if (!actor.armed || !this.active(actor, now)) return { ok: false, reason: 'Equip your knife outside the safe areas' };
     if (distance(actor, mob.state) > SURVIVAL.attackRange || !isHomeSegmentWalkable(actor, mob.state, this.world.map)) return { ok: false, reason: 'Out of reach' };
@@ -148,7 +148,7 @@ export class ForestCombatEncounters {
       }
     }
     encounter.contributors.add(actor.id); encounter.emptyAt = null;
-    mob.state.health = Math.max(0, mob.state.health - SURVIVAL.attackDamage); mob.state.hurtAt = now;
+    mob.state.health = Math.max(0, mob.state.health - damage); mob.state.hurtAt = now;
     if (mob.state.health === 0) {
       mob.state.phase = 'defeated'; mob.state.moving = false; mob.state.defeatedAt = now; delete mob.state.windup; mob.path = [];
       if (encounter.mobs.every(m => m.state.health === 0)) {

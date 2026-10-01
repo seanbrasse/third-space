@@ -98,6 +98,57 @@ describe('survival through actual room admission, commands and life transitions'
     room.onLeave(clients[0]!);expect(authority().survival.snapshot().players.find(p=>p.id===ids[0])).toBeUndefined();
     expect(authority().survival.snapshot().backpacks.filter(b=>b.id===owned)).toHaveLength(1);
   });
+  it('shows an authoritative finishing tell, shares the knife cooldown and applies one fenced knockout',()=>{
+    knife(0);duel();
+    const state=(authority().survival as unknown as {players:Map<string,SurvivalPlayer>}).players.get(ids[1]!)!;
+    state.health=55;
+    send(0,{type:'survival.finish',targetId:ids[1],targetLifeRevision:0});
+    const tell=snapshot(1).survival!.finishers![0]!;
+    expect(tell).toMatchObject({attackerId:ids[0],targetId:ids[1],targetLifeRevision:0});
+    expect(tell.until-tell.startedAt).toBe(650);
+    send(0,{type:'survival.attack',targetId:ids[1]});expect(inventory(ids[1]!).health).toBe(55);
+    advance(700);expect(room.players.get(ids[1]!)!.respawnCount).toBe(1);
+    expect(snapshot(1).survival!.finishers).toHaveLength(0);
+    advance(1000);expect(room.players.get(ids[1]!)!.respawnCount).toBe(1);expect(inventory(ids[1]!).health).toBe(100);
+  });
+  it('cancels a lunge after attacker movement and rejects stale target life and host-disabled PvP',()=>{
+    knife(0);duel();
+    const state=(authority().survival as unknown as {players:Map<string,SurvivalPlayer>}).players.get(ids[1]!)!;state.health=55;
+    send(0,{type:'survival.finish',targetId:ids[1],targetLifeRevision:99});expect(snapshot(0).survival!.finishers).toHaveLength(0);
+    send(0,{type:'survival.finish',targetId:ids[1],targetLifeRevision:0});expect(snapshot(0).survival!.finishers).toHaveLength(1);
+    room.players.get(ids[0]!)!.x+=1;advance(700);expect(inventory(ids[1]!).health).toBe(55);expect(snapshot(0).survival!.finishers).toHaveLength(0);
+    send(0,{type:'survival.pvp',enabled:false});send(0,{type:'survival.finish',targetId:ids[1],targetLifeRevision:0});expect(snapshot(0).survival!.finishers).toHaveLength(0);
+  });
+  it('interrupts the lunge on a gear switch even when the knife is restored before the next simulation tick',()=>{
+    knife(0);duel();
+    const state=(authority().survival as unknown as {players:Map<string,SurvivalPlayer>}).players.get(ids[1]!)!;state.health=55;
+    send(0,{type:'survival.finish',targetId:ids[1],targetLifeRevision:0});expect(snapshot(0).survival!.finishers).toHaveLength(1);
+    send(0,{type:'survival.equip',item:'flashlight'});send(0,{type:'survival.equip',item:'knife'});
+    advance(700);expect(inventory(ids[1]!).health).toBe(55);expect(snapshot(0).survival!.finishers).toHaveLength(0);
+  });
+  it('harvests authored orchard fruit, pays for and uses an authoritative potion without replay renewal',()=>{
+    const trees=authority().survival.snapshot().appleTrees.filter(t=>t.id.startsWith('living:orchard-tree-'));
+    expect(trees).toHaveLength(3);
+    for(const tree of trees.slice(0,2)){place(0,tree);send(0,{type:'survival.harvest',treeId:tree.id});}
+    expect(inventory(ids[0]!).apples).toBe(2);
+    const npcs=(room as unknown as {npcs:import('../../apps/game-server/src/ForestNPCController').ForestNPCController}).npcs;
+    const orin=npcs.get('npc:wizard-orin-vale')!;place(0,orin);
+    send(0,{type:'npc.interact',npcId:orin.id});
+    const view=()=>vi.mocked(clients[0]!.send).mock.calls.filter(c=>c[0]==='living.snapshot').at(-1)![1] as import('../../packages/contracts/src/living-world').LivingWorldSnapshot;
+    const conversation=vi.mocked(clients[0]!.send).mock.calls.filter(c=>c[0]==='npc.conversation').at(-1)![1] as {view:{offers:import('../../packages/contracts/src/living-world').NPCActionOffer[]}};
+    const offer=conversation.view.offers.find(o=>o.kind==='trade'&&o.potion==='strength')!;
+    send(0,{type:'npc.action',npcId:orin.id,targetLifeRevision:orin.lifeRevision??0,actionId:offer.actionId,expectedInventoryRevision:view().personal.inventory.revision});
+    expect(inventory(ids[0]!)).toMatchObject({apples:0,potions:{strength:1,speed:0}});
+    send(0,{type:'survival.equip',item:'strength-potion'});
+    const use={type:'living.use',potion:'strength',commandId:'potion-original-receipt',expectedInventoryRevision:view().personal.inventory.revision};
+    send(0,use);const effect=room.players.get(ids[0]!)!.potionEffects![0]!;
+    expect(effect.expiresAt-effect.startedAt).toBe(20000);expect(inventory(ids[0]!).potions!.strength).toBe(0);
+    vi.setSystemTime(Date.now()+1000);send(0,use);
+    expect(room.players.get(ids[0]!)!.potionEffects).toEqual([effect]);
+    expect(vi.mocked(clients[1]!.send).mock.calls.filter(c=>c[0]==='npc.conversation')).toHaveLength(0);
+    expect(snapshot(1).members.find(p=>p.id===ids[0])!.potionEffects).toEqual([effect]);
+    expect(JSON.stringify(snapshot(1))).not.toContain('personalTrust');
+  });
   it('routes starvation through the same once-only life fence and pauses idle or indoor hunger',()=>{
     const bag=authority().survival.snapshot().backpacks[0]!;place(0,bag);advance(1000);expect(inventory(ids[0]!).hunger).toBe(75);
     const state=(authority().survival as unknown as {players:Map<string,SurvivalPlayer>}).players.get(ids[0]!)!;

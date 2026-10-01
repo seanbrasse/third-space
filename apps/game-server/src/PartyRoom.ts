@@ -1,3 +1,6 @@
+import {KnifeFinisher,type KnifeFinisherActor} from './KnifeFinisher';
+import {LivingWorldRoom} from './living-world-room';
+import {LivingWorldStore} from '../../../packages/data/src/living-world-store';
 import {SnapshotDeltaEncoder} from '../../../packages/contracts/src/snapshot-delta';
 import { ForestNPCController } from './ForestNPCController';
 import {createAuthoredForestNPCs} from './authored-forest-npcs';
@@ -86,6 +89,8 @@ export class PartyRoom extends Room {
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
   private story!:SharedForestStoryStore;
+  private living!:LivingWorldRoom;
+  private finishing=new KnifeFinisher(getWorld('forest'));
   private storyAuthority:ReturnType<SharedForestStoryStore['readAuthority']>;
   private inventoryRevisions=new Map<string,number>();
   private combat:ForestCombatEncounters|null=null;
@@ -148,6 +153,15 @@ export class PartyRoom extends Room {
     this.homeId = options.homeId;
     this.story=new SharedForestStoryStore(PartyRoom.store.db,{canAccess:(homeId,userId)=>PartyRoom.store.canAccess(homeId,userId)});
     this.combat=new ForestCombatEncounters(getWorld('forest'));
+    this.living=new LivingWorldRoom({homeId:this.homeId,epoch:this.epoch,store:new LivingWorldStore(PartyRoom.store.db,{canAccess:(home,id)=>PartyRoom.store.canAccess(home,id)}),survival:this.survival,
+      players:()=>this.players,npcs:()=>this.npcs,keeper:()=>this.keeperNPC(),fresh:(p,c)=>this.freshWorldAction(p,c),canAccess:id=>PartyRoom.store.canAccess(this.homeId,id),story:id=>this.story.read(this.homeId,id),
+      talk:(id,npcId,commandId)=>{const client=this.clientsByUser.get(id);if(!client)return;const now=Date.now();
+        if(npcId==='npc:keeper-ada'){if(this.storyAuthority?.state.chapter!=='complete')this.applyStory(client,{kind:'rescue',npcId:'keeper-ada',actorId:id,eventId:this.storyEventId(id,commandId),occurredAt:now});}
+        else {this.applyStory(client,{kind:'talk',npcId:npcId.slice(4),actorId:id,eventId:this.storyEventId(id,commandId),occurredAt:now});this.npcs?.interact(npcId,this.players.get(id)!,now);}
+        const idle=this.idlePresence.get(id);if(idle)recordActivity(idle,now);
+      },refreshStory:()=>this.broadcastStory(),send:(id,type,data)=>this.clientsByUser.get(id)?.send(type,data),notice:(id,message,commandId)=>{const c=this.clientsByUser.get(id);if(c)this.notice(c,'LIVING_WORLD',message,commandId);},
+      inventoryRevision:(id,revision)=>this.inventoryRevisions.set(id,revision),knockout:(id,now)=>{this.knockout(id,'player',now);}});
+
     const mediaConfig = voiceConfig();
     this.voice = new RoomVoiceService(`third-space:${this.homeId}:${this.epoch}`,
       mediaConfig ? new LiveKitVoiceProvider(mediaConfig) : null, mediaConfig?.url ?? "",
@@ -387,7 +401,7 @@ export class PartyRoom extends Room {
   }
 
   private removePresence(id: string) {
-    this.inventoryRevisions.delete(id);
+    this.inventoryRevisions.delete(id);this.living?.remove(id);
     const connection=this.clientsByUser.get(id);if(connection)this.snapshotStreams.delete(connection);
     const player = this.players.get(id);
     if (player?.mode === "race" && !player.finishedAt && this.race.phase!=="waiting")
@@ -537,12 +551,14 @@ export class PartyRoom extends Room {
       return;
     }
     if(command.type.startsWith("story.")){this.storyCommand(client,p,command as Extract<ClientCommand,{type:`story.${string}`}>);return;}
+    if((command.type.startsWith("npc.")||command.type==="living.use")&&!this.allowed(id+":living",8,1000))return this.notice(client,"RATE_LIMITED","Give your neighbour a moment, then try again.","commandId" in command?command.commandId:undefined);
+    if(this.living.command(id,command)){this.sendSnapshots();return;}
     if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     if(command.type==="mob.attack"){
       if(!this.freshWorldAction(p,command)||p.zone)return this.notice(client,"MOB_STALE","Return outside to face the threat.",command.commandId);
       if(!this.survival.acceptCommand(p.id,command.commandId,Date.now()))return;
       const humans=this.combatants(),actor=humans.find(a=>a.id===p.id)!;
-      const result=this.combat?.strike(actor,command.mobId,command.targetLifeRevision,Date.now(),humans,(a,target,now)=>this.survival.strikeWorldTarget(a,target,now));
+      const result=command.mobId.startsWith("mob:lantern-road")?this.living.strike(id,command.mobId,command.targetLifeRevision,Date.now()):this.combat?.strike(actor,command.mobId,command.targetLifeRevision,Date.now(),humans,(a,target,now)=>this.survival.strikeWorldTarget(a,target,now),this.living.damage(p,Date.now()));
       if(result&&!result.ok)this.notice(client,"MOB_UNAVAILABLE",result.reason,command.commandId);
       this.commitDefeats();this.sendSnapshots();return;
     }
@@ -550,16 +566,6 @@ export class PartyRoom extends Room {
       if(this.worldId!=="forest"||this.worldProposal||p.mode!=="home"||p.respawnAt||command.worldRevision!==this.worldRevision||command.lifeRevision!==(p.respawnCount??0)||command.zoneRevision!==(p.zoneRevision??0))return this.notice(client,"INTERIOR_STALE","The doorway has changed. Try again.",command.commandId);
       if(!this.survival.acceptCommand(p.id,command.commandId,Date.now()))return;
       this.moveInterior(p,command.interiorId,client);return;
-    }
-    if (command.type === "npc.interact") {
-      if (this.worldId !== "forest" || this.worldProposal || p.mode !== "home" || p.zone || p.respawnAt || command.worldRevision !== this.worldRevision || command.lifeRevision !== (p.respawnCount ?? 0) || command.zoneRevision !== (p.zoneRevision ?? 0))
-        return this.notice(client,"NPC_STALE","Return outside to talk with them.",command.commandId);
-      if (!this.survival.acceptCommand(p.id, command.commandId, Date.now())) return;
-      const ada=command.npcId==="npc:keeper-ada"?this.keeperNPC():undefined;
-      if(ada&&this.nearAnchor(p,ada)){this.keeperDialogue={id:`ada:${Date.now()}`,text:this.storyAuthority?.state.chapter==="complete"?"You kept a place for me. I will spend the rest of my days keeping places for you.":this.storyAuthority?.state.defeated.includes(STORY_GUARDIAN)?"You found me. Let’s go home. There is a fire I have missed.":"The roots learned my voice. Break their guardian’s hold, and I can follow you home.",until:Date.now()+6000};if(this.storyAuthority?.state.chapter==="complete")this.notice(client,"STORY_UPDATE",this.keeperDialogue.text,command.commandId);else this.applyStory(client,{kind:"rescue",npcId:"keeper-ada",actorId:p.id,eventId:this.storyEventId(p.id,command.commandId),occurredAt:Date.now()});}
-      else if (!this.npcs?.interact(command.npcId,p,Date.now())) this.notice(client,"NPC_UNAVAILABLE","Walk closer, or let them finish speaking.",command.commandId);
-      else {this.applyStory(client,{kind:"talk",npcId:command.npcId.slice(4),actorId:p.id,eventId:this.storyEventId(p.id,command.commandId),occurredAt:Date.now()});const idle=this.idlePresence.get(p.id);if(idle)recordActivity(idle,Date.now());}
-      this.sendSnapshots(); return;
     }
     if (command.type.startsWith("survival.")) {
       this.survivalCommand(client, p, command as Extract<ClientCommand, {type: `survival.${string}`}>);
@@ -979,7 +985,7 @@ export class PartyRoom extends Room {
   private storyEventId(userId:string,commandId:string){return `user:${createHash('sha256').update(JSON.stringify([userId,commandId])).digest('hex')}`;}
   private nearAnchor(p:PlayerState,point:{x:number;y:number},range=2.5){return distance(p,point)<=range&&isHomeSegmentWalkable(p,point,this.mapFor(p));}
   private pushStory(id:string){
-    const data=this.story.read(this.homeId,id);this.inventoryRevisions.set(id,data.personal.inventory.revision);this.survival.restoreApples(id,data.personal.inventory.apples);this.sendStoryData(id,data);this.refreshStoryAuthority();return data;
+    const data=this.story.read(this.homeId,id);this.inventoryRevisions.set(id,data.personal.inventory.revision);this.survival.restoreApples(id,data.personal.inventory.apples);this.sendStoryData(id,data);this.refreshStoryAuthority();this.living?.push(id);return data;
   }
   private sendStoryData(id:string,data:ForestStorySnapshot){try{this.clientsByUser.get(id)?.send("story.snapshot",data);}catch{/* Reconnect/read resends the durable view; transport failure never undoes a commit. */}}
   private refreshStoryAuthority(){
@@ -1108,6 +1114,7 @@ export class PartyRoom extends Room {
         }
   }
 
+  private finishingActors():KnifeFinisherActor[]{return [...this.players.values()].map(p=>{const s=this.survival.ensure(p.id);return {...p,health:s.health,armed:s.equipped==='knife'&&!!s.knifeId,lifeRevision:p.respawnCount??0,damageRevision:s.damageRevision??0,weaponId:s.knifeId};});}
   private survivalCommand(client: Client, p: PlayerState, command: Extract<ClientCommand, {type: `survival.${string}`}>) {
     const now=Date.now();
     if (this.worldId!=="forest" || this.worldProposal || command.worldRevision!==this.worldRevision || p.mode!=="home" || p.respawnAt)
@@ -1122,16 +1129,23 @@ export class PartyRoom extends Room {
     if (!this.survival.acceptCommand(p.id,command.commandId,now)) { this.sendSnapshots(); return; }
     let result: SurvivalResult;
     switch (command.type) {
-      case "survival.select": result=this.survival.selectSlot(p.id,command.slot); break;
-      case "survival.equip": result=this.survival.equip(p.id,command.item); break;
+      case "survival.select": result=this.survival.selectSlot(p.id,command.slot);if(result.ok)this.finishing.cancel(p.id); break;
+      case "survival.equip": result=this.survival.equip(p.id,command.item);if(result.ok)this.finishing.cancel(p.id); break;
       case "survival.eat": result=this.survival.eat(p,now); break;
       case "survival.harvest": result=this.survival.harvest(p,command.treeId,now); break;
       case "survival.pickup": result=this.survival.pickup(p,command.backpackId,now); break;
+      case "survival.finish": {
+        const actors=this.finishingActors(),actor=actors.find(a=>a.id===p.id)!,target=actors.find(a=>a.id===command.targetId);
+        if(!target||target.lifeRevision!==command.targetLifeRevision){result={ok:false,reason:'That player has recovered. Try again.'};break;}
+        const begun=this.finishing.begin(actor,target,now,(a,b,at)=>this.survival.strikeWorldTarget(a,b,at),{pvpEnabled:this.survival.isPvpEnabled(),worldRevision:this.worldRevision,transitioning:!!this.worldProposal});
+        result=begun.ok?{ok:true,deaths:[]}:begun;break;
+      }
       case "survival.attack": {
         const target=this.players.get(command.targetId);
-        result=target?this.survival.attack(p,target,now):{ok:false,reason:"That player is no longer here"}; break;
+        result=target?this.survival.attack(p,target,now,this.living.damage(p,now)):{ok:false,reason:"That player is no longer here"};if(result.ok)this.living.recordPlayerHit(p.id,command.targetId,command.commandId,now); break;
       }
     }
+    this.living.refreshMember(p.id);
     if (!result.ok) this.notice(client,"SURVIVAL_UNAVAILABLE",result.reason,command.commandId);
     else { for (const id of result.deaths) this.knockout(id,"player",now); const idle=this.idlePresence.get(p.id); if(idle)recordActivity(idle,now); }
     this.sendSnapshots();
@@ -1174,7 +1188,7 @@ export class PartyRoom extends Room {
     for (const [id, p] of this.players) {
       if(p.respawnAt){
         if(now<p.respawnAt){p.vx=p.vy=0;continue;}
-        this.survival.respawn(id);
+        this.survival.respawn(id);this.living.refreshMember(id);
         Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000,flashlightBattery:1,flashlightOn:false});delete p.respawnAt;this.intents.delete(id);
       }
       if(p.caughtAt&&now-p.caughtAt>2500){delete p.caughtAt;delete p.caughtBy;}
@@ -1224,6 +1238,10 @@ export class PartyRoom extends Room {
         }
       }
     }
+    for(const hit of this.finishing.update(now,this.finishingActors(),{pvpEnabled:this.worldId==='forest'&&this.survival.isPvpEnabled(),worldRevision:this.worldRevision,transitioning:!!this.worldProposal})){
+      const target=this.players.get(hit.targetId);if(!target||(target.respawnCount??0)!==hit.targetLifeRevision||(target.zoneRevision??0)!==hit.targetZoneRevision)continue;
+      const result=this.survival.damageWorld(target,hit.amount,now);if(result.ok){this.living.recordPlayerHit(hit.attackerId,hit.targetId,hit.id,now);for(const id of result.deaths)this.knockout(id,'player',now);}
+    }
     const hungerDeaths=this.survival.tick(now,this.worldId==="forest"?[...this.players.values()]:[]);
     for(const id of hungerDeaths)this.knockout(id,"hunger",now);
     if(this.worldId==="forest"){
@@ -1231,10 +1249,10 @@ export class PartyRoom extends Room {
       this.commitDefeats();
     }
     const outside=[...this.players.values()].filter(p=>!p.zone);
-    if (now - this.lastNPCTick >= 100) { this.npcs?.update(now,{phase:worldDayAt(worldClimateAt(now,this.homeId),now).phase}); this.lastNPCTick=now; }
+    if (now - this.lastNPCTick >= 100) { if(this.worldId==="forest")this.living.tick(now,worldDayAt(worldClimateAt(now,this.homeId),now).phase); this.lastNPCTick=now; }
     // NPCs continue everywhere, but do not turn a resting human party into a hunting encounter.
     const exposed = outside.some(p=>p.connected&&p.mode==="home"&&!p.respawnAt&&(p.haloUntil??0)<=now&&distance(p,getWorld(this.worldId).fire??p)>9.5);
-    const prey=exposed?[...outside,...(this.npcs?.prey()??[])]:outside;
+    const prey=exposed?[...outside,...(this.npcs?.prey().filter(n=>!this.living.protectedNpc(n.id))??[])]:outside;
     const catches: {id:string|null|undefined;cause:"mimic"|"werewolf"|"clown";encounterId?:string}[]=[];
     if(!this.encounter?.state&&!this.werewolf?.state)catches.push({id:this.mimic?.update(now,prey,outside),cause:"mimic",encounterId:this.mimic?.state?.id});
     if(!this.encounter?.state&&!this.mimic?.state)catches.push({id:this.werewolf?.update(now,prey,outside),cause:"werewolf",encounterId:this.werewolf?.state?.id});
@@ -1244,7 +1262,7 @@ export class PartyRoom extends Room {
       if(!caught.id)continue;
       const npc=this.npcs?.get(caught.id),player=this.players.get(caught.id),victim=player??npc;
       if(!victim)continue;
-      if(npc){if(!this.npcs?.catch(npc.id,now))continue;}
+      if(npc){if(this.living.protectedNpc(npc.id)||!this.npcs?.catch(npc.id,now))continue;}
       else if(!this.knockout(caught.id,caught.cause,now))continue;
       this.worldSound({id:`${this.epoch}:${this.worldRevision}:${caught.cause}:${caught.encounterId}:hit:${caught.id}`,kind:caught.cause==="mimic"?"mimic-hit":caught.cause==="werewolf"?"claw":"slash",x:victim.x,y:victim.y,...(player?{victimId:player.id}:{}),createdAt:now,expiresAt:now+1000});
       if(player){const client=this.clientsByUser.get(player.id);if(client)this.notice(client,"FOREST_CAUGHT",`The ${caught.cause} caught you. Returning to the fire...`);}
@@ -1324,7 +1342,7 @@ export class PartyRoom extends Room {
   }
   private sendSnapshots() {
     const now = Date.now();
-    const climate=this.worldId==="forest"?worldClimateAt(now,this.homeId):undefined,keeper=this.keeperNPC(),npcs=[...(this.npcs?.snapshot()??[]),...(keeper?[keeper]:[])],mobs=this.combat?.snapshot();
+    const climate=this.worldId==="forest"?worldClimateAt(now,this.homeId):undefined,keeper=this.keeperNPC(),npcs=[...(this.npcs?.snapshot()??[]),...(keeper?[keeper]:[])],baseMobs=this.combat?.snapshot(),road=this.living.controller.snapshot(),mobs={mobs:[...(baseMobs?.mobs??[]),...road.mobs],encounters:[...(baseMobs?.encounters??[]),...road.encounters]};
     for (const [id, client] of this.clientsByUser) {
       const p = this.players.get(id);
       if (!p) continue;
@@ -1338,7 +1356,7 @@ export class PartyRoom extends Room {
           (partyWideVoice || voiceGroup(v, voiceContext) === voiceGroup(p, voiceContext))).map(v => v.id) };
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
-        survival: this.worldId==="forest"?this.survival.snapshot():undefined,
+        survival: this.worldId==="forest"?{...this.survival.snapshot(),finishers:p.mode==="home"&&!p.zone?this.finishing.snapshot().filter(t=>distance(t.point,p)<56):[]}:undefined,
         idle: this.idlePresence.has(id) ? (() => { const { warningAt, kickAt } = idleStatus(this.idlePresence.get(id)!, now); return { warningAt, kickAt }; })() : undefined,
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
         werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,

@@ -1,3 +1,4 @@
+import {LIVING_WORLD_NPCS} from './living-world-npcs';
 import type { WorldDefinition } from '@third-space/config';
 import { AUTHORED_FOREST_NPCS, FOREST_WILDLIFE } from '../../../packages/config/src/forest-cast';
 import type { ForestNPCArt } from '../../../packages/contracts/src/forest-npc';
@@ -8,6 +9,7 @@ const roleArt: Record<string, ForestNPCArt> = { watch: 'guard', cat: 'catfolk', 
 export function authoredForestNPCDefinitions(): ForestNPCDefinition[] {
   return [
     ...DEFAULT_FOREST_NPCS,
+    ...LIVING_WORLD_NPCS,
     ...AUTHORED_FOREST_NPCS.map(npc => ({
       id: `npc:${npc.id}`, name: npc.name.replace(/ · .+$/, ''), role: npc.role === 'cat' ? 'Catfolk courier' : npc.role === 'watch' ? 'Town watch' : npc.role === 'flirt' ? 'Unreliable poet' : npc.role,
       art: roleArt[npc.role] ?? npc.role as ForestNPCArt,

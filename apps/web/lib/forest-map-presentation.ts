@@ -1,3 +1,5 @@
+import {livingEnvironmentObjectCanvas} from './living-environment-art';
+import {livingEnvironmentStyle,livingEnvironmentIsFloor} from '../../../packages/config/src/living-environment';
 import * as Phaser from 'phaser';
 import type {Furniture,WorldMap} from '@third-space/config';
 import {authoredBuildingStyle,authoredTreeStyle} from '../../../packages/config/src/authored-forest';
@@ -53,10 +55,10 @@ export class ForestMapPresentation {
     for(const [id,image]of this.objects)if(!visible.has(id)){image.destroy();this.objects.delete(id);}
     for(const [id,item]of visible){
       if(this.objects.has(id))continue;
-      const f=item.footprint,style=id==='bramblewick-story-board'?id:authoredTreeStyle(id)??authoredBuildingStyle(id)??item.kind;
+      const f=item.footprint,style=id==='bramblewick-story-board'?id:livingEnvironmentStyle(id)??authoredTreeStyle(id)??authoredBuildingStyle(id)??item.kind;
       const texture=`forest-prop-v3:${style}:${f.width}:${f.height}`;
-      if(!this.scene.textures.exists(texture)){this.scene.textures.addCanvas(texture,id==='bramblewick-story-board'?forestStoryBoardCanvas(this.tile):authoredForestObjectCanvas(item,this.tile)??forestObjectCanvas(item,this.tile));this.objectTextures.add(texture);}
-      const image=this.scene.add.image(f.x*this.tile,f.y*this.tile,texture).setOrigin(0).setDepth((f.y+f.height-.4)*this.tile);
+      if(!this.scene.textures.exists(texture)){this.scene.textures.addCanvas(texture,id==='bramblewick-story-board'?forestStoryBoardCanvas(this.tile):livingEnvironmentObjectCanvas(item,this.tile)??authoredForestObjectCanvas(item,this.tile)??forestObjectCanvas(item,this.tile));this.objectTextures.add(texture);}
+      const image=this.scene.add.image(f.x*this.tile,f.y*this.tile,texture).setOrigin(0).setDepth(livingEnvironmentIsFloor(id)?1:(f.y+f.height-.4)*this.tile);
       if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on('pointerdown',(_p:Phaser.Input.Pointer,_x:number,_y:number,event:Phaser.Types.Input.EventData)=>{event.stopPropagation();this.use(item);});}
       this.objects.set(id,image);
     }

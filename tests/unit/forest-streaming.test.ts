@@ -193,7 +193,7 @@ it('keeps complete NPC/mob authority when recipient interest differs across eigh
     const authority = room as unknown as { npcs: ForestNPCController; combat: ForestCombatEncounters; sendSnapshots(): void };
     authority.combat.syncStory(['keeper-copperbutton-raiders', 'keeper-mossbutton-raiders'], []);
     const fullNPCs = authority.npcs.snapshot(), fullMobs = authority.combat.snapshot();
-    expect(fullNPCs).toHaveLength(25); expect(fullMobs.mobs).toHaveLength(4);
+    expect(fullNPCs).toHaveLength(32); expect(fullMobs.mobs).toHaveLength(4);
     authority.sendSnapshots();
     const snapshots = clients.map(client => vi.mocked(client.send).mock.calls.filter(call => call[0] === 'snapshot').at(-1)![1] as RoomSnapshot);
     expect(new Set(snapshots.map(s => s.npcs!.length)).size).toBeGreaterThan(1);
@@ -205,6 +205,6 @@ it('keeps complete NPC/mob authority when recipient interest differs across eigh
     const nearIndex = snapshots.findIndex(s => s.npcs!.some(n => n.id === distant.id)); expect(nearIndex).toBeGreaterThanOrEqual(0);
     const updated = vi.mocked(clients[nearIndex]!.send).mock.calls.filter(c => c[0] === 'snapshot').at(-1)![1] as RoomSnapshot;
     expect(updated.npcs!.find(n => n.id === distant.id)?.health).toBe(distant.maxHealth - 40);
-    expect(authority.npcs.snapshot()).toHaveLength(25); expect(room.players.size).toBe(8);
+    expect(authority.npcs.snapshot()).toHaveLength(32); expect(room.players.size).toBe(8);
   } finally { room?.onDispose(); room?.clock.clear(); store.close(); vi.useRealTimers(); }
 });

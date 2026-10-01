@@ -730,6 +730,8 @@ small {
   width: 100%;
 }
 .world-canvas canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   image-rendering: pixelated;
 }
@@ -2141,6 +2143,7 @@ fieldset {
 .home-view .world-canvas {
   grid-area: world;
   width: 100%;
+  min-width: 0;
   height: auto;
   min-height: 0;
   aspect-ratio: 1;
@@ -2432,7 +2435,7 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .stamina-track{height:8px;flex:1;max-width:260px;min-width:40px;border:1px solid #9dad84;border-radius:5px;background:#152c24;overflow:hidden}
 .stamina-fill{height:100%;background:#b5d49b}
 .stamina-hud[data-phase="boosting"] .stamina-fill{background:#f0c276}
-@media(max-width:850px){.world-shell.home-view{grid-template-areas:"top" "world" "bottom" "people" "chat"}}
+@media(max-width:850px){.world-shell.home-view{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "world" "bottom" "people" "chat"}}
 @media(max-width:650px){
  .home-view .world-topline>span:first-child{flex-basis:calc(100% - 95px);min-height:30px;display:flex;align-items:center}
  .world-topline>span:nth-child(2){margin-left:0;flex:1 1 160px;min-width:160px}
@@ -2558,3 +2561,16 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 
 .interior-exit-control{position:absolute;z-index:14;top:12px;left:12px;min-height:44px;padding:10px 14px;border:1px solid #c6b991;border-radius:10px;background:#26382eea;color:#f5ecd6;font:600 13px system-ui,sans-serif;box-shadow:0 2px 8px #0004;cursor:pointer}.interior-exit-control:focus-visible{outline:3px solid #e3b96e;outline-offset:3px}
 .interior-exit-control:hover{background:#344d3f;color:#fff4db}.interior-exit-control:disabled{background:#354038;color:#c3c4b8;cursor:default;opacity:.65}
+
+/* NPC choices get the middle lane. Social disclosures stay available at left;
+   activating either restores that panel and dismisses the NPC conversation. */
+@media(min-width:600px) and (max-width:850px) and (max-height:480px){
+ .app:fullscreen .home-view.compact-npc-conversation .world-canvas{min-height:235px}
+ .app:fullscreen .home-view.compact-npc-conversation :is(.people-panel,.chat-panel){grid-area:world;position:relative;inset:auto;align-self:start;justify-self:start;width:142px;max-height:44px;margin:0 0 0 8px;z-index:25}
+ .app:fullscreen .home-view.compact-npc-conversation .chat-panel{margin-top:44px}
+ .app:fullscreen .home-view.compact-npc-conversation .chat-heading{height:44px;min-height:44px;padding:4px 6px;font-size:10px;line-height:1.3}
+ .app:fullscreen .home-view.compact-npc-conversation .touch-controls{align-self:end;justify-self:start;width:142px;margin:0 0 4px 8px;flex-direction:column;align-items:center;gap:4px}
+ .app:fullscreen .home-view.compact-npc-conversation .dpad{grid-template-columns:repeat(3,44px);grid-template-rows:repeat(2,44px)}
+ .app:fullscreen .home-view.compact-npc-conversation .npc-interaction-footer{max-height:40%;overflow:auto}
+ .app:fullscreen .home-view.compact-npc-conversation .touch-action{width:138px;height:44px;min-height:44px;border-radius:7px}
+}

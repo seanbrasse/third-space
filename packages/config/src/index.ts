@@ -1,3 +1,4 @@
+import {augmentLivingForest} from './living-environment';
 import {expandAuthoredForest,FOREST_INTERIORS} from './authored-forest';
 import {FOREST_STORY_BOARD} from './forest-story-board';
 export interface Point {
@@ -176,7 +177,7 @@ export const CORE_FOREST_MAP: WorldMap = {
   furniture:forestFurniture,seats:[...forestSeats,{id:"charger-seat",x:30.5,y:23.7}],
   solids:[{x:0,y:0,width:80,height:1},{x:0,y:63,width:80,height:1},{x:0,y:0,width:1,height:64},{x:79,y:0,width:1,height:64},...forestFurniture.flatMap(f=>f.collider?[f.collider]:[])],
 };
-export const FOREST_MAP: WorldMap = expandAuthoredForest(CORE_FOREST_MAP);
+export const FOREST_MAP: WorldMap = augmentLivingForest(expandAuthoredForest(CORE_FOREST_MAP));
 FOREST_MAP.furniture=[...FOREST_MAP.furniture,FOREST_STORY_BOARD];
 FOREST_MAP.solids=[...FOREST_MAP.solids,FOREST_STORY_BOARD.collider!];
 export const ASYLUM_DOOR={x:69,y:13.5};

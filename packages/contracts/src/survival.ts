@@ -1,5 +1,5 @@
 /** Public room-local survival snapshot; no secret item contents or private user data. */
-export type SurvivalItem = 'flashlight' | 'apple' | 'knife';
+export type SurvivalItem = 'flashlight' | 'apple' | 'knife' | 'strength-potion' | 'speed-potion';
 export interface SurvivalPlayer {
     id: string;
     health: number;
@@ -9,7 +9,9 @@ export interface SurvivalPlayer {
     slots: (SurvivalItem | null)[];
     selectedSlot: number;
     apples: number;
+    potions?: {strength:number;speed:number};
     knifeId?: string;
+    damageRevision?:number;
 }
 export interface Backpack {
     id: string;
@@ -29,7 +31,12 @@ export interface SurvivalEvent {
     targetId?: string;
     at: number;
 }
+export interface KnifeFinisherTell {
+    id:string;attackerId:string;targetId:string;point:{x:number;y:number};radius:number;startedAt:number;until:number;
+    attackerLifeRevision:number;targetLifeRevision:number;worldRevision:number;
+}
 export interface SurvivalSnapshot {
+    finishers?:KnifeFinisherTell[];
     pvpEnabled: boolean;
     players: SurvivalPlayer[];
     backpacks: Backpack[];

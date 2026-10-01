@@ -9,13 +9,13 @@ describe('authored NPC population', () => {
   it('keeps the complete authored cast active with a fixed path budget while eight humans could be far apart', () => {
     const expanded = { ...world, map: expandAuthoredForest(world.map) };
     const c = createAuthoredForestNPCs(expanded, () => .4);
-    expect(c.snapshot()).toHaveLength(25);
-    expect(new Set(c.snapshot().map(n => n.id)).size).toBe(25);
+    expect(c.snapshot()).toHaveLength(32);
+    expect(new Set(c.snapshot().map(n => n.id)).size).toBe(32);
     const before = new Map(c.snapshot().map(n => [n.id, n]));
     for (let now = 100; now <= 8000; now += 100) {
       c.update(now);
       expect(c.diagnostics().lastPathSearches).toBeLessThanOrEqual(1);
-      expect(c.diagnostics().pathPoints).toBeLessThanOrEqual(25 * NPC_RULES.maxPathPoints);
+      expect(c.diagnostics().pathPoints).toBeLessThanOrEqual(32 * NPC_RULES.maxPathPoints);
       for (const npc of c.snapshot()) expect(isHomeWalkable(npc, expanded.map)).toBe(true);
     }
     const moving = c.snapshot().filter(n => distance(n, before.get(n.id)!) > .1);

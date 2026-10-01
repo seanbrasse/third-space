@@ -12,7 +12,39 @@
 .survival-use { pointer-events:auto; min-height:44px; margin:3px 0 0; padding:3px 14px; color:#f1e8cd; background:#21352bea; border:1px solid #7e8e70; border-radius:3px; font:10px monospace; touch-action:manipulation; }
 .survival-hud button:disabled { opacity:.55; }
 .survival-hud button:focus-visible { outline:2px solid #fff9da; outline-offset:3px; }
-/* Keep movement controls above inventory, with independent touch targets. */
-.forest-view .touch-controls { margin-bottom:132px; }
+/* Include transient warning/effect rows and the HUD's safe-area bottom inset.
+   These are grid siblings: a fixed margin lets the inventory grow over movement. */
+.home-view.forest-view .touch-controls { margin:12px max(12px,env(safe-area-inset-right)) var(--survival-hud-clearance,132px) max(12px,env(safe-area-inset-left)); }
+@media(max-width:1080px){
+ .home-view.forest-view .dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(2,44px);gap:3px}
+ .home-view.forest-view .dpad button{min-width:44px;min-height:44px;padding:0;border-radius:7px;touch-action:none;user-select:none}
+ .home-view.forest-view .dpad .up{grid-column:2;grid-row:1}
+ .home-view.forest-view .dpad .left{grid-column:1;grid-row:2}
+ .home-view.forest-view .dpad .down{grid-column:2;grid-row:2}
+ .home-view.forest-view .dpad .right{grid-column:3;grid-row:2}
+ .home-view.forest-view .touch-action{flex-shrink:0;width:49px;height:49px;min-width:44px;min-height:44px;border:1px solid #bca9cf;border-radius:50%;background:#d9cbe7e8;color:#382f42;font:10px/1.3 system-ui,sans-serif;touch-action:none;user-select:none}
+ /* 91px movement + 8px gap + measured talk prompt + 8px top clearance.
+    Tiny windows may scroll; movement must never be pushed out of the canvas. */
+ .app .world-shell.home-view.forest-view .world-canvas{min-height:calc(var(--survival-hud-clearance,132px) + 107px + var(--survival-talk-height,44px))}
+ .home-view.forest-view .nearby-npc-prompt{bottom:calc(var(--survival-hud-clearance,132px) + 99px)}
+}
 @media(max-width:480px) { .survival-hotbar .inventory-slot{width:44px;height:44px} .survival-meters{gap:8px}.survival-meters meter{width:33px}.survival-hud{bottom:max(6px,env(safe-area-inset-bottom))} }
 @media(max-width:1080px){.forest-view .navigation-map{align-self:start;margin:8px 0 0 8px}.forest-view .navigation-map .map-card{bottom:auto;top:42px}}
+
+.survival-finish{pointer-events:auto;touch-action:manipulation;min-height:44px;max-width:100%;overflow-wrap:anywhere;border:1px solid #bc9272;background:#614b37;color:#f3e3c4;border-radius:5px;padding:5px 8px;font-size:11px;cursor:pointer}.survival-finish:disabled{opacity:.6;cursor:default}.finisher-alert{max-width:240px;margin:0 0 4px;padding:5px 7px;border:1px solid #e5ac74;border-radius:4px;background:#4b322bed;color:#ffe6ba;font-size:11px}.potion-effects{margin:0 0 3px;color:#d5e1ac;font:11px/1.3 system-ui,sans-serif}
+
+/* Short landscape gives movement, conversation, and inventory separate columns. */
+@media(max-height:480px) and (min-width:600px){
+ .survival-hud{left:auto;right:max(8px,env(safe-area-inset-right));transform:none;width:244px}
+ .home-view.forest-view .touch-controls,
+ .app:fullscreen .home-view.forest-view.compact-npc-conversation .touch-controls{align-self:end;justify-self:start;width:142px;margin:0 0 max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));flex-direction:column;align-items:center;gap:4px}
+ .home-view.forest-view .touch-action{width:138px;height:44px;min-height:44px;border-radius:7px}
+ .app .world-shell.home-view.forest-view .world-canvas,
+ .app .world-shell.home-view.forest-view.compact-npc-conversation .world-canvas{height:clamp(235px,calc(100dvh - 140px),400px);aspect-ratio:auto;min-height:max(calc(227px + max(8px,env(safe-area-inset-bottom))),calc(var(--survival-hud-clearance,132px) + 16px))}
+ .survival-hotbar .inventory-slot{width:44px;height:44px}
+ .survival-use:has(+ .survival-finish){width:100px;padding:3px}
+ .survival-finish{width:140px;vertical-align:top;margin-top:3px}
+ .home-view.forest-view .nearby-npc-prompt{left:calc(150px + max(8px,env(safe-area-inset-left)));right:calc(var(--survival-hud-width,244px) + max(8px,env(safe-area-inset-right)) + 16px);bottom:max(8px,env(safe-area-inset-bottom));transform:none;max-width:none;width:auto}
+ /* Feedback has no action of its own; leave the bottom combat row visible. */
+ .app > .toast{top:max(8px,env(safe-area-inset-top));bottom:auto;padding:8px 12px;max-width:min(440px,calc(100vw - 32px));pointer-events:none}
+}

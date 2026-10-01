@@ -6,7 +6,9 @@ import './forest-story-board.css';
 
 export interface ForestStoryBoardProps {
   open:boolean;
+  initialTab?:StoryBoardTab;
   snapshot:ForestStorySnapshot|null;
+  living?:import('../../../packages/contracts/src/living-world').LivingWorldSnapshot|null;
   onClose:()=>void;
   /** Root should use restoreGameFocus so another newly opened panel keeps focus. */
   onFocusGame?:()=>void;
@@ -42,11 +44,12 @@ function LeadCard({lead,titles}:{lead:StoryLead;titles:ReadonlyMap<string,string
 
 /** Discovered-only view: no imports of the authored mystery or future quest graph.
  * Mount persistently inside .world-shell so native dialog also works in fullscreen. */
-export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,actionsAvailable=true,unavailableReason,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice}:ForestStoryBoardProps){
+export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,actionsAvailable=true,unavailableReason,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice,initialTab='leads',living}:ForestStoryBoardProps){
   const dialog=useRef<HTMLDialogElement>(null),close=useRef<HTMLButtonElement>(null),wasOpen=useRef(false),restore=useRef(onFocusGame);
   restore.current=onFocusGame;
   const [tab,setTab]=useState<StoryBoardTab>('leads');
   const previousTab=useRef<StoryBoardTab>('leads');
+  useEffect(()=>{if(open)setTab(initialTab);},[open,initialTab]);
   const id=useId(),titleId=`${id}-title`,descriptionId=`${id}-description`;
   const tabs=useRef<Partial<Record<StoryBoardTab,HTMLButtonElement|null>>>({});
   useLayoutEffect(()=>{
@@ -64,6 +67,7 @@ export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onCl
   if(!open)return <dialog ref={dialog} className="forest-story-board"/>;
   const people=snapshot?discoveredStoryPeople(snapshot.story):[];
   const counts=snapshot?storyBoardCounts(snapshot):{leads:0,evidence:0,people:0,recap:0};
+  if(living?.rescue.discovered)counts.leads++;
   const titles=new Map(snapshot?.story.leads.map(l=>[l.id,l.title])??[]);
   const active=snapshot?.story.leads.filter(l=>l.status==='active')??[],resolved=snapshot?.story.leads.filter(l=>l.status==='complete')??[];
   const rewards=snapshot?.personal.rewards??[];
@@ -94,8 +98,13 @@ export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onCl
               {snapshot.personal.catchUp.length>3&&<button type="button" onClick={()=>{setTab('recap');tabs.current.recap?.focus();}}>Read the shared recap</button>}
             </aside>}
             {snapshot.story.chapter!=='undiscovered'&&<section className="story-main-thread"><span className="story-eyebrow">The main thread</span><h3>{snapshot.story.title}</h3><p>{snapshot.story.summary}</p><Objectives items={snapshot.story.objectives}/></section>}
+            {living?.rescue.discovered&&<article className="story-lead" aria-label="Lantern Road shared lead"><header><h3>Lantern Road</h3><small>{living.rescue.stage==='complete'?'Resolved':'Shared side lead'}</small></header><p>{living.rescue.summary}</p><p><strong>{living.rescue.objective}</strong></p>
+              <p>{['recovering','complete'].includes(living.rescue.stage)?'Mara is at the south end of Bramblewick.':'Find Mara beside the apple cart in Lantern Orchard, then follow the southern road east and the pond road north to Bramblewick.'}</p>
+              {living.rescue.setbacks>0&&<p>{living.rescue.setbacks} roadside {living.rescue.setbacks===1?'setback':'setbacks'} recorded. Mara can recover; the home can try again.</p>}
+              {living.personal.rewards.map(reward=><p key={reward.id}>{reward.status==='claimed'?'Your thank-you speed tonic is collected.':'Your personal speed tonic is waiting. Speak to Mara in Bramblewick to collect it.'}</p>)}
+            </article>}
             {!!active.length&&<section aria-label="Open leads"><h3 className="story-section-label">Open leads</h3>{active.map(lead=><LeadCard key={lead.id} lead={lead} titles={titles}/>)}</section>}
-            {!active.length&&!resolved.length&&<p className="story-empty">No notices yet. Talk to the people you meet; a small conversation can become the first thread.</p>}
+            {!active.length&&!resolved.length&&!living?.rescue.discovered&&<p className="story-empty">No notices yet. Talk to the people you meet; a small conversation can become the first thread.</p>}
             {!!resolved.length&&<section aria-label="Resolved leads"><h3 className="story-section-label">What we have settled</h3>{resolved.map(lead=><LeadCard key={lead.id} lead={lead} titles={titles}/>)}</section>}
             {!!rewards.length&&<section className="story-rewards" aria-label="Your rewards"><h3>Your keepsakes</h3><p>Shared discoveries; a thank-you of your own.</p>{rewards.map(reward=><article key={reward.id}><div><strong>{reward.title}</strong><span>{reward.apples>0?`${reward.apples} apples · `:''}Keepsake badge</span></div>
               {reward.status==='claimed'?<span className="story-reward-claimed">Collected ✓</span>:onClaimReward?<button type="button" disabled={!actionsAvailable||!!pendingRewardId||!!pendingAccusationId} onClick={()=>onClaimReward(reward.id)}>{pendingRewardId===reward.id?'Collecting…':'Collect reward'}</button>:<span>Ready to collect</span>}

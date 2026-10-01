@@ -53,6 +53,8 @@ export type VoiceMode = z.infer<typeof VoiceModeSchema>;
 export type Facing = "up" | "down" | "left" | "right";
 
 export interface PlayerState {
+  /** Server-issued absolute expiries; reconnect and respawn never renew effects. */
+  potionEffects?: import('./living-world').PotionEffect[];
   id: string;
   name: string;
   x: number;
@@ -181,6 +183,10 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
   z.object({type:z.literal("npc.interact"),npcId:z.string().startsWith("npc:").max(100),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("npc.action"),expectedInventoryRevision:z.number().int().min(1),npcId:z.string().startsWith("npc:").max(100),actionId:IdSchema,targetLifeRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("npc.attack"),npcId:z.string().startsWith("npc:").max(100),targetLifeRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("npc.decline"),npcId:z.string().startsWith("npc:").max(100),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("living.use"),expectedInventoryRevision:z.number().int().min(1),potion:z.enum(["strength","speed"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("interior.enter"),interiorId:z.string().refine(id=>id==="outside"||FOREST_INTERIORS.some(interior=>interior.id===id)),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("story.read"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("story.seen"),seenRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
@@ -190,10 +196,11 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({type:z.literal("story.reward"),rewardId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("mob.attack"),mobId:z.string().startsWith("mob:").max(140),targetLifeRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.select"),slot:z.number().int().min(0).max(4),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
-  z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife","strength-potion","speed-potion"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.harvest"),treeId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.eat"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.pickup"),backpackId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.finish"),targetId:IdSchema,targetLifeRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.attack"),targetId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.pvp"),enabled:z.boolean(),commandId:CommandIdSchema,worldRevision:z.number().int().min(0)}).strict(),
   z.object({ type: z.literal("session.replace") }).strict(),

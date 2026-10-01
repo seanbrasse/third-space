@@ -1,3 +1,4 @@
+import {livingEnvironmentObjectCanvas} from './living-environment-art';
 import { FOREST_MAP } from '@third-space/config';
 import { appleTreeCanvas } from './apple-tree-art';
 import type * as Phaser from 'phaser';
@@ -84,7 +85,8 @@ export class SurvivalPresentation {
                 wanted.add(key);
                 const f = FOREST_MAP.furniture.find(item => item.id === tree.id)?.footprint;
                 if (!f) continue;
-                const texture = `survival-tree-${tree.readyAt <= now}`;
+                const ripe=tree.readyAt<=now,authored=tree.id.startsWith('living:orchard-tree-'),texture=authored?`survival-orchard:${f.width}:${f.height}:${ripe}`:`survival-tree-${ripe}`;
+                if(authored&&!this.scene.textures.exists(texture)){const item=FOREST_MAP.furniture.find(item=>item.id===tree.id)!;this.scene.textures.addCanvas(texture,livingEnvironmentObjectCanvas(item,TILE,ripe)!);}
                 const sprite = this.obtain(key, texture, () => this.command({ type: 'survival.harvest', treeId: tree.id }));
                 sprite.setTexture(texture).setOrigin(0).setScale(1).setPosition(f.x * TILE, f.y * TILE)
                     .setDepth((f.y + f.height - .4) * TILE).setVisible(Math.hypot(tree.x - viewer.x, tree.y - viewer.y) <= 24);
@@ -114,6 +116,12 @@ export class SurvivalPresentation {
                     this.impacts.lineStyle(2,0xc47e59,.8);this.impacts.strokeEllipse(actor.x*TILE,actor.y*TILE-15,29,38);
                 }
             }
+        }
+        if(snapshot&&!viewer.zone&&viewer.mode==='home')for(const tell of snapshot.finishers??[]){
+            if(tell.until<now||Math.hypot(tell.point.x-viewer.x,tell.point.y-viewer.y)>14)continue;
+            const x=tell.point.x*TILE,y=tell.point.y*TILE,r=tell.radius*TILE;
+            this.impacts.fillStyle(0xa95543,.18).fillCircle(x,y,r).lineStyle(2,0xe5ac74,.95).strokeCircle(x,y,r);
+            this.impacts.lineStyle(2,0xf0d7a2,.9).lineBetween(x-5,y-5,x+5,y+5).lineBetween(x+5,y-5,x-5,y+5);
         }
         this.impacts.setDepth(11010);
         for(const [id,sprite] of this.held)if(!wantedHeld.has(id)){sprite.destroy();this.held.delete(id);}
