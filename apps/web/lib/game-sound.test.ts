@@ -4,11 +4,33 @@ import { SoundboardAudio } from './audio';
 import type { Snapshot } from './types';
 afterEach(() => vi.unstubAllGlobals());
 describe('quiet positional game sounds', () => {
-    it('keeps peer movement below threats and fades to silence at range', () => { expect(gameSoundGain('player-step', 1, .5)).toBeLessThan(gameSoundGain('clown-step', 1, .5) / 4); for (const kind of ['player-step', 'clown-step', 'giggle', 'slash'] as const) {
+    it('keeps peer movement below threats and fades to silence at range', () => { expect(gameSoundGain('player-step', 1, .5)).toBeLessThan(gameSoundGain('clown-step', 1, .5) / 3); for (const kind of ['player-step', 'clown-step', 'giggle', 'slash'] as const) {
         expect(gameSoundGain(kind, 2, .5)).toBeGreaterThan(gameSoundGain(kind, 6, .5));
         expect(gameSoundGain(kind, kind === 'clown-step' ? 16 : 12, 1)).toBe(0);
         expect(gameSoundGain(kind, 0, 0)).toBe(0);
     } expect(gameSoundGain('player-step', 8, 1)).toBe(0); });
+    it('raises only movement source levels while preserving spatial cutoff and headroom', () => {
+        const kinds=['player-step','clown-step','werewolf-step'] as const;
+        const levels=[.07,.24,.22], ranges=[8,16,16];
+        for(let i=0;i<kinds.length;i++) {
+            const kind=kinds[i]!, range=ranges[i]!;
+            expect(gameSoundGain(kind,0,1)).toBe(levels[i]);
+            const values=[0,2,4,6,range,range+10].map(d=>gameSoundGain(kind,d,1));
+            for(let n=1;n<values.length;n++)expect(values[n]).toBeLessThanOrEqual(values[n-1]!);
+            expect(values.slice(-2)).toEqual([0,0]);expect(gameSoundGain(kind,0,0)).toBe(0);
+        }
+        expect(gameSoundGain('howl',0,1)).toBe(.20);expect(gameSoundGain('growl',0,1)).toBe(.18);
+        expect(gameSoundGain('giggle',0,1)).toBe(.075);expect(gameSoundGain('slash',0,1)).toBe(.24);
+        // Convex brown-noise filter stays within +/-1. Envelope <=1, so samples
+        // are bounded by .55+.30 for player/clown and .40+.35 for wolf.
+        // Eight simultaneous co-located avatars plus the single active creature
+        // remain below full scale even without the own-player .45 attenuation.
+        const conservativePeak=8*.07*.85+Math.max(.24*.85,.22*.75);
+        expect(conservativePeak).toBeCloseTo(.68);
+        expect(conservativePeak).toBeLessThan(1);
+        let seed=19;vi.spyOn(Math,'random').mockImplementation(()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;});
+        for(const kind of kinds)expect(Math.max(...gameSoundSamples(kind,48000).map(Math.abs))).toBeLessThan(kind==='werewolf-step'?.75:.85);
+    });
     it('speeds up heavy steps as the target gets closer', () => { expect(clownStepInterval(0)).toBe(220); expect(clownStepInterval(8)).toBe(520); expect(clownStepInterval(2)).toBeLessThan(clownStepInterval(6)); });
     it('creates finite short samples with headroom instead of clipping', () => { for (const kind of ['player-step', 'clown-step', 'giggle', 'slash'] as const) {
         const data = gameSoundSamples(kind, 8000);

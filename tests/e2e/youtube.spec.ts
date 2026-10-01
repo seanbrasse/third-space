@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect } from '@playwright/test';
 test('YouTube adapter follows shared member controls, persistent TV surface and queue and game mute stays independent', async ({browser,page})=>{
  test.setTimeout(150000);const context=await browser.newContext(),guest=await context.newPage();
@@ -19,7 +20,7 @@ test('YouTube adapter follows shared member controls, persistent TV surface and 
   await p.keyboard.press('e');await expect(p.locator('.world-canvas')).toHaveAttribute('data-world-id','asylum');
  }
 
- for(const p of [page,guest])await p.getByRole('button',{name:'▣ Watch together'}).click();
+ for(const p of [page,guest])await gameAction(p, () => p.getByRole('button',{name:'▣ Watch together'}).click());
  await page.getByLabel('Video link').fill('https://youtu.be/M7lc1UVf-VE?t=12');await page.getByRole('button',{name:'Load for everyone'}).click();
  const state=(p:typeof page)=>p.evaluate(()=>{const w=window as unknown as {__yt?:{getCurrentTime:()=>number;getPlayerState:()=>number;v:number}};return w.__yt?{t:w.__yt.getCurrentTime(),s:w.__yt.getPlayerState(),v:w.__yt.v}:null;});
  await expect.poll(async()=>(await state(guest))?.t).toBe(12);

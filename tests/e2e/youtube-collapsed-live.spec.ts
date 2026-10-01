@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect } from '@playwright/test';
 test('LIVE collapsed TV playback stays continuous', async ({browser,page})=>{
  test.skip(process.env.YOUTUBE_LIVE !== '1', 'Opt in to real external-provider playback');test.setTimeout(240000);const context=await browser.newContext(),guest=await context.newPage();
@@ -18,7 +19,7 @@ test('LIVE collapsed TV playback stays continuous', async ({browser,page})=>{
   await p.keyboard.press('e');await expect(p.locator('.world-canvas')).toHaveAttribute('data-world-id','asylum');
  }
 
- for(const p of [page,guest])await p.getByRole('button',{name:'▣ Watch together'}).click();
+ for(const p of [page,guest])await gameAction(p, () => p.getByRole('button',{name:'▣ Watch together'}).click());
  await page.getByLabel('Video link').fill(process.env.YOUTUBE_VIDEO_URL || 'https://youtu.be/8wUfa7HwuLI');await page.getByRole('button',{name:'Load for everyone'}).click();
 
  await page.waitForTimeout(10000);

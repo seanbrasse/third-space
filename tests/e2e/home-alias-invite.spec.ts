@@ -1,6 +1,8 @@
+import { gameAction } from "./menu-actions";
 import { test, expect } from "@playwright/test";
 
 test("short alias invite pre-fills without joining; saved-tab PIN survives metadata mismatch and refresh", async ({browser,page}) => {
+  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
   const roomName=`Alias invite ${Date.now()}`;
   await page.goto('/');
   await page.getByLabel('Your name',{exact:true}).fill('Alias host');
@@ -17,7 +19,7 @@ test("short alias invite pre-fills without joining; saved-tab PIN survives metad
     }
     Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async(value:string)=>{(window as unknown as {copiedInvite:string}).copiedInvite=value;}});
   });
-  await page.getByRole('button',{name:'Session info',exact:true}).click();
+  await gameAction(page, () => page.getByRole('button',{name:'Session info',exact:true}).click());
   const info=page.getByRole('region',{name:'Session info'});
   await info.getByRole('button',{name:'Reveal PIN'}).click();
   await expect(info.getByLabel('Room PIN',{exact:true})).toHaveValue('123456');
@@ -36,9 +38,22 @@ test("short alias invite pre-fills without joining; saved-tab PIN survives metad
     await friend.getByRole('button',{name:'Join your friends'}).click();
     await expect(friend.locator('.connection')).toHaveText('Connected');
     await friend.reload();await expect(friend.locator('.connection')).toHaveText('Connected');
-    await friend.getByRole('button',{name:'Session info',exact:true}).click();
+    await gameAction(friend, () => friend.getByRole('button',{name:'Session info',exact:true}).click());
     const friendInfo=friend.getByRole('region',{name:'Session info'});
     await friendInfo.getByRole('button',{name:'Reveal PIN'}).click();
     await expect(friendInfo.getByLabel('Room PIN',{exact:true})).toHaveValue('123456');
   }finally{await context.close();}
+  await page.getByRole('button',{name:'Close game menu'}).click();
+  await page.locator('.room-note').getByRole('button',{name:'Leave home',exact:true}).click();
+  await expect(page.locator('.saved-homes')).toBeVisible();
+  await page.locator('.saved-homes').getByRole('button',{name:roomName,exact:false}).click();
+  await expect(page.locator('.connection')).toHaveText('Connected');
+  await gameAction(page,()=>page.getByRole('button',{name:'Session info',exact:true}).click());
+  await page.getByRole('region',{name:'Session info'}).getByRole('button',{name:'Reveal PIN'}).click();
+  await expect(page.getByRole('region',{name:'Session info'}).getByLabel('Room PIN',{exact:true})).toHaveValue('123456');
+  await page.evaluate(()=>window.dispatchEvent(new Event('scroll')));expect(errors).toEqual([]);
+  await page.reload();await expect(page.locator('.connection')).toHaveText('Connected');
+  await gameAction(page,()=>page.getByRole('button',{name:'Session info',exact:true}).click());
+  await page.getByRole('region',{name:'Session info'}).getByRole('button',{name:'Reveal PIN'}).click();
+  await expect(page.getByRole('region',{name:'Session info'}).getByLabel('Room PIN',{exact:true})).toHaveValue('123456');
 });

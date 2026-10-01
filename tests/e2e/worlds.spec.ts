@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect, type Page } from "@playwright/test";
 async function create(page: Page) {
     const name = "Worlds " + Date.now();
@@ -17,7 +18,7 @@ test("campsite-only friends have distinct seats, roast, sleep rendering and rest
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));const context=await browser.newContext(),second=await context.newPage();second.on("pageerror",e=>errors.push(e.message));
  try{const id=await create(page);await join(second,id);await expect(page.locator(".world-canvas")).toHaveAttribute("data-seat-id",/camp-seat-/);await expect(second.locator(".world-canvas")).toHaveAttribute("data-seat-id",/camp-seat-/);expect(await page.locator(".world-canvas").getAttribute("data-seat-id")).not.toBe(await second.locator(".world-canvas").getAttribute("data-seat-id"));
  await page.getByRole("button",{name:"☷ Worlds"}).click();await expect(page.getByRole("button",{name:/The reading lounge/})).toHaveCount(0);await expect(page.getByRole("button",{name:/Midnight Pines/})).toBeDisabled();await page.getByRole("button",{name:"Close worlds"}).click();
- await page.getByRole("button",{name:"☺ Emotes"}).click();await page.getByRole("button",{name:/Roast marshmallow/}).click();await expect.poll(async()=>Number(await page.locator(".world-canvas").getAttribute("data-roasting-at"))).toBeGreaterThan(0);
+ await gameAction(page, () => page.getByRole("button",{name:"☺ Emotes"}).click());await page.getByRole("button",{name:/Roast marshmallow/}).click();await expect.poll(async()=>Number(await page.locator(".world-canvas").getAttribute("data-roasting-at"))).toBeGreaterThan(0);
  const seat=await second.locator(".world-canvas").getAttribute("data-seat-id");await second.reload();await expect(second.locator(".connection")).toHaveText("Connected");await expect(second.locator(".world-canvas")).toHaveAttribute("data-seat-id",seat!);
  await second.evaluate(()=>{Object.defineProperty(document,"hidden",{configurable:true,get:()=>true});document.dispatchEvent(new Event("visibilitychange"));});await second.waitForTimeout(300);const frame=await second.locator(".world-canvas").getAttribute("data-render-frame");await second.waitForTimeout(500);expect(await second.locator(".world-canvas").getAttribute("data-render-frame")).toBe(frame);await second.evaluate(()=>{delete(document as unknown as Record<string,unknown>).hidden;document.dispatchEvent(new Event("visibilitychange"));});await expect.poll(()=>second.locator(".world-canvas").getAttribute("data-render-frame")).not.toBe(frame);
  await page.screenshot({path:"tests/e2e/artifacts/campsite-current.png",fullPage:true});expect(errors).toEqual([]);

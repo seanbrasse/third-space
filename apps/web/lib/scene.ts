@@ -136,13 +136,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         window.addEventListener("blur", resetKeys);
         document.addEventListener("visibilitychange", resetKeys);
         document.addEventListener("focusin", focusPolicy);
-        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        const releaseKeys = () => {
           window.removeEventListener("keydown", capturePolicy, true);
           window.removeEventListener("keyup", capturePolicy, true);
           window.removeEventListener("blur", resetKeys);
           document.removeEventListener("visibilitychange", resetKeys);
           document.removeEventListener("focusin", focusPolicy);
-        });
+          this.events.off(Phaser.Scenes.Events.SHUTDOWN, releaseKeys);
+          this.events.off(Phaser.Scenes.Events.DESTROY, releaseKeys);
+        };
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, releaseKeys);
+        this.events.once(Phaser.Scenes.Events.DESTROY, releaseKeys);
         this.input.keyboard.on("keydown-E", () => this.interact());
         this.input.keyboard.on("keydown-ESC", () => {
           this.cancelWalk();
@@ -176,14 +180,18 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       );
       // DOM scrolling/layout shifts do not always update Phaser's cached input bounds.
       // Refresh before the manager converts the native touch/mouse event.
-      const refreshBounds=()=>this.scale.updateBounds();
+      const refreshBounds=()=>{ if(this.scale?.canvas?.isConnected) this.scale.updateBounds(); };
       const canvas=this.game.canvas;
       for(const type of ["mousedown","touchstart","pointerdown"])canvas.addEventListener(type,refreshBounds,{capture:true,passive:true});
       document.addEventListener("scroll",refreshBounds,true);
-      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
+      const releaseBounds=()=>{
         for(const type of ["mousedown","touchstart","pointerdown"])canvas.removeEventListener(type,refreshBounds,true);
         document.removeEventListener("scroll",refreshBounds,true);
-      });
+        this.events.off(Phaser.Scenes.Events.SHUTDOWN,releaseBounds);
+        this.events.off(Phaser.Scenes.Events.DESTROY,releaseBounds);
+      };
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,releaseBounds);
+      this.events.once(Phaser.Scenes.Events.DESTROY,releaseBounds);
       refreshBounds();
       this.scale.on("resize", () => this.fit());
       this.drawHome();

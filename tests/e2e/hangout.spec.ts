@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import {
   GAME_CONFIG,
@@ -469,9 +470,9 @@ test("two independent browsers hang out, chat once, share notes, customize and r
       .click();
     await expect(second.locator(".chat-panel .chat-heading b")).toHaveText("1");
     await expect(second.locator(".chat-panel")).toHaveClass(/collapsed/);
-    await page
+    await gameAction(page, () => page
       .getByRole("button", { name: "Idea board", exact: false })
-      .click();
+      .click());
     await page
       .getByLabel("Add a little thought")
       .fill("Movie night on Friday?");
@@ -480,9 +481,9 @@ test("two independent browsers hang out, chat once, share notes, customize and r
       "Movie night on Friday?",
     );
     await page.getByRole("button", { name: "Close dialog" }).click();
-    await second
+    await gameAction(second,()=>second
       .getByRole("button", { name: "Idea board", exact: false })
-      .click();
+      .click());
     await expect(second.locator(".sticky p")).toHaveText(
       "Movie night on Friday?",
     );
@@ -527,9 +528,9 @@ test("two independent browsers hang out, chat once, share notes, customize and r
         .getByRole("slider", { name: `Soundboard volume for ${secondName}` }),
     ).toHaveValue("0.35");
     await page.getByRole("button", { name: "People & volume" }).click();
-    await page
+    await gameAction(page, () => page
       .getByRole("button", { name: "Idea board", exact: false })
-      .click();
+      .click());
     await expect(page.locator(".sticky p")).toHaveText(
       "Movie night on Saturday!",
     );
@@ -712,7 +713,7 @@ test("eight independent friends have reachable rosters and audio controls; a nin
     );
     await mobile.locator(".roster article").last().scrollIntoViewIfNeeded();
     await mobile.getByRole("button", { name: "Close dialog" }).click();
-    await owner.getByRole("button", { name: "Let's play" }).click();
+    await gameAction(owner, () => owner.getByRole("button", { name: "Let's play" }).click());
     await expect(
       owner.getByRole("list", { name: "Race readiness" }).getByRole("listitem"),
     ).toHaveCount(GAME_CONFIG.partyCapacity);

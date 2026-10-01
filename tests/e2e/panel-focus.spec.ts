@@ -34,7 +34,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
     const chat = page.getByLabel("Message friends");
     if (!await chat.isVisible()) await page.locator(".chat-panel .chat-heading").click();
     await chat.fill("focus check"); await chat.press("Enter");
-    await expect(chat).toBeFocused(); // Sending keeps the conversation usable.
+    await expect(chat).toHaveValue(""); await expect(world).toBeFocused(); // Authoritative acceptance returns game keys.
     await page.locator(".chat-panel .chat-heading").click(); await expect(world).toBeFocused();
     await page.keyboard.down("ArrowDown"); await page.waitForTimeout(200); await page.keyboard.up("ArrowDown");
     await page.keyboard.press("Space");

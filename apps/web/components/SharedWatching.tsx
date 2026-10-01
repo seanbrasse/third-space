@@ -78,7 +78,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
     }, []);
     useEffect(()=>{
       if(!expanded)return;
-      const outside=(event:PointerEvent)=>{if(screen.current&&!screen.current.contains(event.target as Node)&&!document.fullscreenElement)onExpand(false);};
+      const outside=(event:PointerEvent)=>{if(screen.current&&!screen.current.contains(event.target as Node)&&document.fullscreenElement!==screen.current)onExpand(false);};
       const escape=(event:KeyboardEvent)=>{if(event.key!=="Escape")return;if(document.fullscreenElement===screen.current){event.preventDefault();void document.exitFullscreen().catch(()=>{});return;}onExpand(false);};
       document.addEventListener("pointerdown",outside);document.addEventListener("keydown",escape);
       return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",escape);};

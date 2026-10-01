@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect, type Page } from "@playwright/test";
 
 // Deterministic gesture-policy adapter, not a real iOS/provider verification.
@@ -29,7 +30,7 @@ async function enterIndoor(page: Page) {
   }
   if(await world.getAttribute("data-world-id")!=="asylum"){await world.focus();await page.keyboard.press("e");}
   await expect(world).toHaveAttribute("data-world-id","asylum");
-  await page.getByRole("button",{name:/Watch together/}).click();
+  await gameAction(page, () => page.getByRole("button",{name:/Watch together/}).click());
 }
 
 test("mobile device activation and authoritative source survive reopening, late join and queue changes",async({browser,page})=>{
@@ -68,7 +69,7 @@ test("mobile device activation and authoritative source survive reopening, late 
 
     await phone.getByLabel("Video link").fill(draft);
     await phone.getByRole("button",{name:"Close shared screen"}).click();
-    await phone.getByRole("button",{name:/Watch together/}).click();
+    await gameAction(phone, () => phone.getByRole("button",{name:/Watch together/}).click());
     await expect(phone.getByLabel("Video link")).toHaveValue(draft);
     await expect(phone.locator(".active-video-link a")).toHaveAttribute("href",first);
     await page.getByLabel("Video link").fill(second);await page.getByRole("button",{name:"Replace current video",exact:true}).click();

@@ -1,3 +1,4 @@
+import { fullscreenBlocksGameFocus } from "./game-fullscreen";
 /** Closing a panel returns game keys, but never steals another interaction. */
 export function mayRestoreGameFocus(
   active: Element | null,
@@ -15,7 +16,7 @@ export function restoreGameFocus(owners: readonly (Element | null)[]): () => voi
   let observer: MutationObserver | null = null, scope: Element | null = null;
   let disposed = false, frame = 0;
   const eligible = () => mayRestoreGameFocus(document.activeElement, document.body, owners,
-    !!document.querySelector('[aria-modal="true"]'), !!document.fullscreenElement);
+    !!document.querySelector('[aria-modal="true"]'), fullscreenBlocksGameFocus(document.fullscreenElement, document.querySelector(".world-shell")));
   const cancel = () => {
     disposed = true; cancelAnimationFrame(frame); observer?.disconnect();
     document.removeEventListener("focusin", focusChanged);
