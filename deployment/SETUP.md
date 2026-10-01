@@ -2,17 +2,17 @@
 
 ## Current state
 
-Fly CLI is installed and authenticated as Sean. The personal organization contains the new, undeployed `third-space-seanbrasse` app. Its future HTTPS/WSS host is `third-space-seanbrasse.fly.dev`. No Fly machine, volume, IP, remote builder or support subscription has been created.
+Fly CLI is installed and authenticated as Sean. Following Sean's explicit approval, the personal organization runs one `third-space-seanbrasse` machine with an encrypted persistent volume. Its HTTPS/WSS host is `third-space-seanbrasse.fly.dev`. Included shared IPv4 and IPv6 are allocated. No remote builder or paid support subscription was created. See [live resource and validation record](LIVE-DEPLOYMENT.md).
 
-Vercel's existing authorized account contains the new `third-space` project, with Next.js, Node 24.x, root `apps/web`, and workspace sources outside the root enabled. Its reserved production alias is `https://third-space-topaz.vercel.app`. Production environment points `GAME_HTTP_URL` to the Fly HTTPS host and `NEXT_PUBLIC_GAME_SERVER_URL` to its WSS host. No deployment is live. The project is intentionally not connected to automatic GitHub deploys while implementation continues.
+Vercel's existing authorized account contains the new `third-space` project, with Next.js, Node 24.x, root `apps/web`, and workspace sources outside the root enabled. Its live production alias is `https://third-space-topaz.vercel.app`. Production environment points `GAME_HTTP_URL` to the Fly HTTPS host and `NEXT_PUBLIC_GAME_SERVER_URL` to its WSS host. The project is intentionally not connected to automatic GitHub deploys while implementation continues.
 
-Vercel's default protection still requires account access on the production alias. After authorization, change only this new project's protection to `prod_deployment_urls_and_all_previews`: friends can open the production alias while previews remain protected. No other project or account setting should change.
+After authorization, this new project's protection was set to `prod_deployment_urls_and_all_previews`: friends can open the production alias while previews remain protected. No other project or account setting changed.
 
 ## Approval before provisioning
 
 The initial design is one always-on machine in Ashburn (`iad`), two shared CPUs, 512 MiB, one 1 GB encrypted SQLite volume, daily snapshots with five-day retention, and included shared IPv4/IPv6. Published base: $3.89/month compute + $0.15/month volume = $4.04/month, excluding tax and usage. North American egress is $0.02/GB. First 10 GB of snapshots is free; additional snapshot storage is $0.08/GB/month. See [official Fly pricing](https://fly.io/pricing/). No paid support or dedicated IPv4 is needed.
 
-Original deployment scope requires approval for paid resources and new security access. Confirm this resource cost and the public production alias before provisioning. Sean completes any payment-method, password, verification-code or additional OAuth permission step directly with the provider.
+Original deployment scope required approval for paid resources and new security access. Sean approved the quoted resource cost and public production alias with "Go ahead, I added payment." This authorization is already satisfied; do not request it again for the same approved deployment. Sean completes any further payment-method, password, verification-code or additional OAuth permission step directly with the provider.
 
 ## Deployment after approval
 
