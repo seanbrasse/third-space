@@ -1,3 +1,5 @@
+import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
+import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
 import { GameKeyboard, isGameInputBlocked } from "./game-keyboard";
 import {asylumFloorCanvas,asylumObjectCanvas} from "./asylum-art";
 import * as Phaser from "phaser";
@@ -62,6 +64,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private stalkerId="";
     private werewolfSprite: Phaser.GameObjects.Image | null = null;
     private werewolfId="";
+    private pathTorches: Phaser.GameObjects.Image[] = [];
     private fireArt: Phaser.GameObjects.Graphics | null = null;
     private roastArt: Phaser.GameObjects.Graphics | null = null;
     private lightImage: Phaser.GameObjects.Image | null = null;
@@ -185,6 +188,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.mapObjects = [];
       this.stalkerSprite=null;this.stalkerId="";
       this.werewolfSprite=null;this.werewolfId="";
+      this.pathTorches=[];
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
       this.hoveredFurniture = null;
       this.prompt.setVisible(false);
@@ -284,14 +288,25 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         for (const item of this.map.furniture) {
             if (item.kind === "campfire")
                 continue;
-            const f = item.footprint, key = `${this.forest?"forest":"asylum"}-object:${item.kind}:${f.width}:${f.height}`;
-            const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, this.forest?forestObjectCanvas(item, TILE):asylumObjectCanvas(item,TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);
+            const f = item.footprint, charger=!this.forest&&item.id==="charger", key = charger?"asylum-charger-dock-v1":`${this.forest?"forest":"asylum"}-object:${item.kind}:${f.width}:${f.height}`;
+            const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, charger?asylumChargerCanvas():this.forest?forestObjectCanvas(item, TILE):asylumObjectCanvas(item,TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);
             this.mapObjects.push(image);
             if (item.usePoints.length) {
                 image.setInteractive({ useHandCursor: true });
                 image.on("pointerdown", () => { if (!bridge.blocked)
                     this.useFurniture(item); });
             }
+        }
+        if(this.forest){
+          for(let i=0;i<3;i++){const key="forest-path-torch-"+i;if(!this.textures.exists(key))this.texture(key,torchSpriteCanvas(i));}
+          for(const post of FOREST_TORCHES){
+            const image=this.add.image(post.x*TILE,post.y*TILE,"forest-path-torch-1").setOrigin(.5,1).setDepth(post.y*TILE);
+            this.pathTorches.push(image);this.mapObjects.push(image);
+          }
+        }else{
+          for(const marker of [{x:16.5,y:8.35,text:"FLASHLIGHT CHARGER"},{x:10,y:18.9,text:"EXIT · FOREST ↓"}]){
+            this.mapObjects.push(this.add.text(marker.x*TILE,marker.y*TILE,marker.text,{fontFamily:"monospace",fontSize:"9px",color:"#bdceb0",backgroundColor:"#172820",padding:{x:4,y:2}}).setOrigin(.5,1).setDepth(1801));
+          }
         }
         this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<4;i++)this.texture("forest-clown-"+i,clownSpriteCanvas(i));
@@ -374,6 +389,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         };
         const fireDistance = Math.hypot(self.x - fxTile, self.y - fyTile);
         glow(fxTile, fyTile, (this.forest?9.6:4.5) * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
+        if(this.forest){
+          FOREST_TORCHES.forEach((post,i)=>{
+            const light=torchLight(time,i,bridge.reducedMotion);
+            this.pathTorches[i]?.setTexture("forest-path-torch-"+light.frame);
+            // Same darkness-canvas compositing and 33 ms budget as fire/candles.
+            if(post.x*TILE<view.x-2*TILE||post.x*TILE>view.right+2*TILE||post.y*TILE<view.y-2*TILE||post.y*TILE>view.bottom+2*TILE)return;
+            glow(post.x,post.y-.45,light.radius,light.strength);
+          });
+        }else{
+          for(const light of ASYLUM_WAYFINDING_LIGHTS)glow(light.x,light.y,light.radius,light.strength*(.98+.02*flicker));
+        }
         glow(self.x, self.y, 1.3, .28);
         const stalker=bridge.snapshot?.stalker;if(stalker)glow(stalker.x,stalker.y,.8,.07);
         if(!this.forest){const ceiling=bridge.reducedMotion?.18:.12+Math.sin(time/113)*.05+Math.sin(time/37)*.035;glow(6,5,4,ceiling);glow(15,14,4,ceiling);glow(16.4,8.5,1.2,.14);}
