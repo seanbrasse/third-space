@@ -1,3 +1,17 @@
+# PR23 release checkpoint — October 1, 2026
+
+Friends URL: **https://third-space-topaz.vercel.app**. Matching frontend/backend source: **880a122760b8a47a332d298453b567c247060db0** ([PR23](https://github.com/seanbrasse/third-space/pull/23)). The tested head 1f23cb0bbb43e0c102581ce838fcd25426b68362 and merged source share tree 770a2e85d291f8ee218b2eba0a3d50ab81411001. Documentation-only commits do not replace that deployed application revision.
+
+Vercel READY deployment dpl_47XTHXUKcSQfm2AwvdNn15UtcnsG, build third-space-1bh0g118t-seanbrasse-gmailcoms-projects.vercel.app; stable public alias verified. Existing Fly machine 2874440daddd98 updated 06:06:45 UTC, started and healthy at /ready, image registry.fly.io/third-space-seanbrasse:release-880a122, digest sha256:f661cf1d970d5c9ed7b3f2fbeac0fc6d182747a0beea480e611310b66b5e9ca5. Full OCI revision matches frontend metadata. Same single 512 MiB/two shared CPU machine, encrypted 1 GB volume and exact HTTPS/WSS origin policy. No extra resources, security grants or credentials were created.
+
+Independent 375 tests/57 files passed in 80.70 seconds; workspace typecheck and production build passed. The actual amd64 entrypoint capped 512 MiB/no swap reached readiness without OOM; 236.7 MiB startup sample is not a concurrency benchmark. Fresh private desktop 1440×1000 DPR1 and mobile 390×844 DPR2 production encounters both passed in 53.5 seconds: authority peek/chase/catch, visibly inspected transient clown portrait, finite veil, fire respawn/halo expiry and refresh, greeting text/resolution and camp observer exclusion, nearby step/impact and new 320 ms catch-accent buffer allocation. This allocation does not establish physical speaker audibility. Scoped Vercel error query returned zero records. Owned smoke container removed and deployment-only builder stopped; lead preview, browser and dirty source trees untouched.
+
+**Hosted reduced-motion finding:** global animation:none !important leaves the gentle veil at base opacity0. Portrait suppression and catch/respawn work, but a visible gentle fallback is not verified. The lead has a minimal source integration request for static active fallback opacity, including preference-only and OS-only cases. The original visible-opacity safety assertion failed; do not count it as a pass. Final narrower hosted mute/suppression/finite active-class removal/respawn/reload/no-replay check passed in46.6 seconds. A redundant post-reload portrait assertion in my intermediate harness was invalid because the portrait is absent after reload; corrected before this passing final run. No unverified product patch was deployed.
+
+PR23 greetings are text bubbles, not spoken dialogue. Additional scare-power and voiced-dialogue requests remain with the lead. Physical iPhone/speaker acceptance, live wolf catch and snapshot restoration remain unverified; native voice and Google login are unconfigured. PR22's actual 10×5.625 tile 16:9 projector, eight usable seats and compact 560 px controls remain included. Its previous ten production tests and real two-client YouTube interval are prior-release evidence, not repeated PR23 claims. No test SQLite contents or session grants are included in this record.
+
+---
+
 # Third Space live deployment
 
 Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://third-space-seanbrasse.fly.dev/health. Provisioned September 30, 2026, New York time, after Sean's explicit payment/deployment approval.
