@@ -49,6 +49,8 @@ Replies use the original browser command ID. Internal hashed event IDs still ide
 
 A ten-second monotonic timeout releases the button and asks the player to refresh their journal before retrying; it never resends a mutation automatically. A late matching reply is accepted until the player starts another action. Connection/admission, scene and life changes clear pending state. Reconnecting does not replay the action. Reward receipts remain the final authority against duplicate claims.
 
+Doorway invalidation compares the local actor's zone and zone revision explicitly, as well as the existing instance/world/life fences. Current server packets encode the zone revision in `instanceId` too; the explicit check also covers a stable instance key or a coalesced trip out and back. Another player's doorway transition and ordinary local movement do not cancel the pending action.
+
 The four sections are Leads, Evidence, People and Recap. Current main objectives are sequential; discovered side leads display even when the main chapter is still `undiscovered`. Connections resolve only to discovered lead IDs. Shared NPC contributions and personal reward receipts remain distinct. A catch-up summary and resolved-lead details allow asynchronous play without listing unreached plots.
 
 The native modal handles inert background and Escape. Explicit focus wrapping keeps Tab inside the dialog across browser variations. Arrow keys, Home and End move among its tabs. Closing invokes `onFocusGame` after dismissal; root's existing focus helper avoids stealing focus from a newly opened panel. Opening or changing section resets that section's scroll to the top.

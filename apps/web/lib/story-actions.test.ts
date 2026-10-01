@@ -1,5 +1,6 @@
 import {describe,expect,it} from 'vitest';
-import {StoryActions,STORY_ACTION_TIMEOUT_MS} from './story-actions';
+import {StoryActions,STORY_ACTION_TIMEOUT_MS,storyActionContextChanged} from './story-actions';
+import {createPlayer} from '../../../packages/simulation/src/index';
 
 const reward={type:'story.reward',rewardId:'fair-rind'} as const;
 const discuss={type:'story.accuse',suspectId:'goblin-nib'} as const;
@@ -42,5 +43,35 @@ describe('journal actions across latency and admission changes',()=>{
     expect(actions.pending).toBe(retry);
     actions.expire(retry,2*STORY_ACTION_TIMEOUT_MS+1);actions.clear();
     expect(actions.complete(room,'retry')).toBe(false);
+  });
+  it('clears an in-flight action on own zone changes even with the same instance and world revision',()=>{
+    const before={instanceId:'stable-room',worldRevision:4,players:[{...createPlayer('self','Reader'),zoneRevision:2}]};
+    const room={};
+    for(const ownChange of[{zone:'interior:orin-tower',zoneRevision:3},{zone:'asylum',zoneRevision:3},{zoneRevision:4}] as const){
+      const actions=new StoryActions();actions.begin(room,'before-door',reward,0);
+      const after={...before,players:[{...before.players[0]!,...ownChange}]};
+      expect(storyActionContextChanged(before,after,'self')).toBe(true);
+      if(storyActionContextChanged(before,after,'self'))actions.clear();
+      expect(actions.pending).toBeNull();expect(actions.complete(room,'before-door')).toBe(false);
+      actions.begin(room,'after-door',reward,1);
+      expect(actions.complete(room,'before-door')).toBe(false);expect(actions.pending?.commandId).toBe('after-door');
+    }
+  });
+  it('retains an in-flight action on movement, unchanged snapshots and another player entering a building',()=>{
+    const self={...createPlayer('self','Reader'),zoneRevision:2},peer=createPlayer('peer','Friend');
+    const before={instanceId:'stable-room',worldRevision:4,players:[self,peer]};
+    const after={...before,players:[{...self,x:self.x+1},{...peer,zone:'interior:orin-tower' as const,zoneRevision:1}]};
+    expect(storyActionContextChanged(null,before,'self')).toBe(false);
+    expect(storyActionContextChanged(before,before,'self')).toBe(false);
+    expect(storyActionContextChanged(before,after,'self')).toBe(false);
+    const actions=new StoryActions(),room={};actions.begin(room,'moving',discuss,0);
+    if(storyActionContextChanged(before,after,'self'))actions.clear();
+    expect(actions.complete(room,'moving')).toBe(true);
+  });
+  it('retains the existing instance, world and life transition fences',()=>{
+    const self=createPlayer('self','Reader'),before={instanceId:'room',worldRevision:4,players:[self]};
+    for(const after of[{...before,instanceId:'next-room'},{...before,worldRevision:5},{...before,players:[{...self,respawnCount:1}]},{...before,players:[{...self,respawnAt:5000}]}]){
+      expect(storyActionContextChanged(before,after,'self')).toBe(true);
+    }
   });
 });

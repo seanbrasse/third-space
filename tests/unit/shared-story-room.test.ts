@@ -12,6 +12,7 @@ import {STORY_GUARDIAN,STORY_RAIDERS,STORY_REWARDS,STORY_SUSPECTS} from '../../p
 import type {PlayerState,RoomSnapshot} from '../../packages/contracts/src/index';
 import type {ForestStorySnapshot} from '../../packages/contracts/src/forest-story';
 import type {ForestMob} from '../../packages/contracts/src/forest-mobs';
+import {StoryActions,storyActionContextChanged} from '../../apps/web/lib/story-actions';
 
 type Client=Parameters<PartyRoom['onJoin']>[0];
 interface Authority {
@@ -285,6 +286,23 @@ describe('shared story through the actual eight-human PartyRoom authority',()=>{
     send(0,{type:'story.reward',rewardId:'fair-rind',commandId:'late-retry'});
     expect(latestNotice(0)).toMatchObject({code:'STORY_REWARD',commandId:'late-retry'});expect(inventory(0).apples).toBe(5);
     expect(store.db.prepare('SELECT count(*) AS n FROM forest_story_reward_claims WHERE home_id=? AND user_id=?').get(homeId,ids[0]!)).toMatchObject({n:1});
+  });
+
+  it('invalidates an unconfirmed journal action when real doorway snapshots change the actor zone',()=>{
+    const interior=FOREST_INTERIORS[0]!;place(0,interior.returnPoint);
+    const before=structuredClone(latestWorld(0)),pending=new StoryActions();
+    pending.begin(clients[0]!,'waiting-at-door',{type:'story.reward',rewardId:'fair-rind'},Date.now());
+    send(0,{type:'interior.enter',interiorId:interior.id});
+    const inside=structuredClone(latestWorld(0)),selfBefore=before.players.find(p=>p.id===ids[0])!,selfInside=inside.players.find(p=>p.id===ids[0])!;
+    expect(inside.worldRevision).toBe(before.worldRevision);
+    expect(selfInside.zone).toBe(interior.id);expect(selfInside.zoneRevision).toBe((selfBefore.zoneRevision??0)+1);
+    expect(storyActionContextChanged(before,inside,ids[0]!)).toBe(true);
+    // Current packets also change instanceId. Deliberately hold it stable to
+    // prove the explicit zone fence does not depend on that formatting detail.
+    const stableInstance={...inside,instanceId:before.instanceId};
+    expect(storyActionContextChanged(before,stableInstance,ids[0]!)).toBe(true);
+    if(storyActionContextChanged(before,stableInstance,ids[0]!))pending.clear();
+    expect(pending.pending).toBeNull();expect(pending.complete(clients[0]!,'waiting-at-door')).toBe(false);
   });
 
   it('admits all eight into each interior with safe unique spawns and returns everyone through natural exits',()=>{

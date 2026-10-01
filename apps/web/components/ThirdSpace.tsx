@@ -23,7 +23,7 @@ import ForestStoryBoard from './ForestStoryBoard';
 import type {ForestStorySnapshot} from '../../../packages/contracts/src/forest-story';
 import {canUseForestStory,canDiscussForestStory} from '../../../packages/simulation/src/forest-story-access';
 import {useStoryActions} from '../lib/use-story-actions';
-import type {StoryAction} from '../lib/story-actions';
+import {storyActionContextChanged,type StoryAction} from '../lib/story-actions';
 import {climateLabel} from '../lib/world-climate-model';
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
@@ -576,8 +576,7 @@ export default function ThirdSpace() {
     connected.onMessage("story.snapshot",(data:ForestStorySnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.story=data;setStory(data);});
     const acceptSnapshot=(data: Snapshot) => {
       if(room.current!==connected||leaving.current)return;
-      const previous=bridge.snapshot,previousSelf=previous?.players.find(p=>p.id===bridge.selfId),nextSelf=data.players.find(p=>p.id===bridge.selfId);
-      if(previous&&(previous.instanceId!==data.instanceId||previous.worldRevision!==data.worldRevision||previousSelf?.respawnCount!==nextSelf?.respawnCount||(!previousSelf?.respawnAt&&nextSelf?.respawnAt)))resetStoryActions('Your view changed. Check the journal before trying again.');
+      if(storyActionContextChanged(bridge.snapshot,data,bridge.selfId))resetStoryActions('Your view changed. Check the journal before trying again.');
       remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
         setDraft("");
