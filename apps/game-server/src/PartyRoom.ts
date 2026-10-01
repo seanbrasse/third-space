@@ -1,3 +1,5 @@
+import { RoomVoiceService } from "./voice-service";
+import { LiveKitVoiceProvider, voiceConfig } from "./voice-provider";
 import { createIdlePresence, recordActivity, recordWatching, idleStatus, type IdlePresence } from "./idle-policy";
 import { ForestWerewolf } from "./ForestWerewolf";
 import { ForestMimic } from "./ForestMimic";
@@ -8,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { resolveMediaLink, CAMP_RACE_DOOR, ASYLUM_DOOR, GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
 import {
   parseCommand,
+  voiceGroup,
   type ChatMessage,
   type ClientCommand,
   type PlayerInput,
@@ -60,6 +63,7 @@ export class PartyRoom extends Room {
   static store: LocalStore;
   static activeHomes = new Set<string>();
   static liveRooms = new Map<string, PartyRoom>();
+  private voice!: RoomVoiceService;
   homeId = "";
   worldId: "living-room" | "forest" = "forest";
   worldRevision = 0;
@@ -116,6 +120,35 @@ export class PartyRoom extends Room {
       );
     PartyRoom.activeHomes.add(options.homeId);
     this.homeId = options.homeId;
+    const mediaConfig = voiceConfig();
+    this.voice = new RoomVoiceService(`third-space:${this.homeId}:${this.epoch}`,
+      mediaConfig ? new LiveKitVoiceProvider(mediaConfig) : null, mediaConfig?.url ?? "",
+      () => ({ context: { worldRevision: this.worldRevision, race: this.race, mode: this.voiceModes.home },
+        peers: [...this.players.values()].map(player => ({ player, sessionId: this.clientsByUser.get(player.id)?.sessionId ?? "",
+          accessValid: PartyRoom.store.canAccess(this.homeId, player.id) })) }),
+      (id, state) => this.clientsByUser.get(id)?.send("voice.state", state));
+    this.onMessage("voice.join", (client, raw: unknown) => {
+      const id = (client.auth as Admission)?.userId;
+      const requestId = (raw as { requestId?: unknown })?.requestId;
+      if (typeof requestId !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(requestId) ||
+          this.clientsByUser.get(id) !== client || !this.players.get(id)?.connected ||
+          !PartyRoom.store.canAccess(this.homeId, id) || !this.cooled(id, "voice.join", 1000)) return;
+      void this.voice.join(id, client.sessionId, requestId).then(token => {
+        if (this.clientsByUser.get(id) === client && this.players.get(id)?.connected && PartyRoom.store.canAccess(this.homeId, id)) client.send("voice.token", token);
+      }).catch(() => client.send("voice.token", { requestId, error: "Voice is unavailable. Check room access and media setup, then retry." }));
+    });
+    this.onMessage("voice.policy.ack", (client, raw: unknown) => {
+      const id = (client.auth as Admission)?.userId;
+      const ack = raw as { identity?: unknown; version?: unknown };
+      if (this.clientsByUser.get(id) !== client || typeof ack?.identity !== "string" || ack.identity.length > 180 ||
+          typeof ack.version !== "number" || !Number.isSafeInteger(ack.version) || !this.cooled(id, "voice.ack", 200)) return;
+      this.voice.acknowledge(id, client.sessionId, ack.identity, ack.version);
+    });
+    this.onMessage("voice.refresh", client => {
+      const id = (client.auth as Admission)?.userId;
+      if (this.clientsByUser.get(id) === client && this.cooled(id, "voice.refresh", 500)) this.voice.publishStates();
+    });
+    this.clock.setInterval(() => { void this.voice.sync(); }, 500);
     PartyRoom.liveRooms.set(this.homeId, this);
     this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
     this.werewolf = this.worldId === "forest" ? new ForestWerewolf(getWorld(this.worldId)) : null;
@@ -330,6 +363,7 @@ export class PartyRoom extends Room {
   }
 
   onDispose() {
+    void this.voice?.dispose();
     PartyRoom.activeHomes.delete(this.homeId);
     if (PartyRoom.liveRooms.get(this.homeId) === this) PartyRoom.liveRooms.delete(this.homeId);
     this.unbindAccess?.();
@@ -737,18 +771,19 @@ export class PartyRoom extends Room {
           );
         break;
       case "voice.status":
-        p.nativeMode = "off";
+        p.nativeMode = this.voice.available ? command.nativeMode : "off";
         p.manualMute = command.manualMute;
         p.deafened = command.deafened;
-        if (command.nativeMode !== "off")
+        if (!this.voice.available && command.nativeMode !== "off")
           this.notice(
             client,
             "MEDIA_NOT_CONFIGURED",
             "Native voice needs a configured, verified media service. Gameplay and chat remain available.",
           );
+        this.voice.publishStates();
         break;
       case "voice.mode":
-        if (id === this.hostId) this.voiceModes[p.mode] = command.mode;
+        if (id === this.hostId) this.voiceModes.home = this.voiceModes.race = command.mode;
         else
           this.notice(
             client,
@@ -1076,7 +1111,12 @@ export class PartyRoom extends Room {
       if (!p) continue;
       const waitingBridge=this.race.phase==="waiting"&&!p.zone;
       const instanceId=p.mode==="home"?this.homeId+":home:"+this.worldRevision+":"+(p.zone??"outside")+":"+(p.zoneRevision??0):this.race.id;
-      const voiceScope={instanceId:waitingBridge?this.homeId+":waiting:"+this.race.id:instanceId,mode:waitingBridge?"room" as const:this.voiceModes[p.mode],participantIds:[...this.players.values()].filter(v=>v.connected&&(waitingBridge?!v.zone&&(v.mode==="home"||this.race.joinedIds?.includes(v.id)):v.mode===p.mode&&v.zone===p.zone)).map(v=>v.id)};
+      const partyWideVoice = this.voiceModes.home === "room";
+      const voiceContext = { worldRevision: this.worldRevision, race: this.race, mode: this.voiceModes.home };
+      const voiceScope = { instanceId: this.homeId + ":" + (partyWideVoice ? "party" : voiceGroup(p, voiceContext)),
+        mode: partyWideVoice || waitingBridge ? "room" as const : "proximity" as const,
+        participantIds: [...this.players.values()].filter(v => v.connected &&
+          (partyWideVoice || voiceGroup(v, voiceContext) === voiceGroup(p, voiceContext))).map(v => v.id) };
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
         idle: this.idlePresence.has(id) ? (() => { const { warningAt, kickAt } = idleStatus(this.idlePresence.get(id)!, now); return { warningAt, kickAt }; })() : undefined,
