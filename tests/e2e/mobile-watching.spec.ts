@@ -2,14 +2,14 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Deterministic gesture-policy adapter, not a real iOS/provider verification.
 const fixture = `
-window.__gesture=false;
+window.__gesture=false;window.__ytEvents=[];
 document.addEventListener('click',()=>{window.__gesture=true;setTimeout(()=>window.__gesture=false,0)},true);
 window.YT={Player:class{
- constructor(el,o){this.events=o.events;this.t=0;this.s=2;this.at=Date.now();this.el=document.createElement('iframe');this.el.title='Mobile watching fixture';el.replaceWith(this.el);window.__yt=this;setTimeout(()=>o.events.onReady(),0)}
+ constructor(el,o){window.__ytEvents.push({kind:"create",at:Date.now()});this.events=o.events;this.t=0;this.s=2;this.at=Date.now();this.el=document.createElement('iframe');this.el.title='Mobile watching fixture';el.replaceWith(this.el);window.__yt=this;setTimeout(()=>o.events.onReady(),0)}
  getCurrentTime(){return this.t+(this.s===1?(Date.now()-this.at)/1000:0)} getDuration(){return 300} getPlayerState(){return this.s}
- playVideo(){if(!window.__gesture){this.events.onAutoplayBlocked();return}this.t=this.getCurrentTime();this.at=Date.now();this.s=1;this.events.onStateChange({data:1})}
- pauseVideo(){this.t=this.getCurrentTime();this.s=2;this.events.onStateChange({data:2})}
- seekTo(t){this.t=t;this.at=Date.now()} setVolume(){} destroy(){this.el.remove();window.__yt=null}
+ playVideo(){window.__ytEvents.push({kind:"play",gesture:window.__gesture,at:Date.now(),s:this.s,t:this.t});if(!window.__gesture){this.events.onAutoplayBlocked();return}this.t=this.getCurrentTime();this.at=Date.now();this.s=1;this.events.onStateChange({data:1})}
+ pauseVideo(){window.__ytEvents.push({kind:"pause",at:Date.now(),s:this.s,t:this.t});this.t=this.getCurrentTime();this.s=2;this.events.onStateChange({data:2})}
+ seekTo(t){window.__ytEvents.push({kind:"seek",at:Date.now(),target:t,s:this.s});this.t=t;this.at=Date.now()} setVolume(){} destroy(){this.el.remove();window.__yt=null}
 }};window.onYouTubeIframeAPIReady?.();`;
 
 async function enterIndoor(page: Page) {
@@ -55,10 +55,14 @@ test("mobile device activation and authoritative source survive reopening, late 
     await expect(phone.locator(".active-video-link a")).toHaveAttribute("href",first);
     await expect(phone.getByLabel("Video link")).toHaveValue("");
     await expect(phone.locator(".device-playback-status")).toBeVisible();
+    await phone.waitForTimeout(4000); // Device remains blocked while friends advance.
     const hostTime=await page.evaluate(()=>(window as any).__yt.getCurrentTime());
     await phone.getByRole("button",{name:"Enable playback on this device",exact:true}).click();
     await expect.poll(()=>phone.evaluate(()=>(window as any).__yt?.getPlayerState())).toBe(1);
     await expect(phone.locator(".device-playback-status")).toHaveCount(0);
+    const aligned=await Promise.all([page,phone].map(p=>p.evaluate(()=>(window as any).__yt.getCurrentTime())));
+    console.log("DEVICE_ALIGNMENT_DIAGNOSTICS "+JSON.stringify(await Promise.all([page,phone].map(p=>p.evaluate(()=>({time:(window as any).__yt.getCurrentTime(),state:(window as any).__yt.s,events:(window as any).__ytEvents}))))));
+    expect(Math.abs(aligned[0]-aligned[1])).toBeLessThan(.8);
     expect(await page.evaluate(()=>(window as any).__yt.getCurrentTime())).toBeGreaterThanOrEqual(hostTime);
     await expect(page.getByRole("button",{name:"Pause together",exact:true})).toBeVisible();
 

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { getWorld, resolveMediaLink } from "@third-space/config";
 import { reportVisiblePlayback } from "../lib/watching-presence";
 import YouTubeWatching, { type YouTubePlaybackHandle } from "./YouTubeWatching";
-import { playFromUserGesture } from "../lib/watching-controls";
+import { playFromUserGesture, sharedPlaybackPosition } from "../lib/watching-controls";
 import type { Snapshot } from "../lib/types";
 export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded, onExpand, send }: {
     snapshot: Snapshot | null;
@@ -88,6 +88,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
         const sendCommand = () =>
             send({ type: "media.control", action, revision: current.media.revision, commandId: crypto.randomUUID(), ...extra });
         if (action === "play" || action === "resume") {
+            const localOnly = action === "resume";
             action = "play";
             playFromUserGesture(current.media.playing, () => {
                 setError("");
@@ -95,10 +96,14 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
                     if (!youtube.current.playFromGesture()) setError("The player is still loading. Tap play again when it is ready.");
                 } else if (video.current) {
                     const id = current.media.playbackId ?? current.media.url;
-                    // Call play before any asynchronous room update loses the tap gesture.
+                    // Align this explicit recovery tap, then play while its gesture is active.
+                    const serverNow = current.serverTime === anchor.current.server ? anchor.current.server + Date.now() - anchor.current.client : current.serverTime;
+                    const target = sharedPlaybackPosition(current.media, serverNow);
+                    if (video.current.readyState > 0 && Math.abs(video.current.currentTime - target) > .35)
+                        video.current.currentTime = Math.min(target, Number.isFinite(video.current.duration) ? Math.max(0, video.current.duration - .05) : target);
                     void video.current.play().catch(() => {fileBlocked.current=id;setBlockedPlayback(id);});
                 }
-            }, sendCommand);
+            }, sendCommand, localOnly);
             return;
         }
         sendCommand();
