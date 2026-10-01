@@ -1,6 +1,6 @@
 # Discovered story noticeboard integration
 
-This follow-up adds isolated files only; no existing config, scene, styles or ThirdSpace files are changed. Root owns integration and authoritative commands.
+The physical board, persistent dialog and authoritative commands are integrated into the expanded forest. The main thread has three chapters and two executable side stories; the journal displays only discovered information.
 
 ## Physical board
 
@@ -39,7 +39,17 @@ Mount it persistently inside `.world-shell`, outside conditionally mounted GameM
 
 These names are illustrative integration variables/functions, not new protocol command names. Root should use the finalized story command contract and its authenticated context fences. The only callback payloads are reward/suspect IDs; the component never grants inventory, writes quest progress or compares a chosen face with a culprit.
 
-`canAccuse` defaults false. Discussion buttons appear only during inquiry after the exact discovered evidence `ada-journal` and `ward-rubbing`, plus testimony from `goblin-nib`, `flirt-fenn` and `watch-garrick`. The distant physical board remains read-only for this action. Root may open the same journal beside Orin and provide server-derived permission; the server still checks proximity, cooldown and every prerequisite. Recorded accusations are displayed neutrally, not as a guilty verdict.
+`canAccuse` defaults false. Discussion buttons appear only during inquiry after the exact discovered evidence `ada-journal` and `ward-rubbing`, plus testimony from `goblin-nib`, `flirt-fenn` and `watch-garrick`. The distant physical board remains read-only for this action. The integrated client uses the same `canDiscussForestStory` predicate as PartyRoom against its latest snapshot: connected home actor in the forest, no respawn or world change, outside beside a present Orin, within 2.5 tiles and across a walkable line of sight. The server revalidates every request, including revisions, evidence and the discussion cooldown. Recorded accusations are displayed neutrally, not as a guilty verdict.
+
+## Journal submissions
+
+Only one reward or discussion action can be pending at a time, including clicks in the same render frame. Both button groups disable while it is pending; the selected action displays Collecting or Discussing. The result remains in the journal until another action or explicit journal refresh. A full inventory leaves the durable reward pending and shows the server's make-room message.
+
+Replies use the original browser command ID. Internal hashed event IDs still identify durable story receipts; they are not replaced by the reply ID. Discussion attempts that make no change also reply, as do stale actions arriving during respawn. Old-socket and unrelated replies cannot settle a current action.
+
+A ten-second monotonic timeout releases the button and asks the player to refresh their journal before retrying; it never resends a mutation automatically. A late matching reply is accepted until the player starts another action. Connection/admission, scene and life changes clear pending state. Reconnecting does not replay the action. Reward receipts remain the final authority against duplicate claims.
+
+Doorway invalidation compares the local actor's zone and zone revision explicitly, as well as the existing instance/world/life fences. Current server packets encode the zone revision in `instanceId` too; the explicit check also covers a stable instance key or a coalesced trip out and back. Another player's doorway transition and ordinary local movement do not cancel the pending action.
 
 The four sections are Leads, Evidence, People and Recap. Current main objectives are sequential; discovered side leads display even when the main chapter is still `undiscovered`. Connections resolve only to discovered lead IDs. Shared NPC contributions and personal reward receipts remain distinct. A catch-up summary and resolved-lead details allow asynchronous play without listing unreached plots.
 
@@ -49,6 +59,7 @@ The native modal handles inert background and Escape. Explicit focus wrapping ke
 
 - `apps/web/lib/forest-story-board.test.ts`: discovered-only connections/people, side-first progress, no accusation-to-verdict inference, exact evidence gate, progress bounds and tab keyboard mapping.
 - `packages/config/test/forest-story-board.test.ts`: reachable physical anchor and every named patrol leg clear.
+- `apps/web/lib/story-actions.test.ts`, `packages/simulation/test/forest-story-access.test.ts`, and `tests/unit/shared-story-room.test.ts`: pending-action ownership/timeouts, shared availability/line of sight, correlated discussion outcomes, storage failure, respawn rejection and full-inventory reward recovery.
 - `tests/visual/forest-story-board.mjs`: isolated real Chromium rendering of the actual React component. It uses the existing Playwright dependency and esbuild already provided by tsx, with no app server or new dependencies. Fixture: `apps/web/fixtures/forest-story-board.tsx`, never imported by production routes.
 
 Run `node tests/visual/forest-story-board.mjs`. Optional `PLAYWRIGHT_CHROMIUM_EXECUTABLE` selects an already installed browser; `STORY_BOARD_EVIDENCE_DIR` chooses the output folder. Tested locally with installed Chromium 1223. Twelve browser assertions cover focus/keyboard containment, ID-only callbacks, distant-board read-only behavior, Escape focus return, fullscreen ancestry, 390×844 / 320×568 / 844×390 layouts, at least 44px controls, no horizontal overflow, and a side plot discovered before Orin. The actual rendered desktop/mobile/evidence/physical-board PNGs are in `../story-board-evidence/`.

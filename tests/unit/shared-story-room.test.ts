@@ -12,6 +12,7 @@ import {STORY_GUARDIAN,STORY_RAIDERS,STORY_REWARDS,STORY_SUSPECTS} from '../../p
 import type {PlayerState,RoomSnapshot} from '../../packages/contracts/src/index';
 import type {ForestStorySnapshot} from '../../packages/contracts/src/forest-story';
 import type {ForestMob} from '../../packages/contracts/src/forest-mobs';
+import {StoryActions,storyActionContextChanged} from '../../apps/web/lib/story-actions';
 
 type Client=Parameters<PartyRoom['onJoin']>[0];
 interface Authority {
@@ -32,6 +33,7 @@ const state=()=>storyStore.readAuthority(homeId)!;
 const events=(index:number,type:string)=>vi.mocked(clients[index]!.send).mock.calls.filter(call=>call[0]===type).map(call=>call[1]);
 function latestStory(index:number){const value=events(index,'story.snapshot').at(-1);expect(value,`reliable story snapshot for ${index}`).toBeDefined();return value as ForestStorySnapshot;}
 function latestWorld(index:number){authority().sendSnapshots();return events(index,'snapshot').at(-1) as RoomSnapshot;}
+function latestNotice(index:number){return events(index,'notice').at(-1) as {code:string;message:string;commandId?:string};}
 function envelope(index:number,payload:Record<string,unknown>,context:Record<string,unknown>={}){
   const p=player(index);return{commandId:`shared-room-${++serial}`,worldRevision:room.worldRevision,lifeRevision:p.respawnCount??0,zoneRevision:p.zoneRevision??0,...payload,...context};
 }
@@ -243,15 +245,64 @@ describe('shared story through the actual eight-human PartyRoom authority',()=>{
 
   it('requires every clue and testimony plus real Orin proximity before exposing the next stage',()=>{
     restoreWards();const orin=authority().npcs.get('npc:wizard-orin-vale')!,culprit=state().mystery.culpritId;
-    place(0,orin);send(0,{type:'story.accuse',suspectId:culprit});expect(state().state.chapter).toBe('inquiry');
+    place(0,orin);send(0,{type:'story.accuse',suspectId:culprit,commandId:'need-evidence'});expect(state().state.chapter).toBe('inquiry');
+    expect(latestNotice(0)).toMatchObject({code:'STORY_UPDATE',commandId:'need-evidence'});
     inspect(0,'ada-journal');inspect(1,'ward-rubbing');for(const [i,npc]of STORY_SUSPECTS.entries())talk(i,npc.id);
-    place(0,{x:28,y:24});send(0,{type:'story.accuse',suspectId:culprit});expect(state().state.chapter).toBe('inquiry');
+    place(0,{x:28,y:24});send(0,{type:'story.accuse',suspectId:culprit,commandId:'far-away'});expect(state().state.chapter).toBe('inquiry');
+    expect(latestNotice(0)).toMatchObject({code:'TOO_FAR',commandId:'far-away'});
     place(0,authority().npcs.get('npc:wizard-orin-vale')!);const wrong=STORY_SUSPECTS.find(s=>s.id!==culprit)!.id;
-    send(0,{type:'story.accuse',suspectId:wrong});expect(state().state.wrongAccusations).toEqual([wrong]);expect(state().state.evidence).toHaveLength(2);
-    send(0,{type:'story.accuse',suspectId:culprit});expect(state().state.chapter).toBe('inquiry');
-    skip(10_001);send(0,{type:'story.accuse',suspectId:culprit});expect(state().state.chapter).toBe('rescue');
+    send(0,{type:'story.accuse',suspectId:wrong,commandId:'wrong-face'});expect(state().state.wrongAccusations).toEqual([wrong]);expect(state().state.evidence).toHaveLength(2);
+    expect(latestNotice(0)).toMatchObject({code:'STORY_UPDATE',commandId:'wrong-face'});
+    const revision=state().revision;
+    send(0,{type:'story.accuse',suspectId:wrong,commandId:'already-ruled-out'});
+    expect(state().revision).toBe(revision);expect(latestNotice(0)).toMatchObject({code:'STORY_UPDATE',commandId:'already-ruled-out',message:expect.stringContaining('ruled out')});
+    send(0,{type:'story.accuse',suspectId:culprit,commandId:'too-soon'});expect(state().state.chapter).toBe('inquiry');
+    expect(latestNotice(0)).toMatchObject({code:'STORY_UPDATE',commandId:'too-soon',message:expect.stringContaining('Take a breath')});
+    skip(10_001);send(0,{type:'story.accuse',suspectId:culprit,commandId:'correct-face'});expect(state().state.chapter).toBe('rescue');
+    expect(latestNotice(0)).toMatchObject({code:'STORY_UPDATE',commandId:'correct-face'});
     expect(latestStory(7).story.leads.some(l=>l.id==='keeper-rescue')).toBe(true);
     expect(authority().npcs.get(`npc:${wrong}`)?.health).toBeGreaterThan(0);
+  });
+
+  it('acknowledges failed saves and actions arriving during respawn with the original command id',()=>{
+    startMain();place(0,authority().npcs.get('npc:wizard-orin-vale')!);const before=state().revision;
+    vi.spyOn(SharedForestStoryStore.prototype,'apply').mockImplementationOnce(()=>{throw new Error('fixture storage failure');});
+    send(0,{type:'story.accuse',suspectId:STORY_SUSPECTS[0].id,commandId:'failed-save'});
+    expect(latestNotice(0)).toMatchObject({code:'STORY_SAVE_FAILED',commandId:'failed-save'});expect(state().revision).toBe(before);
+    player(0).respawnAt=Date.now()+2000;
+    send(0,{type:'story.reward',rewardId:'wards-restored',commandId:'caught-in-flight'});
+    expect(latestNotice(0)).toMatchObject({code:'STORY_STALE',commandId:'caught-in-flight'});
+  });
+
+  it('returns a correlated full-inventory result and preserves a reward for one intentional later claim',()=>{
+    talk(0,'cheesemonger-merrit');talk(1,'goblin-pip');talk(0,'cheesemonger-merrit');
+    for(let before=0;before<5;before++)storyStore.changeApples(homeId,ids[0]!,{before,after:before+1,expectedRevision:before+1,cause:'harvest'});
+    send(0,{type:'story.read'});send(0,{type:'story.reward',rewardId:'fair-rind',commandId:'full-pockets'});
+    expect(latestNotice(0)).toMatchObject({code:'STORY_REWARD',commandId:'full-pockets',message:expect.stringContaining('this reward will wait')});
+    expect(latestStory(0).personal.rewards.find(r=>r.id==='fair-rind')?.status).toBe('pending');expect(inventory(0).apples).toBe(5);
+    storyStore.changeApples(homeId,ids[0]!,{before:5,after:4,expectedRevision:6,cause:'eat'});send(0,{type:'story.read'});
+    send(0,{type:'story.reward',rewardId:'fair-rind',commandId:'room-now'});
+    expect(latestNotice(0)).toMatchObject({code:'STORY_REWARD',commandId:'room-now'});
+    send(0,{type:'story.reward',rewardId:'fair-rind',commandId:'late-retry'});
+    expect(latestNotice(0)).toMatchObject({code:'STORY_REWARD',commandId:'late-retry'});expect(inventory(0).apples).toBe(5);
+    expect(store.db.prepare('SELECT count(*) AS n FROM forest_story_reward_claims WHERE home_id=? AND user_id=?').get(homeId,ids[0]!)).toMatchObject({n:1});
+  });
+
+  it('invalidates an unconfirmed journal action when real doorway snapshots change the actor zone',()=>{
+    const interior=FOREST_INTERIORS[0]!;place(0,interior.returnPoint);
+    const before=structuredClone(latestWorld(0)),pending=new StoryActions();
+    pending.begin(clients[0]!,'waiting-at-door',{type:'story.reward',rewardId:'fair-rind'},Date.now());
+    send(0,{type:'interior.enter',interiorId:interior.id});
+    const inside=structuredClone(latestWorld(0)),selfBefore=before.players.find(p=>p.id===ids[0])!,selfInside=inside.players.find(p=>p.id===ids[0])!;
+    expect(inside.worldRevision).toBe(before.worldRevision);
+    expect(selfInside.zone).toBe(interior.id);expect(selfInside.zoneRevision).toBe((selfBefore.zoneRevision??0)+1);
+    expect(storyActionContextChanged(before,inside,ids[0]!)).toBe(true);
+    // Current packets also change instanceId. Deliberately hold it stable to
+    // prove the explicit zone fence does not depend on that formatting detail.
+    const stableInstance={...inside,instanceId:before.instanceId};
+    expect(storyActionContextChanged(before,stableInstance,ids[0]!)).toBe(true);
+    if(storyActionContextChanged(before,stableInstance,ids[0]!))pending.clear();
+    expect(pending.pending).toBeNull();expect(pending.complete(clients[0]!,'waiting-at-door')).toBe(false);
   });
 
   it('admits all eight into each interior with safe unique spawns and returns everyone through natural exits',()=>{
