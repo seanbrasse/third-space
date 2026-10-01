@@ -31,7 +31,7 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
 }) {
     const clock = useRef({ server: 0, client: 0 });
     const autoplayBlocked = useRef(false);
-    const sync = useRef({ anchor: NaN, position: NaN, playing: false, lastSeek: -Infinity, lastPlay: -Infinity, stableSince: 0 });
+    const sync = useRef({ anchor: NaN, position: NaN, playing: false, lastPlay: -Infinity, lastVolume: NaN });
     const root = useRef<HTMLDivElement>(null), player = useRef<Player | null>(null), latest = useRef({ getSnapshot, selfId, volume, expanded, onEnded, onError }), [ready, setReady] = useState(false), [blocked, setBlocked] = useState(false), [loading, setLoading] = useState(true);
     useEffect(() => { latest.current = { getSnapshot, selfId, volume, expanded, onEnded, onError }; }, [getSnapshot, selfId, volume, expanded, onEnded, onError]);
     useEffect(() => {
@@ -48,7 +48,7 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
         if (!ready || !api || !root.current)
             return;
         autoplayBlocked.current = false;
-        sync.current = { anchor: NaN, position: NaN, playing: false, lastSeek: -Infinity, lastPlay: -Infinity, stableSince: 0 };
+        sync.current = { anchor: NaN, position: NaN, playing: false, lastPlay: -Infinity, lastVolume: NaN };
         let stopped = false;
         const target = document.createElement("div");
         root.current.appendChild(target);
@@ -72,29 +72,23 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
                 return;
             if (s.serverTime !== clock.current.server)
                 clock.current = { server: s.serverTime, client: Date.now() };
-            const serverNow = clock.current.server + Date.now() - clock.current.client, target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0), duration = p.getDuration();
-            if (duration > 0 && target >= duration) {
-                if(m.playing)latest.current.onEnded(playbackId);
-                return;
-            }
+            const serverNow = clock.current.server + Date.now() - clock.current.client;
+            const target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0);
             const now = performance.now(), state = p.getPlayerState(), policy = sync.current;
-            // Queue edits change revision but do not change the playback anchor.
-            // Buffering must finish before automatic drift correction can seek again.
+            // Only align on join/source or an explicit shared playback command.
+            // Decoder delays and keyframe rounding must never trigger a seek loop.
+            // Queue-only revisions do not change this anchor.
             const commandChanged = policy.anchor !== m.anchorAt || policy.position !== m.position || policy.playing !== m.playing;
-            const drift = Math.abs(p.getCurrentTime() - target);
-            if (state !== 1) policy.stableSince = now;
-            if ((commandChanged && drift > .35) || (m.playing && state === 1 && drift > 3 && now - policy.stableSince >= 3000 && now - policy.lastSeek >= 10000)) {
+            if (commandChanged && Math.abs(p.getCurrentTime() - target) > .35)
                 p.seekTo(target, true);
-                policy.lastSeek = now;
-                policy.stableSince = now;
-            }
             if (m.playing && !autoplayBlocked.current && state !== 1 && state !== 3 && (commandChanged || now - policy.lastPlay >= 5000)) {
                 p.playVideo();
                 policy.lastPlay = now;
             } else if (!m.playing && [1,3].includes(state)) p.pauseVideo();
             policy.anchor = m.anchorAt; policy.position = m.position; policy.playing = m.playing;
             const self=s.players.find(p=>p.id===selfId),surface=getWorld(s.worldId).mediaSurface;const gain=expanded?1:Math.max(0,1-Math.hypot((self?.x??0)-surface.source.x,(self?.y??0)-surface.source.y)/12);
-            p.setVolume(volume * gain * 100);
+            const nextVolume=Math.round(volume * gain * 100);
+            if(nextVolume!==policy.lastVolume){p.setVolume(nextVolume);policy.lastVolume=nextVolume;}
         }, 500);
         return () => clearInterval(timer);
     }, [playbackId]);

@@ -14,7 +14,7 @@ test('YouTube adapter follows shared member controls, persistent TV surface and 
   await expect(p.locator('.world-canvas')).toHaveAttribute('data-seat-id',/camp-seat-/);
   await p.locator('.world-canvas').focus();
   for(const point of [{x:24,y:28},{x:27,y:28},{x:27,y:24},...Array.from({length:6},(_,i)=>({x:34+i*7,y:24})),{x:69,y:17},{x:69,y:13.5}]){
-   const q=await p.locator('.world-canvas').evaluate((el,point)=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(point.x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(point.y*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}},point);await p.mouse.click(q.x,q.y);await expect.poll(async()=>{const d=await p.locator('.world-canvas').evaluate(el=>(el as HTMLElement).dataset);return Math.hypot(Number(d.authoritativeX)-point.x,Number(d.authoritativeY)-point.y)},{timeout:9000}).toBeLessThan(.5);
+   const q=await p.locator('.world-canvas').evaluate((el,point)=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(point.x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(point.y*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}},point);await p.mouse.click(q.x,q.y);await expect.poll(async()=>{const d=await p.locator('.world-canvas').evaluate(el=>(el as HTMLElement).dataset);return d.worldId==="asylum"?0:Math.hypot(Number(d.authoritativeX)-point.x,Number(d.authoritativeY)-point.y)},{timeout:9000}).toBeLessThan(.5);
   }
   await p.keyboard.press('e');await expect(p.locator('.world-canvas')).toHaveAttribute('data-world-id','asylum');
  }
@@ -29,8 +29,12 @@ test('YouTube adapter follows shared member controls, persistent TV surface and 
  await guest.waitForTimeout(7000);
  expect(await guest.evaluate(()=>(window as any).__yt.seeks)).toBe(before);
  await guest.evaluate(()=>{const p=(window as any).__yt;p.s=1;p.at=Date.now()});
- await guest.waitForTimeout(4500);
- expect(await guest.evaluate(()=>(window as any).__yt.seeks)).toBeLessThanOrEqual(before+1);
+ // Sustained keyframe lag used to cause a new seek every ten seconds.
+ await guest.evaluate(()=>{const p=(window as any).__yt;p.t=Math.max(0,p.t-4);p.getDuration=()=>1});
+ await guest.waitForTimeout(12000);
+ expect(await guest.evaluate(()=>(window as any).__yt.seeks)).toBe(before);
+ await expect(page.getByRole('button',{name:'Pause together',exact:true})).toBeVisible();
+ await guest.evaluate(()=>{(window as any).__yt.getDuration=()=>300});
  await guest.getByRole('button',{name:'Pause together'}).click();await expect.poll(async()=>(await state(page))?.s).toBe(2);
  await page.getByLabel('Seek (seconds)').fill('23');await page.getByRole('button',{name:'Seek together'}).click();await expect.poll(async()=>(await state(guest))?.t).toBe(23);
  await page.getByLabel('Video link').fill('https://youtu.be/dQw4w9WgXcQ');await page.getByRole('button',{name:'Add to queue'}).click();await expect(guest.getByRole('list',{name:'Shared video queue'})).toContainText('dQw4w9WgXcQ');
