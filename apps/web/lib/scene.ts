@@ -1,3 +1,4 @@
+import {observeWorldContainer} from './world-container-size';
 import {LivingEffectsPresentation} from './living-effects-presentation';
 import {livingInteriorFloorCanvas,livingInteriorObjectCanvas} from './living-environment-art';
 import {livingStrengthAvatarCanvas} from './living-potion-art';
@@ -1206,6 +1207,19 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH },
     render: { roundPixels: true },
     audio: { noAudio: true },
+  });
+  let stopContainerObserver: (() => void) | undefined;
+  const watchContainer = () => {
+    stopContainerObserver ??= observeWorldContainer(parent, () => {
+      game.scale.getParentBounds();
+      game.scale.refresh(); // RESIZE mode updates canvas, camera fit and pointer bounds.
+    });
+  };
+  if (game.isBooted) watchContainer();
+  else game.events.once(Phaser.Core.Events.READY, watchContainer);
+  game.events.once(Phaser.Core.Events.DESTROY, () => {
+    game.events.off(Phaser.Core.Events.READY, watchContainer);
+    stopContainerObserver?.();
   });
   // Rendering sleeps independently; the room socket, voice and media remain alive.
   const visibility=()=>{if(document.hidden)game.loop.sleep();else game.loop.wake();};
