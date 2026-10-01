@@ -131,8 +131,9 @@ export class LivingWorldRoom {
   tick(now:number,phase:'dawn'|'day'|'dusk'|'night',pathSearchBudget=1){
     const npcController=this.o.npcs();if(!npcController)return 0;
     const budget=Number.isFinite(pathSearchBudget)?Math.max(0,Math.min(1,Math.floor(pathSearchBudget))):0;
-    // One shared route search per100ms, alternating first choice to prevent starvation.
-    this.alternate=!this.alternate;
+    // Only advance priority when this subsystem receives a search slot. Goblins
+    // may consume alternating ticks; advancing on zero would always favor one lane.
+    if(budget>0)this.alternate=!this.alternate;
     if(this.alternate)npcController.update(now,{phase,pathSearchBudget:budget});
     const update=this.controller.update(now,this.humans(),npcController.snapshot(),{night:phase==='night',pathSearchBudget:this.alternate?budget-npcController.diagnostics().lastPathSearches:budget});
     for(const intent of update.steering)npcController.steer(intent.npcId,intent.goal,now,{...intent,bubble:intent.bubble?.text});
