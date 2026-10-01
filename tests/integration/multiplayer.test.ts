@@ -9,7 +9,7 @@ import type {
   WorldSoundEvent,
 } from "../../packages/contracts/src/index";
 import { HOME_MAP, RACE_MAP } from "../../packages/config/src/index";
-import { distance, findHomePath } from "../../packages/simulation/src/index";
+import { distance, findHomePath, isHomeSegmentWalkable } from "../../packages/simulation/src/index";
 import { createGameServer } from "../../apps/game-server/src/server";
 
 import {ForestMimic} from "../../apps/game-server/src/ForestMimic";
@@ -173,6 +173,35 @@ async function walkToPortal(peer: Peer) {
 }
 
 describe("real HTTP admission and Colyseus multiplayer", () => {
+  it('shares one backpack winner and authoritative knife damage across eight socket clients',async()=>{
+    const homeId=await home(identities[0]!,"Forest survival sockets");
+    const peers:Peer[]=[];for(const identity of identities.slice(0,8))peers.push(await connect(homeId,identity));
+    const authority=PartyRoom.liveRooms.get(homeId)!;
+    (authority as unknown as {changeWorld:(id:'forest')=>void}).changeWorld('forest');
+    await until(()=>peers.every(p=>p.snapshot?.survival?.backpacks.length===2),"Forest survival state missing");
+    const bag=peers[0]!.snapshot!.survival!.backpacks[0]!;
+    for(const p of authority.players.values()){p.x=bag.x;p.y=bag.y;delete p.seatId;delete p.haloUntil;}
+    const action=(peer:Peer,body:Record<string,unknown>)=>{const snap=peer.snapshot!,player=snap.players.find(p=>p.id===peer.identity.id)!;peer.room.send('command',{commandId:crypto.randomUUID(),worldRevision:snap.worldRevision,lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0,...body});};
+    for(const peer of peers)action(peer,{type:'survival.pickup',backpackId:bag.id});
+    await until(()=>peers.every(p=>p.snapshot?.survival?.players.filter(p=>p.knifeId===bag.id).length===1),"Contested pickup did not converge");
+    const ownerId=peers[0]!.snapshot!.survival!.players.find(p=>p.knifeId===bag.id)!.id;
+    const owner=peers.find(p=>p.identity.id===ownerId)!,victim=peers.find(p=>p!==owner)!;
+    action(owner,{type:'survival.equip',item:'knife'});
+    await until(()=>owner.snapshot?.survival?.players.find(p=>p.id===ownerId)?.equipped==='knife',"Equip not acknowledged");
+    const a=authority.players.get(ownerId)!,b=authority.players.get(victim.identity.id)!;
+    const clear=[{x:a.x+.7,y:a.y},{x:a.x-.7,y:a.y},{x:a.x,y:a.y+.7}].find(p=>isHomeSegmentWalkable(a,p,getWorld('forest').map))!;
+    expect(clear).toBeDefined();Object.assign(b,clear);
+    action(owner,{type:'survival.attack',targetId:b.id,commandId:'network-once'});
+    await until(()=>peers.every(p=>p.snapshot?.survival?.players.find(v=>v.id===b.id)?.health===70),"Damage did not converge");
+    action(owner,{type:'survival.attack',targetId:b.id,commandId:'network-once'});await pause(100);
+    expect(victim.snapshot!.survival!.players.find(p=>p.id===b.id)!.health).toBe(70);
+    for(let hit=0;hit<3;hit++){await pause(850);action(owner,{type:'survival.attack',targetId:b.id});}
+    await until(()=>victim.snapshot?.players.find(p=>p.id===b.id)?.caughtBy==='player',"Knockout not shared");
+    await until(()=>victim.snapshot?.survival?.players.find(p=>p.id===b.id)?.health===100,"Respawn did not restore health");
+    expect(victim.snapshot!.players.find(p=>p.id===b.id)!.respawnCount).toBe(1);
+    expect(victim.sounds.filter(s=>s.victimId===b.id)).toHaveLength(0);
+    expect(peers.every(p=>p.snapshot!.members.length===8&&p.snapshot!.survival!.backpacks.length<=2)).toBe(true);
+  },15000);
   beforeAll(async () => {
     // These existing network regressions explicitly start in the retained lounge.
     const create = PartyRoom.prototype.onCreate;

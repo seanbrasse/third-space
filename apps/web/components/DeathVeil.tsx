@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useRef } from 'react';
-import type { AvatarConfig } from '@third-space/contracts';
+import type { AvatarConfig, PlayerState } from '@third-space/contracts';
 import { drawAvatarCanvas } from '../lib/pixel-art';
-import { takedownCreature, CatchPresentation, TAKEDOWN_DURATION_MS, type TakedownCreature as Creature } from '../lib/takedown';
+import { takedownCreature, CatchPresentation, TAKEDOWN_DURATION_MS } from '../lib/takedown';
 import TakedownCreature from './TakedownCreature';
 import TakedownCloseup from './TakedownCloseup';
 const presentations = new CatchPresentation();
@@ -10,7 +10,7 @@ const presentations = new CatchPresentation();
 export default function DeathVeil({ caughtAt, caughtBy, avatar, victimId, serverTime, worldRevision, epoch, reducedMotion }: {
     victimId?: string;
     caughtAt?: number;
-    caughtBy?: Creature;
+    caughtBy?: PlayerState["caughtBy"];
     avatar?: AvatarConfig;
     serverTime: number;
     worldRevision: number;
@@ -21,6 +21,7 @@ export default function DeathVeil({ caughtAt, caughtBy, avatar, victimId, server
     const root = useRef<HTMLDivElement>(null), player = useRef<HTMLCanvasElement>(null), latest = useRef(serverTime);
     latest.current = serverTime;
     const creature = takedownCreature(caughtBy);
+    const calm = reducedMotion || caughtBy === "hunger" || caughtBy === "player";
     useEffect(() => {
         if (avatar && player.current) drawAvatarCanvas(player.current, avatar, 'down', 0);
     }, [avatar, creature]);
@@ -40,8 +41,9 @@ export default function DeathVeil({ caughtAt, caughtBy, avatar, victimId, server
         const timer = setTimeout(() => el.classList.remove('active'), window.remaining);
         return () => { clearTimeout(timer); el.classList.remove('active', 'shock'); };
     }, [caughtAt, worldRevision, epoch, victimId]);
-    return <div ref={root} className={`death-veil takedown-veil ${reducedMotion ? 'gentle' : ''}`} style={{ pointerEvents: 'none', background: '#000' }} aria-hidden="true" data-caught-at={caughtAt ?? 0} data-creature={creature ?? 'unknown'}>
+    return <div ref={root} className={`death-veil takedown-veil ${calm ? 'gentle' : ''}`} style={{ pointerEvents: 'none', background: '#000' }} aria-hidden="true" data-caught-at={caughtAt ?? 0} data-creature={creature ?? 'unknown'}>
       {creature && <div className="takedown-jumpscare"><div className="takedown-jolt"><TakedownCloseup kind={creature}/></div></div>}
+      {!creature && (caughtBy==="hunger"||caughtBy==="player") && <div className="takedown-stage"><div className="takedown-caption">{caughtBy==="hunger"?"Time for an apple and a rest.":"Take a breath by the fire."}<span>Returning to the fire…</span></div></div>}
       {creature && avatar && <div className="takedown-stage">
         <div className="takedown-attacker"><TakedownCreature kind={creature}/></div>
         <div className="takedown-grasp"/>

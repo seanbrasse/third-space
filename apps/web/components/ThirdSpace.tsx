@@ -12,6 +12,8 @@ import { restoreGameFocus } from "../lib/game-focus";
 import { usePanelGameFocus } from "../lib/use-panel-game-focus";
 import IdlePresence, { useIdleActivity } from "./IdlePresence";
 import StaminaBar from "./StaminaBar";
+import SurvivalHUD from "./SurvivalHUD";
+import "./survival-hud.css";
 import { holdTouchSprint, releaseTouchSprint } from "../lib/touch-boost";
 import { gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -211,6 +213,11 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
+    if (typeof command.type==="string" && command.type.startsWith("survival.")) {
+      const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
+      if(!snapshot || !player || !bridgeRef.current?.transportConnected)return;
+      command={...command,commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
+    }
     if (room.current) room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision,zoneRevision:bridgeRef.current?.snapshot?.players.find(p=>p.id===identityRef.current?.id)?.zoneRevision??0}:command);
   }, []);
   if (!bridgeRef.current)
@@ -863,6 +870,7 @@ export default function ThirdSpace() {
     messages = (snapshot?.chat || []).filter(
       (m) => !prefs.textMuted.includes(m.senderId),
     );
+  const survivalSelf=snapshot?.survival?.players.find(p=>p.id===identity?.id);
   useEffect(() => {
     if (!snapshot) return;
     for (const message of snapshot.chat) acknowledgeChat(message);
@@ -1256,6 +1264,13 @@ export default function ThirdSpace() {
               <SharedWatching snapshot={snapshot} getSnapshot={()=>bridge.snapshot} selfId={identity?.id||""} expanded={watchExpanded} onExpand={setWatchExpanded} send={send}/>
               <div className="world-bottomline">
                 <StaminaBar snapshot={snapshot} selfId={identity?.id??""}/>
+                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onEquip={item=>send({type:"survival.equip",item})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
+                  const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
+                  if(!player||!inventory)return;
+                  if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});
+                  else if(inventory.equipped==="apple")send({type:"survival.eat"});
+                  else {const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a player outside the safe areas, then swing.");}
+                }}/>}
                 <span>
                   ◇{" "}
                   {race
@@ -2135,6 +2150,7 @@ export default function ThirdSpace() {
               <>
                 <span className="eyebrow">KEEP YOUR PLACE PRIVATE</span>
                 <h2>Home controls.</h2>
+                {snapshot?.survival && <label className="check"><input type="checkbox" checked={snapshot.survival.pvpEnabled} onChange={event=>send({type:"survival.pvp",enabled:event.target.checked})}/>Allow knife combat outside safe areas</label>}
                 <p>
                   Room ID: <code>{home.joinAlias || home.id}</code>
                 </p>

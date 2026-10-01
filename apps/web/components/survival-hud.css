@@ -1,0 +1,14 @@
+.survival-hud { flex:1 0 100%; min-width:0; box-sizing:border-box; padding: .55rem .7rem; color: var(--ink); background: var(--paper); border:1px solid var(--sage); border-radius:.7rem; max-width:32rem; }
+.world-bottomline .survival-hud span{display:inline;flex:initial;text-align:initial}
+.survival-meters { display:flex; gap:.6rem; flex-wrap:wrap; font-size:.75rem; }
+.survival-meters label { display:flex; align-items:center; gap:.25rem; margin:0; }
+.survival-meters meter { width:4rem; height:.65rem; }
+.survival-hotbar { display:flex; gap:.35rem; margin-top:.45rem; flex-wrap:wrap; }
+.survival-hotbar button { min-width:3.4rem; min-height:44px; padding:.35rem .5rem; border:1px solid var(--sage); background:var(--paper); color:var(--ink); border-radius:.35rem; }
+.survival-hotbar button[aria-pressed=true] { outline:2px solid var(--sage); background:var(--cream); }
+.survival-hotbar button:disabled { opacity:.45; }
+.survival-hotbar small { display:block; font-size:.65rem; }
+.survival-hotbar button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
+.survival-hud p { margin:.4rem 0 0; font-size:.65rem; line-height:1.3; }
+.survival-hud summary { cursor:pointer; margin-top:.35rem; font-size:.65rem; }
+@media(max-width:480px) {.survival-hud{padding:.4rem;max-width:100%;}.survival-hotbar{gap:.25rem}.survival-hotbar button{min-width:3rem;padding:.25rem}.survival-hud p{max-width:26rem}}

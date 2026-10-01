@@ -1,6 +1,7 @@
 import { mimicSpriteCanvas } from "./mimic-art";
 import { mimicPresentation } from "./mimic-presentation";
 import { chatTextMetrics } from "./chat-presentation";
+import { SurvivalPresentation } from './survival-presentation';
 import { darknessFill } from "./forest-visibility";
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
 import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
@@ -54,6 +55,7 @@ function snapshotSeats(bridge: WorldBridge, selfId: string) {
 }
 export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
+    private survivalPresentation: SurvivalPresentation | null = null;
     private racePresentation: RacePresentation | null = null;
     private nodes = new Map<string, Node>();
     private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
@@ -197,6 +199,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.events.once(Phaser.Scenes.Events.DESTROY,releaseBounds);
       refreshBounds();
       this.scale.on("resize", () => this.fit());
+      this.survivalPresentation=new SurvivalPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.survivalPresentation?.destroy());
       this.drawHome();
       this.fit();
     }
@@ -645,6 +649,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         mode === "race" ? this.drawRace() : this.dark ? this.drawForest() : this.drawHome();
         this.fit();
       }
+      if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
       const typing = isGameInputBlocked(document.activeElement);
       const active =
@@ -804,7 +809,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             if (bridge.blocked) return;
             this.cancelWalk();
             this.clickedId = p.id;
-            if (!local) bridge.selectPerson(p.id);
+            if (!local) {
+              const equipped=bridge.snapshot?.survival?.players.find(v=>v.id===bridge.selfId)?.equipped;
+              if(equipped==="knife"&&!bridge.blocked)bridge.send({type:"survival.attack",targetId:p.id});
+              else bridge.selectPerson(p.id);
+            }
           });
           this.nodes.set(p.id, node);
         }
