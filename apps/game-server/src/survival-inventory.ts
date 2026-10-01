@@ -74,13 +74,23 @@ export class SurvivalInventory {
     ensure(id: string) { let p = this.players.get(id); if (!p) {
         p = { id, health: 100, hunger: 75, equipped: 'flashlight', slots: ['flashlight', null, null, null, null], selectedSlot: 0, apples: 0 };
         this.players.set(id, p);
-    } return { ...p, slots: [...p.slots] }; }
+    } return { ...p, slots: [...p.slots], ...(p.potions?{potions:{...p.potions}}:{}) }; }
     /** Hydrate only from the durable server inventory. This never grants a reward. */
     restoreApples(id:string,count:number){
         if(!Number.isInteger(count)||count<0||count>SURVIVAL.appleCapacity)return false;
         this.ensure(id);const p=this.players.get(id)!;
         if(count&&!this.canStore(p,'apple'))return false;
         p.apples=count;if(count)this.store(p,'apple');else this.clearItem(p,'apple');return true;
+    }
+    canStoreItem(id:string,item:SurvivalItem){const p=this.players.get(id);return !!p&&this.canStore(p,item);}
+    /** Counts come only from the durable living-world transaction. Never mint doses here. */
+    restorePotions(id:string,counts:{strength:number;speed:number}){
+        if(Object.values(counts).some(n=>!Number.isInteger(n)||n<0||n>2))return false;
+        this.ensure(id);const p=this.players.get(id)!;
+        const next=[...p.slots];
+        for(const kind of ['strength','speed'] as const){const item=`${kind}-potion` as const;const slot=next.indexOf(item);if(!counts[kind]&&slot>=0)next[slot]=null;}
+        for(const kind of ['strength','speed'] as const){const item=`${kind}-potion` as const;if(counts[kind]&&!next.includes(item)){const slot=next.indexOf(null);if(slot<0)return false;next[slot]=item;}}
+        p.slots=next;p.potions={...counts};p.equipped=p.slots[p.selectedSlot]??null;return true;
     }
     /** Apply after life/zone/world validation. Deduplicates transport replay throughout reconnect grace. */
     acceptCommand(id: string, commandId: string, now: number): boolean {
@@ -90,6 +100,7 @@ export class SurvivalInventory {
         if (claims.has(commandId) || claims.size >= 512) return false;
         claims.set(commandId, now); this.commandClaims.set(id, claims); return true;
     }
+    isPvpEnabled(){return this.pvpEnabled;}
     setPvp(enabled: boolean) { this.pvpEnabled = enabled; }
     private event(kind: SurvivalEvent['kind'], actorId: string, at: number, targetId?: string) { this.events.push({ id: `survival-${++this.serial}`, kind, actorId, targetId, at }); this.events = this.events.slice(-64); }
     private active(a: SurvivalActor, now: number) { return a.connected && a.mode === 'home' && !a.zone && !a.respawnAt && !(a.haloUntil && a.haloUntil > now); }
@@ -110,6 +121,7 @@ export class SurvivalInventory {
         p.hunger = Math.max(0, p.hunger - dt * SURVIVAL.hungerPerSecond);
         if (p.hunger === 0) {
             p.health = Math.max(0, p.health - dt * SURVIVAL.starvationPerSecond);
+            p.damageRevision=(p.damageRevision??0)+1;
             if (p.health === 0) {
                 deaths.push(a.id);
                 this.event('death', a.id, now);
@@ -156,10 +168,10 @@ export class SurvivalInventory {
     damageWorld(a:SurvivalActor,amount:number,now:number):SurvivalResult{
         const p=this.players.get(a.id);
         if(!p||!Number.isFinite(amount)||amount<=0||amount>1000||!this.active(a,now)||a.seatId||this.options.safe(a)||p.health<=0)return {ok:false,reason:'Safe from the threat'};
-        p.health=Math.max(0,p.health-amount);this.event('hurt',a.id,now);if(!p.health)this.event('death',a.id,now);return {ok:true,deaths:p.health?[]:[a.id]};
+        p.health=Math.max(0,p.health-amount);p.damageRevision=(p.damageRevision??0)+1;this.event('hurt',a.id,now);if(!p.health)this.event('death',a.id,now);return {ok:true,deaths:p.health?[]:[a.id]};
     }
-    attack(a: SurvivalActor, b: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!this.pvpEnabled || !p || !target || a.id === b.id || !this.active(b, now) || b.seatId || this.options.safe(b) || target.health <= 0)
-        return { ok: false, reason: 'Players are safe here' }; const swing=this.strikeWorldTarget(a,b,now);if(!swing.ok)return swing; target.health = Math.max(0, target.health - SURVIVAL.attackDamage); this.event('hurt', b.id, now, a.id); if (target.health === 0)
+    attack(a: SurvivalActor, b: SurvivalActor, now: number, damage:number=SURVIVAL.attackDamage): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!Number.isFinite(damage)||damage<=0||damage>100||!this.pvpEnabled || !p || !target || a.id === b.id || !this.active(b, now) || b.seatId || this.options.safe(b) || target.health <= 0)
+        return { ok: false, reason: 'Players are safe here' }; const swing=this.strikeWorldTarget(a,b,now);if(!swing.ok)return swing; target.health = Math.max(0, target.health - damage);target.damageRevision=(target.damageRevision??0)+1; this.event('hurt', b.id, now, a.id); if (target.health === 0)
         this.event('death', b.id, now, a.id); return { ok: true, deaths: target.health === 0 ? [b.id] : [] }; }
     /** Server-only reward bridge. Durable quest ledger must own cross-restart claims. Full pocket does not consume claim. */
     grantApples(id: string, amount: number, claimId: string): SurvivalResult { const p = this.players.get(id); if (!p || !Number.isInteger(amount) || amount < 1 || amount > SURVIVAL.appleCapacity || !claimId || claimId.length > 160)
@@ -172,9 +184,9 @@ export class SurvivalInventory {
         this.backpacks.shift(); const candidates = this.options.spawnPoints.filter(p => this.options.walkable(p) && !this.options.safe(p) && this.backpacks.every(b => distance(b, p) > 2)); if (!candidates.length)
         return; const index = Math.min(candidates.length - 1, Math.max(0, Math.floor(this.options.random() * candidates.length))); const point = candidates[index]!; this.backpacks.push({ id, x: point.x, y: point.y }); }
     respawn(id: string) { const p = this.players.get(id); if (!p)
-        return; const saved=!p.apples||!this.options.persistApples||this.options.persistApples(id,p.apples,0,'death'); const retained=saved?0:p.apples; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; p.slots = ['flashlight', null, null, null, null]; p.selectedSlot = 0; if(retained)this.restoreApples(id,retained); /* cooldown deliberately survives respawn */ }
+        return; const saved=!p.apples||!this.options.persistApples||this.options.persistApples(id,p.apples,0,'death'); const retained=saved?0:p.apples; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; p.slots = ['flashlight', null, null, null, null]; p.selectedSlot = 0; if(retained)this.restoreApples(id,retained); if(p.potions)this.restorePotions(id,p.potions); /* cooldown deliberately survives respawn */ }
     remove(id: string) { const p = this.players.get(id); if (p)
         this.returnKnife(p); this.players.delete(id); this.attackAt.delete(id);
         this.commandClaims.delete(id); }
-    snapshot(): SurvivalSnapshot { return { pvpEnabled: this.pvpEnabled, players: [...this.players.values()].map(p => ({ ...p, slots: [...p.slots] })), backpacks: this.backpacks.map(b => ({ ...b })), appleTrees: this.trees.map(t => ({ ...t })), events: this.events.map(e => ({ ...e })) }; }
+    snapshot(): SurvivalSnapshot { return { pvpEnabled: this.pvpEnabled, players: [...this.players.values()].map(p => ({ ...p, slots: [...p.slots], ...(p.potions?{potions:{...p.potions}}:{}) })), backpacks: this.backpacks.map(b => ({ ...b })), appleTrees: this.trees.map(t => ({ ...t })), events: this.events.map(e => ({ ...e })) }; }
 }

@@ -1,6 +1,14 @@
 "use client";
 import {applySnapshotFrame,type SnapshotState} from '../../../packages/contracts/src/snapshot-delta';
 import GameMenu from "./GameMenu";
+import {NPCConversationSession} from '../lib/npc-conversation-session';
+import NpcInteractionPanel from './NpcInteractionPanel';
+import {nearestInteractableNPC} from '../lib/nearby-npc';
+import {isHomeSegmentWalkable} from '@third-space/simulation';
+import type {LivingWorldSnapshot,LivingWorldReceipt,NPCActionOffer} from '../../../packages/contracts/src/living-world';
+import type {NPCConversationView,NPCJournalTab} from '../../../packages/config/src/npc-conversations';
+type ConversationEnvelope={view:NPCConversationView;mode:'conversation'|'help';commandId?:string;epoch:string;lifeRevision:number;zoneRevision:number;targetNpcLifeRevision:number};
+
 import NativeVoicePanel from "./NativeVoicePanel";
 import { useGameFullscreen } from "../lib/use-game-fullscreen";
 import ChatTimestamp from "./ChatTimestamp";
@@ -106,6 +114,10 @@ function id() {
   return crypto.randomUUID();
 }
 export default function ThirdSpace() {
+  const [living,setLiving]=useState<LivingWorldSnapshot|null>(null),[conversation,setConversation]=useState<ConversationEnvelope|null>(null),[npcNotice,setNpcNotice]=useState(''),[npcPending,setNpcPending]=useState<{commandId:string;actionId:string}|null>(null),[storyTab,setStoryTab]=useState<NPCJournalTab>('leads');
+  const npcConversationSession=useRef(new NPCConversationSession());
+  const npcPendingRef=useRef<typeof npcPending>(null),livingRef=useRef<LivingWorldSnapshot|null>(null);
+  npcPendingRef.current=npcPending;livingRef.current=living;
   const [story,setStory]=useState<ForestStorySnapshot|null>(null),[storyOpen,setStoryOpen]=useState(false);
   const {pending:pendingStoryAction,notice:storyNotice,submit:submitStoryAction,acknowledge:acknowledgeStoryAction,reset:resetStoryActions,dismissNotice:dismissStoryNotice}=useStoryActions();
   const [identity, setIdentity] = useState<Identity | null>(null),
@@ -222,13 +234,18 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || command.type === "npc.interact" || command.type === "interior.enter" || command.type === "mob.attack")) {
+    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || (command.type.startsWith("npc.") || command.type === "living.use") || command.type === "interior.enter" || command.type === "mob.attack")) {
       const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
       if(!snapshot || !player || !bridgeRef.current?.transportConnected)return false;
-      const journalAction=command.type==='story.reward'||command.type==='story.accuse';
-      command={...command,commandId:journalAction&&typeof command.commandId==="string"?command.commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
+      command={...command,commandId:typeof command.commandId==="string"?command.commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
     }
+    if(command.type==='living.use')command={...command,expectedInventoryRevision:livingRef.current?.personal.inventory.revision};
     if(!room.current)return false;
+    if(command.type==='npc.interact'||command.type==='npc.action'||command.type==='npc.attack'){
+      if(command.type==='npc.interact'&&npcPendingRef.current)return false;
+      npcConversationSession.current.request(String(command.commandId),String(command.npcId));
+      if(command.type==='npc.interact')setNpcNotice('');
+    }
     room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision,zoneRevision:bridgeRef.current?.snapshot?.players.find(p=>p.id===identityRef.current?.id)?.zoneRevision??0}:command);
     return true;
   }, []);
@@ -243,7 +260,17 @@ export default function ThirdSpace() {
       return send({...action,commandId});
     });
   }
-  function openStoryBoard(){dismissStoryNotice();setStoryOpen(true);send({type:'story.read'});}
+  function openStoryBoard(tab:NPCJournalTab='leads'){setStoryTab(tab);dismissStoryNotice();setStoryOpen(true);send({type:'story.read'});}
+  function closeConversation(){if(conversation?.mode==='help')send({type:'npc.decline',npcId:`npc:${conversation.view.npcId}`});npcConversationSession.current.close();setConversation(null);setNpcPending(null);setNpcNotice('');}
+  function actOnNpc(offer:NPCActionOffer){
+    if(!conversation||npcPendingRef.current||!livingRef.current)return;
+    const commandId=id();setNpcNotice('');npcPendingRef.current={commandId,actionId:offer.actionId};setNpcPending(npcPendingRef.current);
+    const common={npcId:`npc:${conversation.view.npcId}`,targetLifeRevision:conversation.targetNpcLifeRevision,commandId};
+    const sent=send(offer.kind==='attack'?{...common,type:'npc.attack'}:{...common,type:'npc.action',actionId:offer.actionId,expectedInventoryRevision:livingRef.current.personal.inventory.revision});
+    if(!sent){setNpcPending(null);setNpcNotice('Reconnect and speak to them again.');}
+  }
+  useEffect(()=>{if(!npcPending)return;const timer=setTimeout(()=>{setNpcPending(null);setNpcNotice('The reply is taking longer. Speak again to refresh your choices.');},8000);return()=>clearTimeout(timer);},[npcPending]);
+
   if (!bridgeRef.current)
     bridgeRef.current = {
       snapshot: null,
@@ -414,6 +441,7 @@ export default function ThirdSpace() {
       }
       if (event.key === "Escape") {
         if (modal) setModal(null);
+        else if (conversation&&!typing) closeConversation();
         else if (typing && element.closest(".chat-panel")) setChatOpen(false);
         else if (typing) element.blur();
         return;
@@ -455,7 +483,7 @@ export default function ThirdSpace() {
       window.removeEventListener("orientationchange", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [home, modal, storyOpen, connection, prefs.panel, bridge, send]);
+  }, [home, modal, storyOpen, conversation, connection, prefs.panel, bridge, send]);
   useEffect(() => {
     if (modal === "board" && home) {
       void api<{ notes: Note[] }>(`/homes/${home.id}/board`)
@@ -554,6 +582,7 @@ export default function ThirdSpace() {
     bridge.transportConnected = true;
     remember(targetHome,connected);
     setHome(targetHome);
+    npcConversationSession.current.close();setConversation(null);setNpcPending(null);setLiving(null);livingRef.current=null;
     setConnection("Connected");
     const userId = identityRef.current?.id;
     // Count only successful intentional entries. Reconnect, refresh recovery,
@@ -574,9 +603,13 @@ export default function ThirdSpace() {
       bridge.selfId = data.selfId;admittedEpoch=data.epoch;deltaState=undefined;
     });
     connected.onMessage("story.snapshot",(data:ForestStorySnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.story=data;setStory(data);});
+    connected.onMessage('living.snapshot',(data:LivingWorldSnapshot)=>{if(room.current!==connected||leaving.current)return;livingRef.current=data;setLiving(data);});
+    connected.onMessage('npc.conversation',(data:ConversationEnvelope)=>{if(room.current!==connected||leaving.current)return;const p=bridge.snapshot?.players.find(p=>p.id===bridge.selfId);if(bridge.snapshot&&(data.epoch!==bridge.snapshot.epoch||data.lifeRevision!==(p?.respawnCount??0)||data.zoneRevision!==(p?.zoneRevision??0)))return;if(!npcConversationSession.current.accept(data,!bridge.blocked&&!npcPendingRef.current&&!isEditingTarget(document.activeElement)))return;setConversation(data);if(npcPendingRef.current&&data.commandId===npcPendingRef.current.commandId)setNpcPending(null);});
+    connected.onMessage('living.receipt',(data:LivingWorldReceipt)=>{if(room.current!==connected||leaving.current)return;if(npcPendingRef.current&&data.commandId===npcPendingRef.current.commandId){setNpcPending(null);setNpcNotice(data.message);}else notify(data.message);});
+
     const acceptSnapshot=(data: Snapshot) => {
       if(room.current!==connected||leaving.current)return;
-      if(storyActionContextChanged(bridge.snapshot,data,bridge.selfId))resetStoryActions('Your view changed. Check the journal before trying again.');
+      if(storyActionContextChanged(bridge.snapshot,data,bridge.selfId)){resetStoryActions('Your view changed. Check the journal before trying again.');npcConversationSession.current.close();setConversation(null);setNpcPending(null);}
       remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
         setDraft("");
@@ -677,6 +710,7 @@ export default function ThirdSpace() {
       (data: { code: string; message: string; commandId?: string }) => {
         if(room.current!==connected||leaving.current)return;
         acknowledgeStoryAction(connected,data);
+        if(npcPendingRef.current&&data.commandId===npcPendingRef.current.commandId){setNpcPending(null);setNpcNotice(data.message);}
         notify(data.message);
         if (data.commandId) {
           chatSubmissions.current.fail(data.commandId);
@@ -691,6 +725,7 @@ export default function ThirdSpace() {
     enableDeltas();
     connected.onDrop(() => {
       if(room.current!==connected||leaving.current)return;
+      npcConversationSession.current.close();setConversation(null);setNpcPending(null);
       resetStoryActions('Connection interrupted. Reopen the journal after reconnecting to check your action.');
       bridge.transportConnected = false;
       setConnection("Reconnecting…");
@@ -707,6 +742,7 @@ export default function ThirdSpace() {
     });
     connected.onLeave((code: number) => {
       if(room.current!==connected)return;
+      npcConversationSession.current.close();setConversation(null);setNpcPending(null);
       resetStoryActions('Connection interrupted. Reopen the journal after reconnecting to check your action.');
       room.current=null;bridge.transportConnected=false;audio.current?.setWorld(null,"",0);
       if(leaving.current||!mounted.current)return;
@@ -923,7 +959,11 @@ export default function ThirdSpace() {
     messages = (snapshot?.chat || []).filter(
       (m) => !prefs.textMuted.includes(m.senderId),
     );
+  const conversationNpc=conversation?snapshot?.npcs?.find(n=>n.id===`npc:${conversation.view.npcId}`)??null:null;
+  const conversationInRange=!!self&&!!conversationNpc&&!self.zone&&self.mode==='home'&&(conversationNpc.lifeRevision??0)===conversation?.targetNpcLifeRevision&&Math.hypot(self.x-conversationNpc.x,self.y-conversationNpc.y)<=2.5&&isHomeSegmentWalkable(self,conversationNpc,getWorld('forest').map);
+  const nearbyNpc=snapshot?.worldId==='forest'&&!snapshot.worldProposal?nearestInteractableNPC(self,snapshot.npcs??[],getWorld('forest').map):undefined;
   const survivalSelf=snapshot?.survival?.players.find(p=>p.id===identity?.id);
+  const finishingTarget=self&&snapshot?.survival?.pvpEnabled&&survivalSelf?.equipped==='knife'?snapshot.players.filter(p=>p.id!==self.id&&p.connected&&!p.respawnAt&&!p.zone&&!p.seatId&&(p.haloUntil??0)<=snapshot.serverTime&&Math.hypot(p.x-self.x,p.y-self.y)<=1.4&&isHomeSegmentWalkable(self,p,getWorld('forest').map)&&(snapshot.survival!.players.find(s=>s.id===p.id)?.health??100)<=55).sort((a,b)=>Math.hypot(a.x-self.x,a.y-self.y)-Math.hypot(b.x-self.x,b.y-self.y)||a.id.localeCompare(b.id))[0]:undefined;
   const storyConnected=bridge.transportConnected&&!!room.current?.connection?.isOpen;
   const storyActionsAvailable=storyConnected&&!!snapshot&&canUseForestStory(snapshot.rootWorldId??snapshot.worldId,!!snapshot.worldProposal,self);
   const canDiscussStory=storyActionsAvailable&&!!snapshot&&canDiscussForestStory(snapshot.rootWorldId??snapshot.worldId,!!snapshot.worldProposal,self,snapshot.npcs?.find(n=>n.id==='npc:wizard-orin-vale'),getWorld('forest').map);
@@ -1201,7 +1241,7 @@ export default function ThirdSpace() {
                 <button onClick={() => setModal("board")}>
                   ▤ <span>Idea board</span>
                 </button>
-                <button onClick={openStoryBoard}>▧ <span>World journal</span></button>
+                <button onClick={()=>openStoryBoard()}>▧ <span>World journal</span></button>
                 <button
                   className="play-button"
                   onClick={() => setModal("portal")}
@@ -1261,16 +1301,20 @@ export default function ThirdSpace() {
               </div>
               <World bridge={bridge}>
                 {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Walk to exit</button>}
-                <ForestStoryBoard open={storyOpen} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
+                <ForestStoryBoard open={storyOpen} initialTab={storyTab} living={living} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
                   onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])}
                   actionsAvailable={storyActionsAvailable} unavailableReason={storyUnavailableReason}
                   onClaimReward={rewardId=>actOnStory({type:'story.reward',rewardId})} pendingRewardId={pendingStoryAction?.type==='story.reward'?pendingStoryAction.targetId:null}
                   canAccuse={canDiscussStory} onAccuse={suspectId=>actOnStory({type:'story.accuse',suspectId})} pendingAccusationId={pendingStoryAction?.type==='story.accuse'?pendingStoryAction.targetId:null}/>
-                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
+                {!modal&&!storyOpen&&nearbyNpc&&!conversation&&bridge.transportConnected&&<button type="button" className="nearby-npc-prompt" onClick={()=>{send({type:'npc.interact',npcId:nearbyNpc.id});restoreGameFocus([document.activeElement]);}}><kbd>E</kbd> Talk to {nearbyNpc.name}</button>}
+                <NpcInteractionPanel open={!!conversation&&!modal&&!storyOpen} conversation={conversation?.view??null} npc={conversationNpc} inRange={conversationInRange} playerAlive={!!self&&!self.respawnAt} connected={bridge.transportConnected&&!!room.current?.connection?.isOpen}
+                  mode={conversation?.mode} pendingActionId={npcPending?.actionId} notice={npcNotice} serverTime={snapshot?.serverTime} onAction={actOnNpc} onClose={closeConversation} onOpenJournal={tab=>{npcConversationSession.current.close();setConversation(null);openStoryBoard(tab);}} onFocusGame={()=>restoreGameFocus([document.activeElement])}/>
+                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} effects={self?.potionEffects} serverTime={snapshot?.serverTime} threatened={snapshot?.survival?.finishers?.some(t=>t.targetId===self?.id)} finishingTarget={finishingTarget?.name} onFinish={()=>{if(finishingTarget)send({type:"survival.finish",targetId:finishingTarget.id,targetLifeRevision:finishingTarget.respawnCount??0});}} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
                   const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
                   if(!player||!inventory?.equipped)return;
                   if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});
                   else if(inventory.equipped==="apple")send({type:"survival.eat"});
+                  else if(inventory.equipped==="strength-potion"||inventory.equipped==="speed-potion")send({type:"living.use",potion:inventory.equipped==="strength-potion"?"strength":"speed"});
                   else {const mob=latest?.mobs?.mobs.filter(m=>m.health>0&&Math.hypot(m.x-player.x,m.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(mob){send({type:"mob.attack",mobId:mob.id,targetLifeRevision:mob.lifeRevision});return;}const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a threat or player outside the safe areas, then swing.");}
                 }}/>}
               </World>

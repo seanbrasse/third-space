@@ -16,6 +16,7 @@ import {
 import { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
 export { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
 import { stepSprint } from "./sprint";
+import { potionMultipliers } from './living-world-rules';
 export { SPRINT, requestSprint, cancelSprint, sprintStatus, sprintMultiplier, stepSprint, canSprint } from "./sprint";
 
 export { GAME_CONFIG, HOME_MAP, RACE_MAP } from "@third-space/config";
@@ -406,7 +407,7 @@ export function stepHome(
   }
   const sprintStep = stepSprint(next, !!input.sprint, magnitude > 0, now, safeTime(dt));
   Object.assign(next, sprintStep.player);
-  const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier;
+  const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier * (next.respawnAt ? 1 : potionMultipliers(next.potionEffects ?? [], now).speed);
   next.vx = axisX * speed;
   next.vy = axisY * speed;
   if (next.seatId) {

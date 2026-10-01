@@ -1,6 +1,6 @@
 /** Full PartyRoom CPU/transport harness, isolated from servers, sockets and local data.
  * Node24 --expose-gc --import tsx tests/bench/expanded-room-benchmark.ts --seconds 300
- * --mode integrated requires the actual expanded world + 25 actors; no map/NPC override.
+ * --mode integrated requires the actual expanded world + 32 actors; no map/NPC override.
  */
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
@@ -41,7 +41,7 @@ const coreRequire = createRequire(serverRequire.resolve('@colyseus/core'));
 const msgpack = coreRequire('msgpackr') as { unpack(bytes: Uint8Array): unknown };
 const snapshotHeaderBytes = encodeFrame('snapshot', undefined).byteLength;
 const deltaHeaderBytes = encodeFrame('snapshot.delta', undefined).byteLength;
-const sourceFingerprint = Object.fromEntries(['apps/game-server/src/PartyRoom.ts', 'apps/game-server/src/ForestNPCController.ts', 'packages/simulation/src/index.ts', 'packages/config/src/index.ts', 'packages/config/src/authored-forest.ts', 'tests/bench/expanded-room-benchmark.ts', 'packages/contracts/src/snapshot-delta.ts'].map(path => [path, createHash('sha256').update(readFileSync(new URL('../../' + path, import.meta.url))).digest('hex')]));
+const sourceFingerprint = Object.fromEntries(['apps/game-server/src/PartyRoom.ts', 'apps/game-server/src/ForestNPCController.ts', 'packages/simulation/src/index.ts', 'packages/config/src/index.ts', 'packages/config/src/authored-forest.ts', 'tests/bench/expanded-room-benchmark.ts', 'packages/contracts/src/snapshot-delta.ts', 'apps/game-server/src/living-world-room.ts', 'apps/game-server/src/LivingWorldController.ts', 'apps/game-server/src/KnifeFinisher.ts', 'packages/data/src/living-world-store.ts', 'packages/config/src/living-environment.ts'].map(path => [path, createHash('sha256').update(readFileSync(new URL('../../' + path, import.meta.url))).digest('hex')]));
 const args = process.argv.slice(2).filter(a => a !== '--');
 const value = (flag: string, fallback: string) => { const at = args.indexOf(flag); return at < 0 ? fallback : args[at + 1] ?? fallback; };
 const seconds = Number(value('--seconds', '300'));
@@ -140,7 +140,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
       authority.mimic = new ForestMimic(world, random);
     }
     assert(authority.npcs, 'Room did not create NPC authority.');
-    assert.equal(authority.npcs.snapshot().length, 25, 'Integrated room does not have25 actors yet; use --mode fixture.');
+    assert.equal(authority.npcs.snapshot().length, 32, 'Integrated room does not have32 actors yet; use --mode fixture.');
     const npcUpdate = authority.npcs.update.bind(authority.npcs);
     authority.npcs.update = (at, context) => {
       const t = performance.now();
@@ -148,7 +148,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
       if (measured) {
         metrics.npcTickMs.add(performance.now() - t); measuredNpcTicks++;
         const d = authority.npcs!.diagnostics(); maxNpcPathPoints = Math.max(maxNpcPathPoints, d.pathPoints); maxNpcSearchesPerTick = Math.max(maxNpcSearchesPerTick, d.lastPathSearches);
-        assert(d.actors === 25 && d.lastPathSearches <= NPC_RULES.maxPathSearchesPerTick && d.pathPoints <= d.actors * NPC_RULES.maxPathPoints, 'NPC work bound exceeded.');
+        assert(d.actors === 32 && d.lastPathSearches <= NPC_RULES.maxPathSearchesPerTick && d.pathPoints <= d.actors * NPC_RULES.maxPathPoints, 'NPC work bound exceeded.');
       }
     };
     for (const [kind, monster] of [['clown', authority.encounter], ['werewolf', authority.werewolf], ['mimic', authority.mimic]] as const) {
@@ -293,7 +293,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
       geometry: { width: map.width, height: map.height, solids: map.solids.length, humans: room.players.size, npcs: authority.npcs.snapshot().length, immutableSolids: Object.isFrozen(map.solids) && map.solids.every(Object.isFrozen) },
       coverage: { usesActualPartyRoom: true, realAdmissionAndInputValidation: true, transport: 'in-memory send sinks, no sockets',
         snapshotHasIntegratedClimate: !!(latestSnapshots[0] as RoomSnapshot & { climate?: unknown })?.climate,
-        fixtureOverrides: mode === 'fixture' ? ['per-instance mapFor', '25-actor NPC controller and phase context', 'expanded-map monster controller instances'] : [],
+        fixtureOverrides: mode === 'fixture' ? ['per-instance mapFor', '32-actor NPC controller and phase context', 'expanded-map monster controller instances'] : [],
         scheduling: 'explicit 60Hz simulate, 30Hz input batches, 20Hz snapshots; event-triggered snapshots retained',
         browserRenderingMeasured: false, npcPathSearchesMaxPerTick: maxNpcSearchesPerTick, npcPathPointsMaximum: maxNpcPathPoints,
         measuredNpcTicks, measuredInputs, scheduledSnapshotBatches, tickBudgetMissesOver16_67ms: tickBudgetMisses,
@@ -313,7 +313,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
       wireProjection: { encoding: 'raw UTF-8 JSON, no compression, protocol/TLS/WebSocket overhead excluded',
         meanBytesPerClientSnapshot: Math.round(snapshotMean), perClientAt20HzBytesPerSecond: Math.round(snapshotMean * 20), allEightAt20HzBytesPerSecond: Math.round(snapshotMean * 20 * 8),
         jsonDiagnosticSampleBytes: byClient.reduce((sum, client) => sum + client.bytes, 0),
-        unfiltered25NpcPlusClimateMeanBytes: Math.round(fullMean), unfilteredAllEightAt20HzBytesPerSecond: Math.round(fullMean * 20 * 8), diagnosticSampleBytes: projectedBytes },
+        unfilteredNpcPlusClimateMeanBytes: Math.round(fullMean), unfilteredAllEightAt20HzBytesPerSecond: Math.round(fullMean * 20 * 8), diagnosticSampleBytes: projectedBytes },
       fieldValueBytes: { sampling: 'One sample per client per simulated second; values only, excluding top-level key names/commas. Dotted rows are nested/subset projections and must not be added to parent totals.',
         fields: Object.fromEntries([...fieldBytes].map(([field, stats]) => [field, { samples: stats.samples, mean: Math.round(stats.total / stats.samples), max: stats.maximum }])) },
       clients: byClient.map((stats, i) => ({ client: i + 1, anchor: anchors[i], ...stats, movementTiles: Number(stats.movementTiles.toFixed(2)) })),

@@ -1,3 +1,8 @@
+import {LivingEffectsPresentation} from './living-effects-presentation';
+import {livingInteriorFloorCanvas,livingInteriorObjectCanvas} from './living-environment-art';
+import {livingStrengthAvatarCanvas} from './living-potion-art';
+import {potionMultipliers} from '../../../packages/simulation/src/living-world-rules';
+import {nearestInteractableNPC} from './nearby-npc';
 import {ScreenLabelLayout} from './screen-label-layout';
 import { ForestNPCPresentation } from './forest-npc-presentation';
 import {ForestMapPresentation} from './forest-map-presentation';
@@ -69,6 +74,7 @@ function snapshotSeats(bridge: WorldBridge, selfId: string) {
 export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
     private worldLabels=new ScreenLabelLayout();
+    private livingEffects:LivingEffectsPresentation|null=null;
     private mobPresentation:ForestMobPresentation|null=null;
     private storyPresentation:StoryWorldPresentation|null=null;
     private forestMapPresentation:ForestMapPresentation|null=null;
@@ -171,12 +177,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         };
         this.events.once(Phaser.Scenes.Events.SHUTDOWN, releaseKeys);
         this.events.once(Phaser.Scenes.Events.DESTROY, releaseKeys);
-        this.input.keyboard.on("keydown-E", () => this.interact());
+        this.input.keyboard.on("keydown-E", (event:KeyboardEvent) => {if(!event.repeat&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.defaultPrevented)this.interact();});
         this.input.keyboard.on("keydown-ESC", () => {
           this.cancelWalk();
           this.clickedId = "";
         });
       }
+      this.livingEffects=new LivingEffectsPresentation(this);
       this.target = this.add.graphics().setDepth(1);
       this.marker = this.add.graphics().setDepth(10001);
       this.prompt = this.add
@@ -226,7 +233,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.mobPresentation?.destroy();this.storyPresentation?.destroy();});
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.climatePresentation?.destroy();this.forestMapPresentation?.destroy();});
       this.survivalPresentation=new SurvivalPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
-      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.survivalPresentation?.destroy());
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.survivalPresentation?.destroy();this.livingEffects?.destroy();});
       this.drawHome();
       this.fit();
     }
@@ -401,10 +408,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     drawInterior(){
       const interior=FOREST_INTERIORS.find(i=>i.id===bridge.snapshot?.worldId);if(!interior)return;
       this.clearMap();
-      this.mapObjects.push(this.add.image(0,0,this.textures.exists(`interior-floor:${interior.id}`)?`interior-floor:${interior.id}`:this.texture(`interior-floor:${interior.id}`,forestInteriorFloorCanvas(interior,TILE))).setOrigin(0).setDepth(0));
+      this.mapObjects.push(this.add.image(0,0,this.textures.exists(`interior-floor:${interior.id}`)?`interior-floor:${interior.id}`:this.texture(`interior-floor:${interior.id}`,livingInteriorFloorCanvas(interior,TILE))).setOrigin(0).setDepth(0));
       for(const item of interior.map.furniture){
         const f=item.footprint,key=`interior-prop:${interior.id}:${item.id}`;
-        const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
+        const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,livingInteriorObjectCanvas(item,TILE,interior.style)??forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
         if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on("pointerdown",()=>{if(!bridge.blocked)this.useFurniture(item);});}
         this.mapObjects.push(image);
       }
@@ -630,10 +637,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         bridge.send({ type: "seat", seatId: null });
         return;
       }
+      const npc=this.forest?nearestInteractableNPC(self,bridge.snapshot?.npcs??[],this.map):undefined;
+      if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const clue=storyWorldAnchors(bridge).filter(a=>distance(self,a)<=1.8&&isHomeSegmentWalkable(self,a,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
       if(clue){bridge.send(clue.command);return;}
-      const npc=bridge.snapshot?.npcs?.filter(n=>n.phase!=="respawning"&&distance(self,n)<=2.5&&isHomeSegmentWalkable(self,n,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
-      if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const occupied = new Set(snapshotSeats(bridge, self.id));
       const candidates = this.map.furniture
         .flatMap<Point & { action: string }>((item) =>
@@ -649,8 +656,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         bridge.interact(candidates[0].action);
     }
     avatarTexture(player: Player, frame: number) {
+      const strength=!player.respawnAt&&player.mode==='home'&&potionMultipliers(player.potionEffects??[],bridge.snapshot?.serverTime??0).body>1;
       const signature =
-        JSON.stringify(player.avatar) + player.facing + frame + !!player.seatId;
+        JSON.stringify(player.avatar) + player.facing + frame + !!player.seatId + strength;
       let key = this.textureIds.get(signature);
       if (!key) {
         if(this.textureIds.size>=256){
@@ -665,7 +673,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.textureIds.set(signature, key);
         this.texture(
           key,
-          avatarPixelCanvas(
+          strength?livingStrengthAvatarCanvas(player.avatar,player.facing,frame):avatarPixelCanvas(
             player.avatar,
             player.facing,
             frame,
@@ -698,6 +706,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if(self)this.npcPresentation?.update(this.forest?snapshot.npcs??[]:[],self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);
       if(self){this.mobPresentation?.update(this.forest?snapshot.mobs:undefined,self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);this.storyPresentation?.update(mode==="home"?storyWorldAnchors(bridge):[],self,TILE);}
       this.worldLabels.flush();
+      if(self)this.livingEffects?.update(snapshot.players.filter(p=>p.id===self.id||!this.forest||Math.hypot(p.x-24,p.y-24)<9||snapshot.players.some(light=>flashlightContains(light,p))),snapshot.npcs??[],self,snapshot.serverTime,TILE,bridge.reducedMotion);
       if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
       const typing = isGameInputBlocked(document.activeElement);

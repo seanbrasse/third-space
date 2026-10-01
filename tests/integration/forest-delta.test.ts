@@ -151,7 +151,7 @@ describe('real forest delta transport and authority', () => {
     for (let at = 0; at < 8; at++) await connect(identities[at]!, at < 7);
     const legacy = peers[7]!, speaker = peers[0]!, visitor = peers[1]!, mover = peers[2]!;
     const setup = await inspect<{ positions: { x: number; y: number }[]; movementGoal: { x: number; y: number }; interiorId: string; exit: { x: number; y: number }; npcs: number; privateMysteryExists: boolean }>('place', { ids: identities.map(p => p.id) });
-    expect(setup.npcs).toBe(25); expect(setup.privateMysteryExists).toBe(true);
+    expect(setup.npcs).toBe(32); expect(setup.privateMysteryExists).toBe(true);
     await until(() => peers.every((p, at) => p.snapshot?.members?.length === 8 && distance(self(p), setup.positions[at]!) < .1), 'Spread placement did not arrive at all clients.');
     expect(Math.max(...setup.positions.flatMap(a => setup.positions.map(b => distance(a, b))))).toBeGreaterThan(90);
     expect(peers.every(p => p.snapshot!.climate && p.snapshot!.survival)).toBe(true);

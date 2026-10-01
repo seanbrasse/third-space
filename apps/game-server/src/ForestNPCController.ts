@@ -1,10 +1,10 @@
 import type { Point, WorldDefinition } from '@third-space/config';
 import { DEFAULT_AVATAR, type AvatarConfig, type PlayerState } from '@third-space/contracts';
-import type { ForestNPC, ForestNPCArt } from '../../../packages/contracts/src/forest-npc';
+import type { ForestNPC, ForestNPCArt, ForestNPCActivity } from '../../../packages/contracts/src/forest-npc';
 import { createPlayer, distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable } from '@third-space/simulation';
 
 export const NPC_RULES = Object.freeze({
-  count: 3, maxActors: 28, speed: 1.05, interactionRange: 2.5,
+  count: 3, maxActors: 36, speed: 1.05, interactionRange: 2.5,
   dialogueMs: 6000, interactionCooldownMs: 6500, respawnMs: 30000,
   maxTickMs: 100, wanderDelayMs: 1800, maxPathSearchesPerTick: 1,
   maxPathPoints: 128, maxPatrolPoints: 12, wanderRadius: 10, maxHealth: 100,
@@ -23,12 +23,13 @@ export interface ForestNPCDefinition {
   nightPatrol?: readonly Point[];
   duskPatrol?: readonly Point[];
   active?: 'day' | 'night' | 'always';
-  activity?: 'wandering' | 'patrolling' | 'working';
+  activity?: ForestNPCActivity;
   questHook?: string;
   speed?: number;
   maxHealth?: number;
 }
-export interface ForestNPCRoutineContext { night?: boolean; phase?: 'dawn' | 'day' | 'dusk' | 'night' }
+export interface ForestNPCRoutineContext { night?: boolean; phase?: 'dawn' | 'day' | 'dusk' | 'night'; pathSearchBudget?:number }
+export interface ForestNPCSteering {speed:number;activity:ForestNPCActivity;until:number;bubble?:string}
 interface Actor {
   state: ForestNPC;
   definition: ForestNPCDefinition;
@@ -41,6 +42,7 @@ interface Actor {
   nextWander: number;
   line: number;
   schedule: 'day' | 'dusk' | 'night';
+  steering?: ForestNPCSteering & {goal:Point};
 }
 
 export const DEFAULT_FOREST_NPCS: readonly ForestNPCDefinition[] = [
@@ -113,6 +115,16 @@ export class ForestNPCController {
   snapshot(): ForestNPC[] { return this.actors.map(a => cloneState(a.state)); }
   get(id: string): ForestNPC | undefined { const state = this.actors.find(a => a.state.id === id)?.state; return state ? cloneState(state) : undefined; }
   setLines(id:string,lines:readonly string[]){const actor=this.actors.find(a=>a.state.id===id);if(!actor||!lines.length)return;const next=lines.slice(0,4).map(s=>s.slice(0,280));if(JSON.stringify(actor.definition.lines)===JSON.stringify(next))return;actor.definition={...actor.definition,lines:next};actor.line=0;}
+  /** Steering consumes the same round-robin search budget as ordinary routines. */
+  steer(id:string,goal:Point,now:number,options:ForestNPCSteering):boolean {
+    const actor=this.actors.find(a=>a.state.id===id);
+    if(!actor||actor.state.phase==='respawning'||!Number.isFinite(now)||!Number.isFinite(options.speed)||!Number.isFinite(options.until)||options.until<=now||!this.walkable(goal))return false;
+    if(!actor.steering||distance(actor.steering.goal,goal)>.75){actor.path=[];actor.nextWander=now;}
+    actor.steering={...options,goal:{...goal},speed:Math.max(.3,Math.min(3.2,options.speed)),until:Math.min(now+5000,options.until)};
+    actor.state.phase='wander';actor.state.activity=options.activity;
+    if(options.bubble&&(!actor.state.dialogue||actor.state.dialogue.until<=now))actor.state.dialogue={id:`${id}:warning:${++this.serial}`,text:options.bubble.slice(0,200),until:now+4000};
+    return true;
+  }
   diagnostics() { return { actors: this.actors.length, lastPathSearches: this.lastPathSearches, pathPoints: this.actors.reduce((sum, a) => sum + a.path.length, 0), cooldowns: this.cooldowns.size }; }
 
   update(now: number, context: ForestNPCRoutineContext = {}) {
@@ -124,6 +136,7 @@ export class ForestNPCController {
     for (const actor of this.actors) {
       const state = actor.state;
       state.moving = false;
+      if(actor.steering&&actor.steering.until<=now){delete actor.steering;actor.path=[];actor.nextWander=now;}
       if (state.phase === 'respawning') {
         if (now < (state.respawnAt ?? Infinity)) continue;
         Object.assign(state, actor.home, { phase: 'wander', health: state.maxHealth });
@@ -135,12 +148,12 @@ export class ForestNPCController {
       const schedule = context.phase === 'night' || context.night ? 'night' : context.phase === 'dusk' ? 'dusk' : 'day';
       if (actor.schedule !== schedule) { actor.schedule = schedule; actor.path = []; actor.patrolIndex = 0; actor.nextWander = now; }
       const inactive = this.inactive(actor);
-      state.activity = inactive ? 'resting' : actor.definition.activity ?? (actor.patrol.length ? 'patrolling' : 'wandering');
+      state.activity = actor.steering?.activity??(inactive ? 'resting' : actor.definition.activity ?? (actor.patrol.length ? 'patrolling' : 'wandering'));
       const goal = actor.path[0];
       if (!goal || !dt) continue;
       const d = distance(state, goal);
       if (d < .02) { actor.path.shift(); if (!actor.path.length) actor.nextWander = now + NPC_RULES.wanderDelayMs; continue; }
-      const speed = Math.max(.3, Math.min(2, actor.definition.speed ?? NPC_RULES.speed));
+      const speed = actor.steering?.speed??Math.max(.3, Math.min(2, actor.definition.speed ?? NPC_RULES.speed));
       const step = Math.min(d, speed * dt);
       const next = { x: state.x + (goal.x - state.x) / d * step, y: state.y + (goal.y - state.y) / d * step };
       if (!isHomeSegmentWalkable(state, next, this.world.map) || !npcSegmentOutsideFire(state, next, this.world)) { actor.path = []; continue; }
@@ -148,14 +161,16 @@ export class ForestNPCController {
       Object.assign(state, next);
       state.moving = true;
     }
-    // Round-robin budget: twenty-eight far-apart actors cannot all ask A* for a path on one tick.
-    for (let visited = 0; visited < this.actors.length && this.lastPathSearches < NPC_RULES.maxPathSearchesPerTick; visited++) {
+    // All actors share one budget, also supplied by the room when hostiles need navigation.
+    const budget=Math.max(0,Math.min(NPC_RULES.maxPathSearchesPerTick,Number.isFinite(context.pathSearchBudget)?Math.floor(context.pathSearchBudget!):NPC_RULES.maxPathSearchesPerTick));
+    for (let visited = 0; visited < this.actors.length && this.lastPathSearches < budget; visited++) {
       const actor = this.actors[this.pathCursor++ % this.actors.length]!;
       if (actor.state.phase !== 'wander' || actor.path.length || now < actor.nextWander) continue;
       actor.nextWander = now + NPC_RULES.wanderDelayMs;
       const route = actor.schedule === 'night' ? actor.nightPatrol : actor.schedule === 'dusk' ? actor.duskPatrol : actor.patrol;
       let goal: Point | undefined;
-      if (this.inactive(actor)) goal = actor.home;
+      if(actor.steering)goal=actor.steering.goal;
+      else if (this.inactive(actor)) goal = actor.home;
       else if (route.length) goal = route[actor.patrolIndex++ % route.length];
       else {
         const nearby = this.fallback.filter(p => distance(p, actor.home) <= NPC_RULES.wanderRadius && distance(p, actor.state) > .5);
@@ -178,9 +193,7 @@ export class ForestNPCController {
     this.cooldowns.set(id, now + NPC_RULES.interactionCooldownMs);
     const lines = actor.definition.lines;
     actor.state.dialogue = { id: `${id}:line:${++this.serial}`, text: lines[actor.line++ % lines.length]!.slice(0, 200), until: now + NPC_RULES.dialogueMs };
-    actor.state.phase = 'talking';
-    actor.state.activity = 'talking';
-    actor.state.moving = false;
+    if(!actor.steering){actor.state.phase = 'talking';actor.state.activity = 'talking';actor.state.moving = false;}
     return true;
   }
 
@@ -190,10 +203,12 @@ export class ForestNPCController {
     actor.state.health = Math.max(0, actor.state.health - Math.min(500, amount));
     if (actor.state.health > 0) return 'hurt';
     actor.state.phase = 'respawning';
+    actor.state.lifeRevision=(actor.state.lifeRevision??0)+1;
     actor.state.activity = 'recovering';
     actor.state.moving = false;
     actor.state.respawnAt = now + NPC_RULES.respawnMs;
     delete actor.state.dialogue;
+    delete actor.steering;
     actor.path = [];
     return 'caught';
   }
