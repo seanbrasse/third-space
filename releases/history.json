@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "living-world",
+      "status": "published",
+      "date": "2026-10-01",
+      "dateKind": "release",
+      "title": "A living forest",
+      "changes": [
+        "Trade with forest villagers, use Strength and Speed potions, and build relationships through shared adventures.",
+        "Help an endangered traveler in the shared Lantern Road rescue. Existing keeper stories and your inventory carry forward.",
+        "Combat warnings, mobile movement, conversation prompts and the game canvas fit more reliably as the screen changes size."
+      ]
+    },
+    {
+      "id": "history-032",
+      "status": "published",
+      "date": "2026-10-01",
+      "dateKind": "release",
+      "title": "Clearer journal actions",
+      "changes": [
+        "The journal shows when an action is pending and explains its outcome. Repeated clicks and changes of location handle feedback more reliably."
+      ]
+    },
+    {
+      "id": "history-031",
+      "status": "published",
+      "date": "2026-10-01T14:26:08Z",
+      "dateKind": "merge",
+      "title": "Reliable exits from interiors",
+      "changes": [
+        "Leave interiors without waiting on a delayed entry transition."
+      ]
+    },
+    {
+      "id": "history-030",
+      "status": "published",
+      "date": "2026-10-01T08:37:24Z",
+      "dateKind": "merge",
+      "title": "The keeper and a wider forest",
+      "changes": [
+        "Explore a larger shared forest with interiors, a keeper story, clues and side stories."
+      ]
+    },
+    {
+      "id": "history-029",
+      "status": "published",
+      "date": "2026-10-01T07:45:10Z",
+      "dateKind": "merge",
+      "title": "More company among the trees",
+      "changes": [
+        "Meet shared forest characters. The mimic approaches from out of sight, and navigation is more reliable."
+      ]
+    },
+    {
+      "id": "history-028",
+      "status": "published",
+      "date": "2026-10-01T07:21:57Z",
+      "dateKind": "merge",
+      "title": "Your inventory within reach",
+      "changes": [
+        "A five-slot hotbar lives inside the game view, keeping your items close while you explore."
+      ]
+    },
+    {
+      "id": "history-027",
+      "status": "published",
+      "date": "2026-10-01T06:58:02Z",
+      "dateKind": "merge",
+      "title": "Survival in the forest",
+      "changes": [
+        "Manage hunger, carry a backpack, gather food and use a knife in shared forest encounters."
+      ]
+    },
+    {
+      "id": "history-026",
+      "status": "published",
+      "date": "2026-10-01T06:39:04Z",
+      "dateKind": "merge",
+      "title": "Hold to sprint",
+      "changes": [
+        "Hold sprint and recover stamina for another run. Catch feedback remains visible with reduced motion enabled."
+      ]
+    },
+    {
+      "id": "history-025",
+      "status": "published",
+      "date": "2026-10-01T06:15:02Z",
+      "dateKind": "merge",
+      "title": "A new forest mimic",
+      "changes": [
+        "A shared mimic joins the forest, with stronger catch presentation that returns you to play."
+      ]
+    },
+    {
+      "id": "history-024",
+      "status": "published",
+      "date": "2026-10-01T05:58:05Z",
+      "dateKind": "merge",
+      "title": "Forest catches and shared greetings",
+      "changes": [
+        "Forest catches have brief closeups that finish, and the clown greets the group together."
+      ]
+    },
+    {
+      "id": "history-023",
+      "status": "published",
+      "date": "2026-10-01T05:10:04Z",
+      "dateKind": "merge",
+      "title": "A game menu and a bigger projector",
+      "changes": [
+        "Use the full-game menu, see a larger in-world projector, and open chat with more reliable keyboard focus."
+      ]
+    },
+    {
+      "id": "history-022",
+      "status": "published",
+      "date": "2026-10-01T04:38:25Z",
+      "dateKind": "merge",
+      "title": "More ways to spend time together",
+      "changes": [
+        "Forest encounters and social interactions are more readable, with improved footsteps, catch presentation and chat timestamps.",
+        "Share a room invite and return to the game more reliably after closing panels."
+      ]
+    },
+    {
+      "id": "history-021",
+      "status": "published",
+      "date": "2026-10-01T04:21:17Z",
+      "dateKind": "merge",
+      "title": "Catch up with the group",
+      "changes": [
+        "When you enable playback on a blocked device, the video catches up to the shared position."
+      ]
+    },
+    {
+      "id": "history-020",
+      "status": "published",
+      "date": "2026-10-01T04:20:04Z",
+      "dateKind": "merge",
+      "title": "A bigger shared screen",
+      "changes": [
+        "The shared projector is larger, with controls kept within reach."
+      ]
+    },
+    {
+      "id": "history-019",
+      "status": "published",
+      "date": "2026-10-01T03:56:46Z",
+      "dateKind": "merge",
+      "title": "Tap to join shared playback",
+      "changes": [
+        "Enable playback on your device with a tap and see which video everyone is watching."
+      ]
+    },
+    {
+      "id": "history-018",
+      "status": "published",
+      "date": "2026-10-01T03:43:18Z",
+      "dateKind": "merge",
+      "title": "Easier returns and mobile movement",
+      "changes": [
+        "Find ongoing sessions and recover movement, idle presence and mobile controls more reliably."
+      ]
+    },
+    {
+      "id": "history-017",
+      "status": "published",
+      "date": "2026-10-01T03:42:30Z",
+      "dateKind": "merge",
+      "title": "Legible controls after dark",
+      "changes": [
+        "Dark controls are easier to read, and shared video stays visible beneath its controls."
+      ]
+    },
+    {
+      "id": "history-016",
+      "status": "published",
+      "date": "2026-10-01T03:27:43Z",
+      "dateKind": "release",
+      "title": "Third Space opens to friends",
+      "changes": [
+        "The public site brings persistent multiplayer rooms and clearer mobile entry screens."
+      ]
+    },
+    {
+      "id": "history-015",
+      "status": "published",
+      "date": "2026-10-01T03:17:30Z",
+      "dateKind": "merge",
+      "title": "Watching controls and flashlight charge",
+      "changes": [
+        "Control shared video over the picture and keep your fresh flashlight charge."
+      ]
+    },
+    {
+      "id": "history-014",
+      "status": "published",
+      "date": "2026-10-01T02:51:20Z",
+      "dateKind": "merge",
+      "title": "Races, maps and the projector",
+      "changes": [
+        "Meet in a shared race lobby, use a walking map, and watch on the asylum projector."
+      ]
+    },
+    {
+      "id": "history-013",
+      "status": "published",
+      "date": "2026-10-01T02:50:13Z",
+      "dateKind": "merge",
+      "title": "A quieter asylum",
+      "changes": [
+        "The asylum gains quiet ambience and TV static that changes with your distance."
+      ]
+    },
+    {
+      "id": "history-012",
+      "status": "published",
+      "date": "2026-10-01T02:36:35Z",
+      "dateKind": "merge",
+      "title": "Finding your way after dark",
+      "changes": [
+        "Forest ambience stays continuous, with local lights to help you find your way."
+      ]
+    },
+    {
+      "id": "history-011",
+      "status": "published",
+      "date": "2026-10-01T02:15:33Z",
+      "dateKind": "merge",
+      "title": "Smoother shared YouTube playback",
+      "changes": [
+        "Shared YouTube playback no longer gets interrupted by routine clock updates."
+      ]
+    },
+    {
+      "id": "history-010",
+      "status": "published",
+      "date": "2026-10-01T01:49:13Z",
+      "dateKind": "merge",
+      "title": "More to explore at camp",
+      "changes": [
+        "Explore the campsite, keep a shared TV queue, and use more resilient movement controls."
+      ]
+    },
+    {
+      "id": "history-009",
+      "status": "published",
+      "date": "2026-10-01T00:25:19Z",
+      "dateKind": "merge",
+      "title": "Pick up where you left off",
+      "changes": [
+        "Recover your room after refresh or a lost connection. Choosing to leave still ends your visit."
+      ]
+    },
+    {
+      "id": "history-008",
+      "status": "published",
+      "date": "2026-09-30T23:59:56Z",
+      "dateKind": "merge",
+      "title": "Midnight Pines, closer to hand",
+      "changes": [
+        "Start in Midnight Pines, travel with simpler controls, and see connection health."
+      ]
+    },
+    {
+      "id": "history-007",
+      "status": "published",
+      "date": "2026-09-30T23:36:01Z",
+      "dateKind": "merge",
+      "title": "Forest sound and softer returns",
+      "changes": [
+        "Hear sounds from their direction in the forest, peek from the quiet campfire, and return with a respawn fade."
+      ]
+    },
+    {
+      "id": "history-006",
+      "status": "published",
+      "date": "2026-09-30T23:13:18Z",
+      "dateKind": "merge",
+      "title": "Something in the forest",
+      "changes": [
+        "Encounter a shared forest stalker and return safely to the campfire after a catch."
+      ]
+    },
+    {
+      "id": "history-005",
+      "status": "published",
+      "date": "2026-09-30T22:49:10Z",
+      "dateKind": "merge",
+      "title": "Clearer walking feedback",
+      "changes": [
+        "Blocked destinations and unreachable paths now explain why your character cannot get there."
+      ]
+    },
+    {
+      "id": "history-004",
+      "status": "published",
+      "date": "2026-09-30T22:46:13Z",
+      "dateKind": "merge",
+      "title": "YouTube and a richer forest",
+      "changes": [
+        "Share YouTube links with friends. Forest lighting, sound and character sprites are clearer."
+      ]
+    },
+    {
+      "id": "history-003",
+      "status": "published",
+      "date": "2026-09-30T22:07:05Z",
+      "dateKind": "merge",
+      "title": "A place around the campfire",
+      "changes": [
+        "Gather in the campfire world and watch together. Background tabs handle shared activity more reliably."
+      ]
+    },
+    {
+      "id": "history-002",
+      "status": "published",
+      "date": "2026-09-30T21:43:37Z",
+      "dateKind": "merge",
+      "title": "Worlds and shared transitions",
+      "changes": [
+        "Travel between reusable worlds together, with a countdown before shared transitions."
+      ]
+    },
+    {
+      "id": "history-001",
+      "status": "published",
+      "date": "2026-09-30T21:29:55Z",
+      "dateKind": "source",
+      "title": "The first recorded prototype",
+      "changes": [
+        "Customize your character, make a private space, and spend time together with shared chat and activities."
+      ]
+    },
+    {
+      "id": "public-updates",
+      "status": "draft",
+      "date": null,
+      "dateKind": "release",
+      "title": "Follow Third Space updates",
+      "changes": [
+        "Open Updates in the footer to read what changed and when, including the earlier history."
+      ]
+    }
+  ]
+}
