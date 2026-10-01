@@ -64,7 +64,7 @@ afterEach(() => { room.onDispose(); room.clock.clear(); store.close(); vi.restor
 describe('NPC integration through actual eight-human PartyRoom admission', () => {
   it('keeps world actors out of human slots, members, voice, idle tracking and inventories', () => {
     const npcIds = authority().npcs.snapshot().map(n => n.id);
-    expect(npcIds).toHaveLength(3);
+    expect(npcIds).toHaveLength(25);
     expect(room.players.size).toBe(8);
     expect(authority().idlePresence.size).toBe(8);
     const state = snapshot(0);
@@ -88,7 +88,7 @@ describe('NPC integration through actual eight-human PartyRoom admission', () =>
     room.onLeave(clients[7]!); clients[7] = admit(7, '-late'); place(7, npc);
     expect(snapshot(7).npcs!.find(n => n.id === npc.id)).toEqual(expected);
     expect(room.players.size).toBe(8);
-    expect(authority().npcs.snapshot()).toHaveLength(3);
+    expect(authority().npcs.snapshot()).toHaveLength(25);
   });
 
   it('rejects remote, forged, unauthenticated and stale interactions without mutating NPC dialogue', () => {

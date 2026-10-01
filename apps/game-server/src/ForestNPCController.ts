@@ -112,6 +112,7 @@ export class ForestNPCController {
   }
   snapshot(): ForestNPC[] { return this.actors.map(a => cloneState(a.state)); }
   get(id: string): ForestNPC | undefined { const state = this.actors.find(a => a.state.id === id)?.state; return state ? cloneState(state) : undefined; }
+  setLines(id:string,lines:readonly string[]){const actor=this.actors.find(a=>a.state.id===id);if(!actor||!lines.length)return;const next=lines.slice(0,4).map(s=>s.slice(0,280));if(JSON.stringify(actor.definition.lines)===JSON.stringify(next))return;actor.definition={...actor.definition,lines:next};actor.line=0;}
   diagnostics() { return { actors: this.actors.length, lastPathSearches: this.lastPathSearches, pathPoints: this.actors.reduce((sum, a) => sum + a.path.length, 0), cooldowns: this.cooldowns.size }; }
 
   update(now: number, context: ForestNPCRoutineContext = {}) {

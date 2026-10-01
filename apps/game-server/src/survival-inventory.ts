@@ -16,6 +16,7 @@ export interface SurvivalActor {
     watching?: boolean;
 }
 export interface SurvivalOptions {
+    persistApples?: (id:string,before:number,after:number,cause:'harvest'|'eat'|'death')=>boolean;
     random: () => number;
     spawnPoints: readonly {
         x: number;
@@ -74,6 +75,13 @@ export class SurvivalInventory {
         p = { id, health: 100, hunger: 75, equipped: 'flashlight', slots: ['flashlight', null, null, null, null], selectedSlot: 0, apples: 0 };
         this.players.set(id, p);
     } return { ...p, slots: [...p.slots] }; }
+    /** Hydrate only from the durable server inventory. This never grants a reward. */
+    restoreApples(id:string,count:number){
+        if(!Number.isInteger(count)||count<0||count>SURVIVAL.appleCapacity)return false;
+        this.ensure(id);const p=this.players.get(id)!;
+        if(count&&!this.canStore(p,'apple'))return false;
+        p.apples=count;if(count)this.store(p,'apple');else this.clearItem(p,'apple');return true;
+    }
     /** Apply after life/zone/world validation. Deduplicates transport replay throughout reconnect grace. */
     acceptCommand(id: string, commandId: string, now: number): boolean {
         if (!this.players.has(id) || !commandId || commandId.length > 160) return false;
@@ -132,16 +140,26 @@ export class SurvivalInventory {
     harvest(a: SurvivalActor, treeId: string, now: number): SurvivalResult { const p = this.players.get(a.id), t = this.trees.find(t => t.id === treeId); if (!p || !t || !this.active(a, now) || distance(a, t) > SURVIVAL.harvestRange || !this.options.lineOfSight(a, t))
         return { ok: false, reason: 'Walk closer to the apple tree' }; if (!this.canStore(p, 'apple')) return { ok: false, reason: 'Inventory full' }; if (p.apples >= SURVIVAL.appleCapacity)
         return { ok: false, reason: 'Apple pocket full' }; if (t.readyAt > now)
-        return { ok: false, reason: 'Apples are still growing' }; t.readyAt = now + SURVIVAL.treeRecoveryMs; p.apples++; this.store(p, 'apple'); this.event('harvest', a.id, now); return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Apples are still growing' }; if(this.options.persistApples&&!this.options.persistApples(a.id,p.apples,p.apples+1,'harvest'))return {ok:false,reason:'Inventory could not be saved. Try again.'}; t.readyAt = now + SURVIVAL.treeRecoveryMs; p.apples++; this.store(p, 'apple'); this.event('harvest', a.id, now); return { ok: true, deaths: [] }; }
     eat(a: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id); if (!p || !a.connected || a.mode !== 'home' || a.respawnAt || !p.apples)
         return { ok: false, reason: 'No apple to eat' }; if (p.hunger >= 100)
-        return { ok: false, reason: 'Already full' }; p.apples--; p.hunger = Math.min(100, p.hunger + SURVIVAL.appleHunger); if (!p.apples) this.clearItem(p, 'apple'); this.event('eat', a.id, now); return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Already full' }; if(this.options.persistApples&&!this.options.persistApples(a.id,p.apples,p.apples-1,'eat'))return {ok:false,reason:'Inventory could not be saved. Try again.'}; p.apples--; p.hunger = Math.min(100, p.hunger + SURVIVAL.appleHunger); if (!p.apples) this.clearItem(p, 'apple'); this.event('eat', a.id, now); return { ok: true, deaths: [] }; }
     pickup(a: SurvivalActor, id: string, now: number): SurvivalResult { const p = this.players.get(a.id), i = this.backpacks.findIndex(b => b.id === id), b = this.backpacks[i]; if (!p || !b || p.knifeId || !this.active(a, now) || distance(a, b) > SURVIVAL.pickupRange || !this.options.lineOfSight(a, b))
         return { ok: false, reason: 'Backpack unavailable or too far away' }; if (!this.canStore(p, 'knife')) return { ok: false, reason: 'Inventory full' }; this.backpacks.splice(i, 1); this.nextSpawnAt = Math.max(this.nextSpawnAt, now + SURVIVAL.backpackReplacementMs); p.knifeId = b.id; this.store(p, 'knife'); this.event('pickup', a.id, now); return { ok: true, deaths: [] }; }
-    attack(a: SurvivalActor, b: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!this.pvpEnabled || !p || !target || p.equipped !== 'knife' || !p.knifeId || a.id === b.id || !this.active(a, now) || !this.active(b, now) || a.seatId || b.seatId || this.options.safe(a) || this.options.safe(b) || p.health <= 0 || target.health <= 0)
-        return { ok: false, reason: 'Players are safe here' }; if (now - (this.attackAt.get(a.id) ?? -Infinity) < SURVIVAL.attackCooldownMs)
-        return { ok: false, reason: 'Knife is recovering' }; if (distance(a, b) > SURVIVAL.attackRange || !this.options.lineOfSight(a, b))
-        return { ok: false, reason: 'Out of reach' }; this.attackAt.set(a.id, now); this.event('swing', a.id, now, b.id); target.health = Math.max(0, target.health - SURVIVAL.attackDamage); this.event('hurt', b.id, now, a.id); if (target.health === 0)
+    strikeWorldTarget(a:SurvivalActor,target:{x:number;y:number},now:number):SurvivalResult{
+        const p=this.players.get(a.id);
+        if(!p||p.equipped!=='knife'||!p.knifeId||!this.active(a,now)||a.seatId||this.options.safe(a)||this.options.safe(target)||p.health<=0)return {ok:false,reason:'Equip your knife outside the safe areas'};
+        if(now-(this.attackAt.get(a.id)??-Infinity)<SURVIVAL.attackCooldownMs)return {ok:false,reason:'Knife is recovering'};
+        if(distance(a,target)>SURVIVAL.attackRange||!this.options.lineOfSight(a,target))return {ok:false,reason:'Out of reach'};
+        this.attackAt.set(a.id,now);this.event('swing',a.id,now);return {ok:true,deaths:[]};
+    }
+    damageWorld(a:SurvivalActor,amount:number,now:number):SurvivalResult{
+        const p=this.players.get(a.id);
+        if(!p||!Number.isFinite(amount)||amount<=0||amount>1000||!this.active(a,now)||a.seatId||this.options.safe(a)||p.health<=0)return {ok:false,reason:'Safe from the threat'};
+        p.health=Math.max(0,p.health-amount);this.event('hurt',a.id,now);if(!p.health)this.event('death',a.id,now);return {ok:true,deaths:p.health?[]:[a.id]};
+    }
+    attack(a: SurvivalActor, b: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!this.pvpEnabled || !p || !target || a.id === b.id || !this.active(b, now) || b.seatId || this.options.safe(b) || target.health <= 0)
+        return { ok: false, reason: 'Players are safe here' }; const swing=this.strikeWorldTarget(a,b,now);if(!swing.ok)return swing; target.health = Math.max(0, target.health - SURVIVAL.attackDamage); this.event('hurt', b.id, now, a.id); if (target.health === 0)
         this.event('death', b.id, now, a.id); return { ok: true, deaths: target.health === 0 ? [b.id] : [] }; }
     /** Server-only reward bridge. Durable quest ledger must own cross-restart claims. Full pocket does not consume claim. */
     grantApples(id: string, amount: number, claimId: string): SurvivalResult { const p = this.players.get(id); if (!p || !Number.isInteger(amount) || amount < 1 || amount > SURVIVAL.appleCapacity || !claimId || claimId.length > 160)
@@ -154,7 +172,7 @@ export class SurvivalInventory {
         this.backpacks.shift(); const candidates = this.options.spawnPoints.filter(p => this.options.walkable(p) && !this.options.safe(p) && this.backpacks.every(b => distance(b, p) > 2)); if (!candidates.length)
         return; const index = Math.min(candidates.length - 1, Math.max(0, Math.floor(this.options.random() * candidates.length))); const point = candidates[index]!; this.backpacks.push({ id, x: point.x, y: point.y }); }
     respawn(id: string) { const p = this.players.get(id); if (!p)
-        return; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; p.slots = ['flashlight', null, null, null, null]; p.selectedSlot = 0; /* cooldown deliberately survives respawn */ }
+        return; const saved=!p.apples||!this.options.persistApples||this.options.persistApples(id,p.apples,0,'death'); const retained=saved?0:p.apples; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; p.slots = ['flashlight', null, null, null, null]; p.selectedSlot = 0; if(retained)this.restoreApples(id,retained); /* cooldown deliberately survives respawn */ }
     remove(id: string) { const p = this.players.get(id); if (p)
         this.returnKnife(p); this.players.delete(id); this.attackAt.delete(id);
         this.commandClaims.delete(id); }

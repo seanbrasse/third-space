@@ -2555,3 +2555,6 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .app .map-card svg { height:min(45dvh,360px); width:100%; }
 .app .map-card ul { display:block; max-height:none; overflow:visible; font-size:12px; }
 .app .map-card p { font-size:12px; line-height:1.5; }
+
+.interior-exit-control{position:absolute;z-index:14;top:12px;left:12px;min-height:44px;padding:10px 14px;border:1px solid #c6b991;border-radius:10px;background:#26382eea;color:#f5ecd6;font:600 13px system-ui,sans-serif;box-shadow:0 2px 8px #0004;cursor:pointer}.interior-exit-control:focus-visible{outline:3px solid #e3b96e;outline-offset:3px}
+.interior-exit-control:hover{background:#344d3f;color:#fff4db}.interior-exit-control:disabled{background:#354038;color:#c3c4b8;cursor:default;opacity:.65}

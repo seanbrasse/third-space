@@ -1,4 +1,14 @@
+import {ScreenLabelLayout} from './screen-label-layout';
 import { ForestNPCPresentation } from './forest-npc-presentation';
+import {ForestMapPresentation} from './forest-map-presentation';
+import {authoredNPCTexture} from './authored-npc-presentation';
+import {FOREST_BUILDINGS,FOREST_INTERIORS} from '../../../packages/config/src/authored-forest';
+import {forestInteriorFloorCanvas,forestInteriorObjectCanvas} from './authored-forest-art';
+import {WorldClimatePresentation} from './world-climate-presentation';
+import {climateDarknessFill} from './world-climate-model';
+import type {ForestNPC} from '../../../packages/contracts/src/forest-npc';
+import {ForestMobPresentation} from './forest-mob-presentation';
+import {StoryWorldPresentation,storyWorldAnchors} from './story-world-presentation';
 import { forestCameraZoom } from "../../../packages/config/src/forest-view";
 import { mimicSpriteCanvas } from "./mimic-art";
 import { mimicPresentation } from "./mimic-presentation";
@@ -47,6 +57,7 @@ type Node = {
   label: Phaser.GameObjects.Text;
   bubble: Phaser.GameObjects.Text;
   texture: string;
+  projection:string;
 };
 function snapshotSeats(bridge: WorldBridge, selfId: string) {
   return (
@@ -57,6 +68,11 @@ function snapshotSeats(bridge: WorldBridge, selfId: string) {
 }
 export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
+    private worldLabels=new ScreenLabelLayout();
+    private mobPresentation:ForestMobPresentation|null=null;
+    private storyPresentation:StoryWorldPresentation|null=null;
+    private forestMapPresentation:ForestMapPresentation|null=null;
+    private climatePresentation:WorldClimatePresentation|null=null;
     private npcPresentation: ForestNPCPresentation | null = null;
     private survivalPresentation: SurvivalPresentation | null = null;
     private racePresentation: RacePresentation | null = null;
@@ -162,7 +178,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         });
       }
       this.target = this.add.graphics().setDepth(1);
-      this.marker = this.add.graphics().setDepth(900);
+      this.marker = this.add.graphics().setDepth(10001);
       this.prompt = this.add
         .text(0, 0, "", {
           fontFamily: "monospace",
@@ -172,7 +188,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           padding: { x: 6, y: 4 },
         })
         .setOrigin(0.5, 1)
-        .setDepth(2100)
+        .setDepth(12100)
         .setVisible(false);
       this.input.on(
         "pointerdown",
@@ -202,13 +218,19 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.events.once(Phaser.Scenes.Events.DESTROY,releaseBounds);
       refreshBounds();
       this.scale.on("resize", () => this.fit());
-      this.npcPresentation=new ForestNPCPresentation(this,npcId=>{if(!bridge.blocked)bridge.send({type:"npc.interact",npcId});});
+      this.npcPresentation=new ForestNPCPresentation(this,npcId=>{if(!bridge.blocked)bridge.send({type:"npc.interact",npcId});},authoredNPCTexture);
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.npcPresentation?.destroy());
+      this.climatePresentation=new WorldClimatePresentation(this);
+      this.mobPresentation=new ForestMobPresentation(this,(mobId,targetLifeRevision)=>{if(!bridge.blocked)bridge.send({type:"mob.attack",mobId,targetLifeRevision});});
+      this.storyPresentation=new StoryWorldPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.mobPresentation?.destroy();this.storyPresentation?.destroy();});
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.climatePresentation?.destroy();this.forestMapPresentation?.destroy();});
       this.survivalPresentation=new SurvivalPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.survivalPresentation?.destroy());
       this.drawHome();
       this.fit();
     }
+    private lastExitRequest=0;
     fit() {
       const race = this.currentMode === "race";
       const width = this.scale.width,
@@ -217,14 +239,15 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         .setViewport(0, 0, width, height)
         .setZoom(
           Math.min(
-            width / (race ? 800 : W),
-            height / (race ? RACE_MAP.height * TILE : H),
+            width / (race ? 800 : this.map.width*TILE),
+            height / (race ? RACE_MAP.height * TILE : this.map.height*TILE),
           ),
         );
       if(this.forest) this.cameras.main.setZoom(forestCameraZoom(width,height,TILE));
-      if (!race && !this.forest) this.cameras.main.centerOn(W / 2, H / 2);
+      if (!race && !this.forest) this.cameras.main.centerOn(this.map.width*TILE / 2, this.map.height*TILE / 2);
     }
     clearMap() {
+      this.forestMapPresentation?.destroy();this.forestMapPresentation=null;
       this.racePresentation = null;
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
@@ -326,8 +349,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     }
     drawForest() {
         this.clearMap();
-        this.mapObjects.push(this.add.image(0, 0, this.textures.exists(this.forest?"forest-floor-v2":"asylum-floor-v1") ? (this.forest?"forest-floor-v2":"asylum-floor-v1") : this.texture(this.forest?"forest-floor-v2":"asylum-floor-v1", this.forest?forestFloorCanvas(TILE):asylumFloorCanvas(TILE))).setOrigin(0).setDepth(0));
-        for (const item of this.map.furniture) {
+        if(this.forest)this.forestMapPresentation=new ForestMapPresentation(this,this.map,TILE,item=>{if(!bridge.blocked)this.useFurniture(item);});
+        else this.mapObjects.push(this.add.image(0,0,this.textures.exists("asylum-floor-v1")?"asylum-floor-v1":this.texture("asylum-floor-v1",asylumFloorCanvas(TILE))).setOrigin(0).setDepth(0));
+        for (const item of this.forest?[]:this.map.furniture) {
             if (item.kind === "campfire" || this.forest && bridge.snapshot?.survival?.appleTrees.some(tree => tree.id === item.id))
                 continue;
             const f = item.footprint, charger=!this.forest&&item.id==="charger", key = charger?"asylum-charger-dock-v1":`${this.forest?"forest":"asylum"}-object:${item.kind}:${f.width}:${f.height}`;
@@ -347,13 +371,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           }
         }else{
           for(const marker of [{x:16.5,y:8.35,text:"FLASHLIGHT CHARGER"},{x:10,y:18.9,text:"EXIT · FOREST ↓"}]){
-            this.mapObjects.push(this.add.text(marker.x*TILE,marker.y*TILE,marker.text,{fontFamily:"monospace",fontSize:"9px",color:"#bdceb0",backgroundColor:"#172820",padding:{x:4,y:2}}).setOrigin(.5,1).setDepth(1801));
+            this.mapObjects.push(this.add.text(marker.x*TILE,marker.y*TILE,marker.text,{fontFamily:"monospace",fontSize:"9px",color:"#bdceb0",backgroundColor:"#172820",padding:{x:4,y:2}}).setOrigin(.5,1).setDepth(10002));
           }
         }
         this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<4;i++)this.texture("forest-clown-"+i,clownSpriteCanvas(i));
         this.mapObjects.push(this.stalkerSprite);
-        this.clownGreeting=this.add.text(0,0,"",{fontFamily:"system-ui,sans-serif",fontSize:"13px",color:"#f1e6d4",backgroundColor:"#251b25",align:"center",padding:{x:8,y:5},wordWrap:{width:164,useAdvancedWrap:true}}).setOrigin(.5,1).setScrollFactor(0).setDepth(1900).setVisible(false);
+        this.clownGreeting=this.add.text(0,0,"",{fontFamily:"system-ui,sans-serif",fontSize:"13px",color:"#f1e6d4",backgroundColor:"#251b25",align:"center",padding:{x:8,y:5},wordWrap:{width:164,useAdvancedWrap:true}}).setOrigin(.5,1).setScrollFactor(0).setDepth(11020).setVisible(false);
         this.mapObjects.push(this.clownGreeting);
         this.mimicAvatar=this.add.image(0,0,this.stalkerSprite.texture.key).setOrigin(.5,.96).setScale(AVATAR_SCALE).setVisible(false);
         this.mimicMonster=this.add.image(0,0,this.texture("forest-mimic-0",mimicSpriteCanvas(0))).setOrigin(.5,.98).setScale(32*AVATAR_SCALE/38).setVisible(false);
@@ -366,13 +390,25 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.mapObjects.push(this.werewolfLeapTell);
         this.fireArt = this.add.graphics().setDepth((this.forest?24.5:10.5) * TILE);
         this.mapObjects.push(this.fireArt);
-        this.roastArt = this.add.graphics().setDepth(1100);
+        this.roastArt = this.add.graphics().setDepth(9000);
         this.mapObjects.push(this.roastArt);
         this.lightCanvas ??= document.createElement("canvas");
         this.lightCanvas.width = this.lightCanvas.height = 320;
         const initialMask=this.lightCanvas.getContext("2d")!;initialMask.fillStyle=darknessFill(this.forest);initialMask.fillRect(0,0,320,320);
-        this.lightImage = this.add.image(0, 0, this.texture("forest-darkness", this.lightCanvas)).setOrigin(0).setDepth(1800);
+        this.lightImage = this.add.image(0, 0, this.texture("forest-darkness", this.lightCanvas)).setOrigin(0).setDepth(10000);
         this.mapObjects.push(this.lightImage);
+    }
+    drawInterior(){
+      const interior=FOREST_INTERIORS.find(i=>i.id===bridge.snapshot?.worldId);if(!interior)return;
+      this.clearMap();
+      this.mapObjects.push(this.add.image(0,0,this.textures.exists(`interior-floor:${interior.id}`)?`interior-floor:${interior.id}`:this.texture(`interior-floor:${interior.id}`,forestInteriorFloorCanvas(interior,TILE))).setOrigin(0).setDepth(0));
+      for(const item of interior.map.furniture){
+        const f=item.footprint,key=`interior-prop:${interior.id}:${item.id}`;
+        const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
+        if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on("pointerdown",()=>{if(!bridge.blocked)this.useFurniture(item);});}
+        this.mapObjects.push(image);
+      }
+      this.mapObjects.push(this.add.text(interior.exit.x*TILE,interior.exit.y*TILE+12,"EXIT · FOREST ↓",{fontFamily:"monospace",fontSize:"9px",color:"#ead8b4",backgroundColor:"#273d32",padding:{x:4,y:2}}).setOrigin(.5).setDepth(1000));
     }
     lightForest(time: number, self: Player, players: Player[]) {
         const source=getWorld(bridge.snapshot?.worldId).fire!, fxTile=source.x,fyTile=source.y;
@@ -414,7 +450,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         if(!Number.isFinite(view.width)||!Number.isFinite(view.height)||view.width<=0||view.height<=0)return;
         this.lastLightAt = time;
         g.clearRect(0, 0, c.width, c.height);
-        g.fillStyle = darknessFill(this.forest);
+        g.fillStyle = this.forest&&bridge.snapshot?.climate?climateDarknessFill(bridge.snapshot.climate,bridge.snapshot.serverTime):darknessFill(this.forest);
         g.fillRect(0, 0, c.width, c.height);
         const sx = c.width / view.width, sy = c.height / view.height;
         const glow = (x: number, y: number, radius: number, strength: number, cone?: string) => {
@@ -567,7 +603,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         ? item.seats
             .filter((s) => !occupied.has(s.id))
             .map((s) => ({ ...s, action: `seat:${s.id}` }))
-        : item.usePoints.map((p) => ({ ...p, action: item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind }));
+        : item.usePoints.map((p) => ({ ...p, action:this.furnitureAction(item) }));
       options.sort(
         (a, b) => distance(clicked || self, a) - distance(clicked || self, b),
       );
@@ -576,6 +612,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.clickedId = "";
       this.walkTo(selected, selected.action);
     }
+    furnitureAction(item:Furniture){return item.id==="bramblewick-story-board"?"story-board":FOREST_BUILDINGS.find(b=>b.id===item.id)?.interiorId??(bridge.snapshot?.worldId.startsWith("interior:")&&item.kind==="portal"?"exit-interior":item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind);}
     interact() {
       if (
         bridge.blocked ||
@@ -593,6 +630,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         bridge.send({ type: "seat", seatId: null });
         return;
       }
+      const clue=storyWorldAnchors(bridge).filter(a=>distance(self,a)<=1.8&&isHomeSegmentWalkable(self,a,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
+      if(clue){bridge.send(clue.command);return;}
       const npc=bridge.snapshot?.npcs?.filter(n=>n.phase!=="respawning"&&distance(self,n)<=2.5&&isHomeSegmentWalkable(self,n,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
       if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const occupied = new Set(snapshotSeats(bridge, self.id));
@@ -602,7 +641,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             ? item.seats
                 .filter((s) => !occupied.has(s.id))
                 .map((s) => ({ ...s, action: `seat:${s.id}` }))
-            : item.usePoints.map((p) => ({ ...p, action: item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind })),
+            : item.usePoints.map((p) => ({ ...p, action:this.furnitureAction(item) })),
         )
         .filter((point) => isHomeSegmentWalkable(self, point, this.map))
         .sort((a, b) => distance(self, a) - distance(self, b));
@@ -653,12 +692,18 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.inputHistory = [];
         this.correction = { x: 0, y: 0 };
         this.prediction = null;
-        mode === "race" ? this.drawRace() : this.dark ? this.drawForest() : this.drawHome();
+        mode === "race" ? this.drawRace() : snapshot.worldId.startsWith("interior:")?this.drawInterior():this.dark ? this.drawForest() : this.drawHome();
         this.fit();
       }
-      if(self)this.npcPresentation?.update(this.forest?snapshot.npcs??[]:[],self,snapshot.serverTime,TILE,bridge.reducedMotion);
+      if(self)this.npcPresentation?.update(this.forest?snapshot.npcs??[]:[],self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);
+      if(self){this.mobPresentation?.update(this.forest?snapshot.mobs:undefined,self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);this.storyPresentation?.update(mode==="home"?storyWorldAnchors(bridge):[],self,TILE);}
+      this.worldLabels.flush();
       if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
+      if((bridge.exitRequest??0)!==this.lastExitRequest){
+        this.lastExitRequest=bridge.exitRequest??0;
+        if(!bridge.blocked&&mode==='home'&&snapshot.worldId.startsWith('interior:')){const exit=this.map.furniture.find(item=>item.kind==='portal');if(exit)this.useFurniture(exit);}
+      }
       const typing = isGameInputBlocked(document.activeElement);
       const active =
         !bridge.blocked &&
@@ -775,6 +820,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           : Math.hypot(p.vx, p.vy) > 0.1;
         const frame = walking && !p.seatId ? Math.floor(time / 140) % 4 : 0;
         const texture = this.avatarTexture(p, frame);
+        const projection=`${snapshot.epoch}:${snapshot.instanceId}:${snapshot.worldRevision}:${p.zoneRevision??0}:${p.respawnCount??0}`;
         let node = this.nodes.get(p.id);
         if (!node) {
           node = {
@@ -792,7 +838,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                 padding: { x: 5, y: 3 },
               })
               .setOrigin(0.5, 1)
-              .setDepth(2000)
+              .setDepth(12000)
               .setVisible(false),
             bubble: this.add
               .text(0, 0, "", {
@@ -804,8 +850,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                 padding: { x: 6, y: 4 },
               })
               .setOrigin(0.5, 1)
-              .setDepth(2001),
-            texture,
+              .setDepth(12001),
+            texture,projection,
           };
           node.sprite.on("pointerover", () => {
             this.hoveredId = p.id;
@@ -841,7 +887,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const x = rendered.x * TILE,
           y = rendered.y * TILE;
         const fraction =
-          local || bridge.reducedMotion ? 1 : 1 - Math.exp(-delta / 65);
+          local || bridge.reducedMotion || node.projection!==projection ? 1 : 1 - Math.exp(-delta / 65);
+        node.projection=projection;
         node.sprite.x += (x - node.sprite.x) * fraction;
         node.sprite.y += (y - node.sprite.y) * fraction;
         node.sprite
@@ -931,7 +978,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           const facing=Math.abs(dx)>Math.abs(dy)?dx<0?"left":"right":dy<0?"up":"down";
           // A cosmetic node never enters players/names/roster or receives an input identity.
           const visual={...snapshot.players[0]!,avatar:mimic.disguise,facing,seatId:undefined} as Player;
-          avatar.setTexture(this.avatarTexture(visual,bridge.reducedMotion?0:Math.floor(snapshot.serverTime/250)%2));
+          const disguiseFrame=bridge.reducedMotion?0:Math.floor(snapshot.serverTime/250)%2;
+          if(mimic.disguiseKind==="npc"){
+            const key=`mimic-npc:${mimic.disguisePlayerId}:${facing}:${disguiseFrame}`;
+            avatar.setTexture(this.textures.exists(key)?key:this.texture(key,authoredNPCTexture({id:mimic.disguisePlayerId,avatar:mimic.disguise} as ForestNPC,facing,disguiseFrame)));
+          }else avatar.setTexture(this.avatarTexture(visual,disguiseFrame));
           if(mimic.disguiseKind==="npc")avatar.setDisplaySize(TILE*.9,TILE*1.2);else avatar.setScale(AVATAR_SCALE);
           avatar.setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.1).setAlpha(presentation.avatarAlpha*(mimic.phase==="retreat"?Math.max(0,(mimic.phaseUntil-snapshot.serverTime)/900):1));
           monster.setTexture("forest-mimic-"+presentation.frame).setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.2).setAlpha(presentation.monsterAlpha).setRotation(presentation.rotation);
@@ -955,7 +1006,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           if(tell&&leap.tell){
             const aim=leap.tell,fromX=aim.fromX*TILE,fromY=aim.fromY*TILE,toX=aim.toX*TILE,toY=aim.toY*TILE;
             // The danger tell stays readable above darkness, only for an already visible enemy.
-            tell.setDepth(1801);
+            tell.setDepth(10002);
             tell.lineStyle(2,0xffba83,.95);
             tell.lineBetween(fromX,fromY,toX,toY);
             tell.strokeEllipse(toX,toY,28,12);
@@ -1015,7 +1066,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       } else if (this.prompt.text.startsWith("Click"))
         this.prompt.setVisible(false);
       const camera = this.cameras.main;
+      this.forestMapPresentation?.update(new Set(snapshot.survival?.appleTrees.map(t=>t.id)??[]));
+      this.climatePresentation?.update(snapshot.climate,snapshot.serverTime,time,{outdoors:this.forest&&!!self&&self.mode==="home"&&!self.zone,reducedMotion:bridge.reducedMotion,sanctuary:{x:24*TILE,y:24*TILE,radius:9*TILE}});
       Object.assign(parent.dataset, {
+        forestChunks:String(this.forestMapPresentation?.diagnostics().cachedChunks??0),
+        forestProps:String(this.forestMapPresentation?.diagnostics().propImages??0),
         localId: bridge.selfId,
         mode,
         avatarScale: String(AVATAR_SCALE),
@@ -1112,7 +1167,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             color: "#c87e7f",
           })
           .setOrigin(0.5)
-          .setDepth(3000);
+          .setDepth(13000);
         if (bridge.reducedMotion)
           this.time.delayedCall(1300, () => text.destroy());
         else

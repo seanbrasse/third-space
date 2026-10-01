@@ -1,4 +1,5 @@
 "use client";
+import {applySnapshotFrame,type SnapshotState} from '../../../packages/contracts/src/snapshot-delta';
 import GameMenu from "./GameMenu";
 import { useGameFullscreen } from "../lib/use-game-fullscreen";
 import ChatTimestamp from "./ChatTimestamp";
@@ -17,6 +18,9 @@ import "./survival-hud.css";
 import { holdTouchSprint, releaseTouchSprint } from "../lib/touch-boost";
 import { inventoryHotkey, gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ForestStoryBoard from './ForestStoryBoard';
+import type {ForestStorySnapshot} from '../../../packages/contracts/src/forest-story';
+import {climateLabel} from '../lib/world-climate-model';
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
 import { HOME_MAP, GAME_CONFIG, getWorld } from "@third-space/config";
@@ -98,6 +102,7 @@ function id() {
   return crypto.randomUUID();
 }
 export default function ThirdSpace() {
+  const [story,setStory]=useState<ForestStorySnapshot|null>(null),[storyOpen,setStoryOpen]=useState(false);
   const [identity, setIdentity] = useState<Identity | null>(null),
     [homes, setHomes] = useState<Home[]>([]),
     [visits, setVisits] = useState<HomeVisit[]>([]),
@@ -213,7 +218,7 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type === "npc.interact")) {
+    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || command.type === "npc.interact" || command.type === "interior.enter" || command.type === "mob.attack")) {
       const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
       if(!snapshot || !player || !bridgeRef.current?.transportConnected)return;
       command={...command,commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
@@ -248,11 +253,15 @@ export default function ThirdSpace() {
   if (!room.current) bridge.snapshot = snapshot;
   bridge.selfId = identity?.id || "";
   bridge.transportConnected = connection === "Connected";
-  bridge.blocked = modal !== null || connection !== "Connected";
+  bridge.blocked = modal !== null || storyOpen || connection !== "Connected";
+  bridge.story=story;
   bridge.bubbles = prefs.bubbles;
   bridge.mutedText = new Set(prefs.textMuted);
   bridge.reducedMotion = prefs.reducedMotion;
   bridge.interact = (object) => {
+    if(object==="story-board"){setStoryOpen(true);send({type:"story.read"});return;}
+    if(object.startsWith("interior:")){send({type:"interior.enter",interiorId:object});return;}
+    if(object==="exit-interior"){send({type:"interior.enter",interiorId:"outside"});return;}
     if(object==="enter-asylum"||object==="exit-asylum"){send({type:"area.enter",area:object==="enter-asylum"?"asylum":"forest"});return;}
     if(object==="race-house"){setModal("race-entry");return;}
     if(object==="tv"){setWatchExpanded(true);return;}
@@ -267,6 +276,7 @@ export default function ThirdSpace() {
     setSelectedPersonId(personId);
     setModal("person");
   };
+  useEffect(()=>{if(storyOpen){bridge.touch={axisX:0,axisY:0,jump:false,sprint:false};send({type:"input.stop"});}},[storyOpen,bridge,send]);
   prefsRef.current = prefs;
   homeRef.current = home;
   identityRef.current = identity;
@@ -414,7 +424,7 @@ export default function ThirdSpace() {
       bridge.blocked = true;
       send({type:"input.stop"});
     };
-    const focus = () => { bridge.blocked = !!modal || connection !== "Connected"; };
+    const focus = () => { bridge.blocked = !!modal || storyOpen || connection !== "Connected"; };
     window.addEventListener("focus", focus);
     window.addEventListener("blur", reset);
     window.addEventListener("orientationchange", reset);
@@ -431,7 +441,7 @@ export default function ThirdSpace() {
       window.removeEventListener("orientationchange", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [home, modal, connection, prefs.panel, bridge, send]);
+  }, [home, modal, storyOpen, connection, prefs.panel, bridge, send]);
   useEffect(() => {
     if (modal === "board" && home) {
       void api<{ notes: Note[] }>(`/homes/${home.id}/board`)
@@ -525,6 +535,7 @@ export default function ThirdSpace() {
     if(generation!==connectGeneration.current||leaving.current||!mounted.current){void connected.leave();throw new Error("Connection cancelled.");}
     connected.reconnection.minUptime=0;connected.reconnection.maxRetries=6;connected.reconnection.maxDelay=2000;
     room.current = connected;
+    if(homeRef.current?.id!==targetHome.id){setStory(null);bridge.story=null;setStoryOpen(false);}
     bridge.transportConnected = true;
     remember(targetHome,connected);
     setHome(targetHome);
@@ -540,10 +551,15 @@ export default function ThirdSpace() {
     seenChat.current.clear();
     bridge.liveBubbleIds.clear();
     setReplaceHome(null);
-    connected.onMessage("welcome", (data: { selfId: string }) => {
-      bridge.selfId = data.selfId;
+    // This immutable transport base is separate from chat, React and prediction state.
+    let deltaState:SnapshotState<Snapshot>|undefined,admittedEpoch:string|undefined,resyncAt=0;
+    const enableDeltas=()=>{deltaState=undefined;connected.send('snapshot.delta-ready',{v:1});};
+    connected.onMessage("welcome", (data: { selfId: string;epoch:string }) => {
+      if(room.current!==connected||leaving.current)return;
+      bridge.selfId = data.selfId;admittedEpoch=data.epoch;deltaState=undefined;
     });
-    connected.onMessage("snapshot", (data: Snapshot) => {
+    connected.onMessage("story.snapshot",(data:ForestStorySnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.story=data;setStory(data);});
+    const acceptSnapshot=(data: Snapshot) => {
       if(room.current!==connected||leaving.current)return;
       remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
@@ -565,6 +581,13 @@ export default function ThirdSpace() {
       setConnection(
         document.hidden ? "Session paused · tab in background" : "Connected",
       );
+    };
+    connected.onMessage('snapshot',(data:Snapshot)=>{if(!admittedEpoch)admittedEpoch=data.epoch;acceptSnapshot(data);});
+    connected.onMessage('snapshot.delta',(frame:unknown)=>{
+      if(room.current!==connected||leaving.current)return;
+      const result=applySnapshotFrame<Snapshot>(deltaState,frame,admittedEpoch);
+      if(result.ok){if(result.applied){deltaState=result.state;admittedEpoch=result.state.epoch;acceptSnapshot(result.state.snapshot);}}
+      else if(Date.now()-resyncAt>=1000){resyncAt=Date.now();connected.send('snapshot.resync',{v:1});}
     });
     connected.onMessage("world.sound",(event:import("@third-space/contracts").WorldSoundEvent)=>{
       if(bridge.snapshot)audio.current?.playWorld(event,bridge.snapshot,identityRef.current?.id||"",prefsRef.current.effectsVolume,prefsRef.current.reducedMotion||window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -645,6 +668,7 @@ export default function ThirdSpace() {
         }
       },
     );
+    enableDeltas();
     connected.onDrop(() => {
       if(room.current!==connected||leaving.current)return;
       bridge.transportConnected = false;
@@ -654,6 +678,7 @@ export default function ThirdSpace() {
     });
     connected.onReconnect(() => {
       if(room.current!==connected||leaving.current)return;
+      enableDeltas();
       bridge.transportConnected = true;
       setConnection("Connected");
       bridge.liveBubbleIds.clear();
@@ -1174,6 +1199,7 @@ export default function ThirdSpace() {
                 <button onClick={() => setModal("board")}>
                   ▤ <span>Idea board</span>
                 </button>
+                <button onClick={()=>{setStoryOpen(true);send({type:"story.read"});}}>▧ <span>World journal</span></button>
                 <button
                   className="play-button"
                   onClick={() => setModal("portal")}
@@ -1223,7 +1249,7 @@ export default function ThirdSpace() {
                   ☀{" "}
                   {race
                     ? "A race through the garden"
-                    : "An ordinary day, made better"}
+                    : snapshot?.climate?climateLabel(snapshot.climate,snapshot.serverTime):"An ordinary day, made better"}
                 </span>
                 <span>
                   {race
@@ -1232,12 +1258,14 @@ export default function ThirdSpace() {
                 </span>
               </div>
               <World bridge={bridge}>
+                {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Walk to exit</button>}
+                <ForestStoryBoard open={storyOpen} snapshot={story} notice={toast} onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])} onClaimReward={rewardId=>send({type:"story.reward",rewardId})} canAccuse={!self?.zone&&!!self&&!!snapshot?.npcs?.some(n=>n.id==="npc:wizard-orin-vale"&&n.phase!=="respawning"&&Math.hypot(n.x-self.x,n.y-self.y)<=2.5)} onAccuse={suspectId=>send({type:"story.accuse",suspectId})}/>
                 {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
                   const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
                   if(!player||!inventory?.equipped)return;
                   if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});
                   else if(inventory.equipped==="apple")send({type:"survival.eat"});
-                  else {const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a player outside the safe areas, then swing.");}
+                  else {const mob=latest?.mobs?.mobs.filter(m=>m.health>0&&Math.hypot(m.x-player.x,m.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(mob){send({type:"mob.attack",mobId:mob.id,targetLifeRevision:mob.lifeRevision});return;}const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a threat or player outside the safe areas, then swing.");}
                 }}/>}
               </World>
               <WorldMap snapshot={snapshot} selfId={identity?.id??""}/>

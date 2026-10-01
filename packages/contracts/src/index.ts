@@ -1,4 +1,10 @@
 export type {ForestNPC} from './forest-npc';
+import type {InteriorId,WorldId} from '@third-space/config';
+import {FOREST_INTERIORS} from '../../config/src/authored-forest';
+import type {WorldClimateSnapshot} from './world-climate';
+export type {WorldClimateSnapshot} from './world-climate';
+import type {ForestMobSnapshot} from './forest-mobs';
+export type {ForestStorySnapshot} from './forest-story';
 import type {ForestNPC, ForestNPCArt} from './forest-npc';
 import type { SurvivalSnapshot } from './survival';
 export type { SurvivalItem, SurvivalPlayer, Backpack, AppleTree, SurvivalEvent, SurvivalSnapshot } from './survival';
@@ -55,7 +61,7 @@ export interface PlayerState {
   vy: number;
   facing: Facing;
   mode: "home" | "race";
-  zone?: "asylum";
+  zone?: "asylum" | InteriorId;
   zoneRevision?: number;
   flashlightBattery?: number;
   flashlightOn?: boolean;
@@ -175,6 +181,14 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
   z.object({type:z.literal("npc.interact"),npcId:z.string().startsWith("npc:").max(100),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("interior.enter"),interiorId:z.string().refine(id=>id==="outside"||FOREST_INTERIORS.some(interior=>interior.id===id)),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.read"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.seen"),seenRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.recover"),supplyId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.inspect"),evidenceId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.accuse"),suspectId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("story.reward"),rewardId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("mob.attack"),mobId:z.string().startsWith("mob:").max(140),targetLifeRevision:z.number().int().min(0),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.select"),slot:z.number().int().min(0).max(4),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.harvest"),treeId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
@@ -231,6 +245,8 @@ export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;
 export interface ForestMimicState {kind:"mimic";id:string;x:number;y:number;originX:number;originY:number;coverId:string;targetId:string;disguisePlayerId:string;disguise:AvatarConfig;disguiseKind?:"player"|"npc";disguiseArt?:ForestNPCArt;phase:"approach"|"linger"|"morph"|"chase"|"retreat";startedAt:number;phaseUntil:number;transformed:boolean;morphStartedAt?:number;chaseStartedAt?:number;}
 export interface ForestStalker {greeting?:{id:string;text:string;shownAt:number;until:number};leap?:{phase:"windup"|"air";startedAt:number;until:number;fromX:number;fromY:number;toX:number;toY:number};kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
+  climate?: WorldClimateSnapshot;
+  mobs?: ForestMobSnapshot;
   survival?: SurvivalSnapshot;
   /** Recipient-only authoritative idle deadline; never a client-provided timestamp. */
   idle?: { warningAt: number; kickAt: number };
@@ -240,7 +256,7 @@ export interface RoomSnapshot {
   npcs?: ForestNPC[];
   homeId: string;
   rootWorldId?: "living-room" | "forest";
-  worldId: "living-room" | "forest" | "asylum";
+  worldId: WorldId;
   worldRevision: number;
   worldProposal: WorldProposal | null;
   media: SharedMedia;

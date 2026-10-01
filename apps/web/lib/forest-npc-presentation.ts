@@ -3,6 +3,7 @@ import type { ForestNPC } from '../../../packages/contracts/src/forest-npc';
 import type { Facing, PlayerState } from '@third-space/contracts';
 import { avatarPixelCanvas } from './pixel-art';
 import { forestNPCBubblePoint } from './forest-npc-layout';
+import type { ScreenLabelLayout } from './screen-label-layout';
 
 export type ForestNPCTextureFactory = (npc: ForestNPC, facing: Facing, frame: number) => HTMLCanvasElement;
 
@@ -19,7 +20,7 @@ export class ForestNPCPresentation {
   private textureKeys = new Set<string>();
   constructor(private scene: Phaser.Scene, private interact: (id: string) => void, private texture: ForestNPCTextureFactory = (npc, facing, frame) => avatarPixelCanvas(npc.avatar, facing, frame)) {}
 
-  update(npcs: readonly ForestNPC[], local: PlayerState, now: number, tile: number, reducedMotion = false) {
+  update(npcs: readonly ForestNPC[], local: PlayerState, now: number, tile: number, reducedMotion = false, labels?: ScreenLabelLayout) {
     const alive = new Set(npcs.map(n => n.id));
     for (const [id, view] of this.views) if (!alive.has(id)) { this.destroyView(view); this.views.delete(id); }
     const camera = this.scene.cameras.main;
@@ -42,9 +43,9 @@ export class ForestNPCPresentation {
       if (!view) {
         const sprite = this.scene.add.image(x, y, key).setOrigin(.5, 1).setDisplaySize(tile * .9, tile * 1.2).setInteractive({ useHandCursor: true });
         sprite.on('pointerdown', (_pointer: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => { event.stopPropagation(); this.interact(npc.id); });
-        const label = this.scene.add.text(0, 0, '', { fontFamily: 'system-ui,sans-serif', fontSize: '11px', color: '#dbd1b5', backgroundColor: '#1c2622', padding: { x: 4, y: 2 }, align: 'center' }).setOrigin(.5, 1).setScrollFactor(0).setDepth(1889).setResolution(1);
-        const bubble = this.scene.add.text(0, 0, '', { fontFamily: 'system-ui,sans-serif', fontSize: '13px', color: '#f6edd6', backgroundColor: '#21352a', padding: { x: 8, y: 5 }, align: 'center', wordWrap: { width: Math.max(80, Math.min(210, camera.width - 40)), useAdvancedWrap: true } }).setOrigin(.5, 1).setScrollFactor(0).setDepth(1891).setResolution(1);
-        const health = this.scene.add.graphics().setDepth(1890);
+        const label = this.scene.add.text(0, 0, '', { fontFamily: 'system-ui,sans-serif', fontSize: '11px', color: '#dbd1b5', backgroundColor: '#1c2622', padding: { x: 4, y: 2 }, align: 'center' }).setOrigin(.5, 1).setScrollFactor(0).setDepth(11000).setResolution(1);
+        const bubble = this.scene.add.text(0, 0, '', { fontFamily: 'system-ui,sans-serif', fontSize: '13px', color: '#f6edd6', backgroundColor: '#21352a', padding: { x: 8, y: 5 }, align: 'center', wordWrap: { width: Math.max(80, Math.min(210, camera.width - 40)), useAdvancedWrap: true } }).setOrigin(.5, 1).setScrollFactor(0).setDepth(11002).setResolution(1);
+        const health = this.scene.add.graphics().setDepth(11001);
         view = { sprite, label, bubble, health };
         this.views.set(npc.id, view);
       }
@@ -56,10 +57,12 @@ export class ForestNPCPresentation {
         }
       }
       view.sprite.setVisible(visible);
-      view.label.setVisible(visible && Math.hypot(npc.x - local.x, npc.y - local.y) <= 5);
+      const distance = Math.hypot(npc.x - local.x, npc.y - local.y);
+      const labelled = visible && distance <= 5;
+      view.label.setVisible(labelled && !labels);
       view.health.clear().setVisible(visible && npc.health < npc.maxHealth);
       const talking = visible && !!npc.dialogue && npc.dialogue.until > now;
-      view.bubble.setVisible(talking);
+      view.bubble.setVisible(talking && !labels);
       if (!visible) continue;
       view.sprite.setTexture(key).setPosition(x, y).setDepth(y);
       // Text uses CSS pixels. Scroll-factor zero still applies camera zoom, so undo it in both scale and position.
@@ -76,6 +79,9 @@ export class ForestNPCPresentation {
         const point = forestNPCBubblePoint(screenX, screenY - tile * 1.7 * zoom, view.bubble.width, view.bubble.height, camera.width, camera.height);
         view.bubble.setPosition(camera.width / 2 + (point.x - camera.width / 2) / zoom, camera.height / 2 + (point.y - camera.height / 2) / zoom);
         view.label.setVisible(false);
+        labels?.add({ id: `npc-dialogue:${npc.id}`, rect: { x: point.x - view.bubble.width / 2, y: point.y - view.bubble.height, width: view.bubble.width, height: view.bubble.height }, priority: 'dialogue', distance, setVisible: visible => view.bubble.setVisible(visible) });
+      } else if (labelled) {
+        labels?.add({ id: `npc-label:${npc.id}`, rect: { x: labelPoint.x - view.label.width / 2, y: labelPoint.y - view.label.height, width: view.label.width, height: view.label.height }, priority: 'ambient-npc', distance, setVisible: visible => view.label.setVisible(visible) });
       }
     }
   }

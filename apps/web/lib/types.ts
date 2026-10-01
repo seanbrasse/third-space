@@ -29,6 +29,8 @@ export type Home = {
   joinAlias?: string;
 };
 export type WorldBridge = {
+  exitRequest?:number;
+  story?:import('../../../packages/contracts/src/forest-story').ForestStorySnapshot|null;
   snapshot: Snapshot | null;
   selfId: string;
   blocked: boolean;
