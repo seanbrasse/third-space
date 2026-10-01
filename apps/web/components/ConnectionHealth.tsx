@@ -18,6 +18,7 @@ export default function ConnectionHealth({ room, connection }: {
         let lastSnapshot = performance.now(), sent = 0, pending: number | null = null, timeouts = 0, lastProbe = -Infinity;
         const samples: number[] = [];
         const offSnapshot = room.onMessage("snapshot", () => { lastSnapshot = performance.now(); });
+        const offDelta = room.onMessage("snapshot.delta", () => { lastSnapshot = performance.now(); });
         const offPong = room.onMessage("connection.pong", (nonce: unknown) => {
             if (nonce !== pending || pending === null)
                 return;
@@ -56,7 +57,7 @@ export default function ConnectionHealth({ room, connection }: {
         window.addEventListener("online", resume);
         window.addEventListener("offline", tick);
         document.addEventListener("visibilitychange", resume);
-        return () => { clearInterval(timer); offSnapshot(); offPong(); window.removeEventListener("online", resume); window.removeEventListener("offline", tick); document.removeEventListener("visibilitychange", resume); };
+        return () => { clearInterval(timer); offSnapshot(); offDelta(); offPong(); window.removeEventListener("online", resume); window.removeEventListener("offline", tick); document.removeEventListener("visibilitychange", resume); };
     }, [room, connection]);
     const label = room ? labels[status.quality] : "Not connected";
     return <span className="network-health" data-quality={status.quality} title="Round-trip delay and incoming room updates. Lag can come from your network, this device, or the server; this does not measure Wi-Fi signal strength."><span aria-live="polite">{label}</span>{status.ms !== null && room && status.quality !== "offline" && status.quality !== "background" ? ` · ${status.ms} ms` : ""}</span>;

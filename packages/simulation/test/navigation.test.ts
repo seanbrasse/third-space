@@ -58,7 +58,7 @@ describe("footprint-aware click navigation", () => {
 
 describe("bounded forest",()=>{
   it("has eight reachable safe spawns and eight reachable campfire seats in a finite map",()=>{
-    const map=getWorld("forest").map;expect(map.width).toBe(80);expect(map.height).toBe(64);expect(map.seats.filter(seat=>seat.id.startsWith("camp-seat-"))).toHaveLength(8);expect(map.spawns).toHaveLength(8);
+    const map=getWorld("forest").map;expect(map.width).toBe(144);expect(map.height).toBe(112);expect(map.seats.filter(seat=>seat.id.startsWith("camp-seat-"))).toHaveLength(8);expect(map.spawns).toHaveLength(8);
     for(const spawn of map.spawns){expect(isHomeWalkable(spawn,map)).toBe(true);for(const seat of map.seats){expect(isHomeWalkable(seat,map)).toBe(true);const path=findHomePath(spawn,seat,map);expect(path).not.toBeNull();}}
     const p=createPlayer("forest","Friend");Object.assign(p,map.spawn);let state=p;
     for(let i=0;i<1500;i++)state=stepHome(state,{seq:i,axisX:0,axisY:1,jump:false},1/60,map);

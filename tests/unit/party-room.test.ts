@@ -643,7 +643,10 @@ describe("shared reusable social worlds",()=>{
   });
 
   it("delivers one giggle and catch impact only to nearby home listeners",()=>{
-    vi.spyOn(Math,"random").mockReturnValue(.2);const clients=harness.fill(),c=clients[0]!;propose(c);harness.advance(481);Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});
+    vi.spyOn(Math,"random").mockReturnValue(.2);const clients=harness.fill(),c=clients[0]!;propose(c);harness.advance(481);
+    // Isolate human positional-audio delivery from the separate NPC prey lottery.
+    (harness.room as unknown as {npcs:unknown}).npcs=null;
+    Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});
     for(let i=0;i<2100&&!c.snapshot().stalker;i+=3)harness.advance(3);
     expect(c.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="giggle")).toHaveLength(1);
     Object.assign(harness.room.players.get(clients[1]!.auth.userId)!,{x:25,y:11});

@@ -1,3 +1,5 @@
+import {expandAuthoredForest,FOREST_INTERIORS} from './authored-forest';
+import {FOREST_STORY_BOARD} from './forest-story-board';
 export interface Point {
   x: number;
   y: number;
@@ -134,7 +136,8 @@ export const HOME_MAP = {
 export { RACE_MAP, RACE_STAGES, RACE_BOOST, type RacePickup, type RacePickupKind } from './race-course';
 
 // World maps share tile coordinates, collision and interaction metadata with prediction.
-export type WorldId = "living-room" | "forest" | "asylum";
+export type InteriorId = `interior:${string}`;
+export type WorldId = "living-room" | "forest" | "asylum" | InteriorId;
 export interface WorldMap {
   id: string; width: number; height: number; spawn: Point;
   spawns: readonly Point[]; solids: readonly Rect[];
@@ -167,12 +170,15 @@ for(let y=3;y<62;y+=3) for(let x=3;x<78;x+=3) {
   if(clearing||path)continue;
   forestFurniture.push({id:`tree-${x}-${y}`,kind:"tree",footprint:{x:p.x-1,y:p.y-2,width:2,height:3},collider:{x:p.x-.3,y:p.y-.25,width:.6,height:.6},usePoints:[],seats:[]});
 }
-export const FOREST_MAP: WorldMap = {
+export const CORE_FOREST_MAP: WorldMap = {
   id:"midnight-pines-v1",width:80,height:64,spawn:{x:forestSeats[0]!.x,y:forestSeats[0]!.y},
   spawns:forestSeats.map(({x,y})=>({x,y})),
   furniture:forestFurniture,seats:[...forestSeats,{id:"charger-seat",x:30.5,y:23.7}],
   solids:[{x:0,y:0,width:80,height:1},{x:0,y:63,width:80,height:1},{x:0,y:0,width:1,height:64},{x:79,y:0,width:1,height:64},...forestFurniture.flatMap(f=>f.collider?[f.collider]:[])],
 };
+export const FOREST_MAP: WorldMap = expandAuthoredForest(CORE_FOREST_MAP);
+FOREST_MAP.furniture=[...FOREST_MAP.furniture,FOREST_STORY_BOARD];
+FOREST_MAP.solids=[...FOREST_MAP.solids,FOREST_STORY_BOARD.collider!];
 export const ASYLUM_DOOR={x:69,y:13.5};
 // Keep the five lower ring seats; relocate the three northern seats out of the picture.
 const asylumSeats:Seat[]=Array.from({length:8},(_,i)=>({id:`asylum-cushion-${i}`,...(i===5?{x:8.5,y:9.95}:i===6?{x:10,y:14.8}:i===7?{x:11.5,y:9.95}:{x:10+Math.cos(i*Math.PI/4)*3,y:10+Math.sin(i*Math.PI/4)*3})}));
@@ -190,6 +196,7 @@ const asylumFurniture:Furniture[]=[
 export const ASYLUM_MAP:WorldMap={id:"asylum-v1",width:20,height:20,spawn:{x:10,y:16.5},spawns:asylumSeats.map(({x,y})=>({x,y})),furniture:asylumFurniture,seats:[...asylumSeats,{id:"charger-seat",x:16.5,y:9.5}],solids:[{x:0,y:0,width:20,height:2},{x:0,y:19,width:20,height:1},{x:0,y:0,width:1,height:20},{x:19,y:0,width:1,height:20},...asylumFurniture.flatMap(f=>f.collider?[f.collider]:[])]};
 export const FLASHLIGHT_SECONDS=30;
 export const WORLDS: Record<WorldId,WorldDefinition> = {
+  ...Object.fromEntries(FOREST_INTERIORS.map(interior=>[interior.id,{id:interior.id as InteriorId,name:interior.name,description:interior.flavor,map:interior.map,camera:"fit" as const,dark:false,mediaEnabled:false,mediaSurface:{id:"none",x:0,y:0,width:0,height:0,source:interior.entrance}}])),
   "living-room":{id:"living-room",name:"The reading lounge",description:"Walnut, velvet, and your people.",map:HOME_MAP,camera:"fit",dark:false,mediaSurface:{id:"world-tv",x:3,y:1.3,width:3,height:1.3,source:{x:4.5,y:3.3}}},
   asylum:{id:"asylum",name:"The abandoned asylum",description:"A candle, worn cushions and a battered projector screen.",map:ASYLUM_MAP,camera:"fit",dark:true,fire:{x:10,y:10},mediaSurface:{id:"asylum-tv",x:5,y:2.25,width:10,height:5.625,source:{x:10,y:8.6}}},
   forest:{id:"forest",mediaEnabled:false,name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},stalker:{safeRadius:9,viewRadius:10,intervalMs:30000,campMinMs:300000,campMaxMs:600000,peekMs:3000,chaseMs:14000},mediaSurface:{id:"camp-tv",x:31.375,y:23.875,width:2.25,height:.9375,source:{x:32.5,y:26}}},

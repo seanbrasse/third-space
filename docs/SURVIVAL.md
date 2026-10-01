@@ -10,7 +10,7 @@ Select a knife, then click a nearby player or use Swing knife. Hits require serv
 
 Knife combat defaults on outside protected areas. The current host can disable it in Home controls. This room policy is reversible. NPCs are not eligible human PvP targets. The room authenticates every command and fences it with world/life/area revisions; replayed commands cannot mutate inventory again within the deduplication window.
 
-Inventory is room-local in this milestone. Quest persistence and durable reward transactions are a separate integration; the temporary controller reward helper is not a durable ledger.
+Apples and story rewards now persist per member and home in SQLite. Harvesting, eating, death loss and reward claims commit before changing room inventory; duplicate or stale claims cannot award twice. Knives, backpacks, health and hunger remain room-owned. Offline time creates no hunger debt. See SHARED-FOREST-STORY.md for the shared story and personal reward rules.
 
 Validation: 417 tests across 65 files pass, including seven actual-room authority cases and eight real HTTP/Colyseus clients racing to claim one backpack, sharing damage, and observing one protected respawn. Workspace TypeScript and production build pass. The real local app renders the HUD and world in a connected room without browser errors. At 390 CSS pixels, the compact HUD is 103 pixels tall, its four buttons are at least 44 pixels high, and the document does not overflow horizontally. Physical iPhone multi-touch and real speaker playback remain unverified.
 

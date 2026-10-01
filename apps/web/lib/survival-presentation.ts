@@ -115,7 +115,7 @@ export class SurvivalPresentation {
                 }
             }
         }
-        this.impacts.setDepth(1900);
+        this.impacts.setDepth(11010);
         for(const [id,sprite] of this.held)if(!wantedHeld.has(id)){sprite.destroy();this.held.delete(id);}
     }
     private obtain(id: string, key: string, onClick: () => void) { let sprite = this.sprites.get(id); if (!sprite) {
