@@ -1,0 +1,45 @@
+import { describe, it, expect } from 'vitest';
+import { SurvivalInventory, SURVIVAL, type SurvivalActor } from '../../apps/game-server/src/survival-inventory';
+const actor = (id: string, over: Partial<SurvivalActor> = {}): SurvivalActor => ({ id, x: 20, y: 20, vx: 1, vy: 0, connected: true, mode: 'home', ...over });
+function setup(los = true) { const s = new SurvivalInventory({ random: () => .2, spawnPoints: [{ x: 20, y: 20 }, { x: 30, y: 30 }, { x: 40, y: 40 }], trees: [{ id: 'apple-a', x: 20, y: 20 }], safe: p => p.x < 10, walkable: () => true, lineOfSight: () => los }); s.tick(0, [actor('a'), actor('b')]); return s; }
+const player = (s: SurvivalInventory, id = 'a') => s.snapshot().players.find(p => p.id === id)!;
+const arm = (s: SurvivalInventory, a = actor('a')) => { const bag = s.snapshot().backpacks[0]!; const here = { ...a, x: bag.x, y: bag.y }; expect(s.pickup(here, bag.id, 0).ok).toBe(true); expect(s.equip(a.id, 'knife').ok).toBe(true); return here; };
+describe('room survival authority', () => {
+    it('starts with flashlight, 100 health, 75 hunger and two bounded hidden backpacks', () => { const s = setup(); expect(player(s)).toMatchObject({ health: 100, hunger: 75, equipped: 'flashlight', apples: 0 }); expect(s.snapshot().backpacks).toHaveLength(2); for (let n = 0; n < 100; n++)
+        s.tick(n, [actor('a')]); expect(s.snapshot().backpacks).toHaveLength(2); });
+    it('pauses hunger for sanctuary, seats, watching, indoors, race, disconnected and stationary', () => { for (const over of [{ x: 1 }, { seatId: 'seat' }, { watching: true }, { zone: 'asylum' }, { mode: 'race' as const }, { connected: false }, { vx: 0, vy: 0 }, { haloUntil: 10000 }, { respawnAt: 10000 }]) {
+        const s = setup();
+        s.tick(1000, [actor('a', over)]);
+        expect(player(s).hunger).toBe(75);
+    } });
+    it('drains only active movement and caps a server stall without reconnect debt', () => { const s = setup(); s.tick(1000, [actor('a')]); expect(player(s).hunger).toBeCloseTo(75 - SURVIVAL.hungerPerSecond); s.tick(1000000, [actor('a', { connected: false })]); s.tick(1000050, [actor('a')]); expect(player(s).hunger).toBeCloseTo(75 - 1.05 * SURVIVAL.hungerPerSecond); s.tick(2000000, [actor('a')]); expect(player(s).hunger).toBeCloseTo(75 - 2.05 * SURVIVAL.hungerPerSecond); });
+    it('serial harvest shares cooldown, prevents duplication, consumes apples and caps hunger', () => { const s = setup(); expect(s.harvest(actor('a'), 'apple-a', 0).ok).toBe(true); expect(s.harvest(actor('b'), 'apple-a', 0).ok).toBe(false); expect(s.harvest(actor('a'), 'apple-a', 100).ok).toBe(false); expect(s.eat(actor('a'), 100).ok).toBe(true); expect(player(s).hunger).toBe(100); expect(player(s).apples).toBe(0); expect(s.eat(actor('a'), 100).ok).toBe(false); expect(s.harvest(actor('b'), 'apple-a', 45000).ok).toBe(true); });
+    it('bounds apple inventory and resets equipped item on respawn', () => { const s = setup(); for (let n = 0; n < 5; n++)
+        expect(s.harvest(actor('a'), 'apple-a', n * 45000).ok).toBe(true); expect(s.harvest(actor('a'), 'apple-a', 225000).ok).toBe(false); expect(s.equip('a', 'apple').ok).toBe(true); s.respawn('a'); expect(player(s)).toMatchObject({ equipped: 'flashlight', apples: 0, hunger: 75 }); expect(s.equip('a', 'knife').ok).toBe(false); });
+    it('requires reach and unobstructed line of sight for harvesting and pickups', () => { const s = setup(false); expect(s.harvest(actor('a'), 'apple-a', 0).ok).toBe(false); expect(s.pickup(actor('a'), s.snapshot().backpacks[0]!.id, 0).ok).toBe(false); const far = setup(); expect(far.harvest(actor('a', { x: 60 }), 'apple-a', 0).ok).toBe(false); expect(far.pickup(actor('a', { x: 60 }), far.snapshot().backpacks[0]!.id, 0).ok).toBe(false); });
+    it('single claimed knife survives reconnect and reused backpack ID cannot duplicate it', () => { const s = setup(), bag = s.snapshot().backpacks[0]!, a = arm(s); expect(s.pickup({ ...actor('b'), x: bag.x, y: bag.y }, bag.id, 0).ok).toBe(false); s.tick(1000, [{ ...a, connected: false }]); s.ensure('a'); expect(player(s).knifeId).toBe(bag.id); expect(s.snapshot().backpacks).toHaveLength(1); });
+    it('returns knife to loot on respawn/removal and maintains active world cap', () => { const s = setup(); arm(s); s.respawn('a'); expect(player(s).knifeId).toBeUndefined(); expect(s.snapshot().backpacks).toHaveLength(2); arm(s); s.remove('a'); expect(s.snapshot().backpacks).toHaveLength(2); expect(s.snapshot().players.some(p => p.id === 'a')).toBe(false); });
+    it('replaces claimed backpacks after 30 seconds independently of carried knives, at most one per player', () => { const s = setup(), a = arm(s); s.tick(29999, [a]); expect(s.snapshot().backpacks).toHaveLength(1); s.tick(30000, [a]); expect(s.snapshot().backpacks).toHaveLength(2); const bag = s.snapshot().backpacks[0]!; expect(s.pickup({ ...a, x: bag.x, y: bag.y }, bag.id, 30000).ok).toBe(false); expect(player(s).knifeId).toBeDefined(); s.respawn('a'); expect(s.snapshot().backpacks).toHaveLength(2); const ids = [...s.snapshot().backpacks.map(b => b.id), ...s.snapshot().players.flatMap(p => p.knifeId ? [p.knifeId] : [])]; expect(new Set(ids).size).toBe(ids.length); });
+    it('server rewards are bounded and idempotent across players; full inventory preserves the claim', () => { const s = setup(); expect(s.grantApples('a', 5, 'quest-1').ok).toBe(true); expect(s.grantApples('b', 1, 'quest-1').ok).toBe(false); expect(s.grantApples('a', 1, 'quest-2').ok).toBe(false); s.eat(actor('a'), 10); expect(s.grantApples('a', 1, 'quest-2').ok).toBe(true); expect(s.grantApples('b', Infinity, 'bad').ok).toBe(false); });
+    it('deduplicates transport commands across reconnect grace and fails closed at its bounded window', () => {
+        const s = setup(); expect(s.acceptCommand('a', 'eat-1', 0)).toBe(true); expect(s.acceptCommand('a', 'eat-1', 30000)).toBe(false);
+        for (let n = 1; n < 512; n++) expect(s.acceptCommand('a', `cmd-${n}`, 30000)).toBe(true);
+        expect(s.acceptCommand('a', 'overflow', 30000)).toBe(false); expect(s.acceptCommand('a', 'later', 330000)).toBe(true);
+        expect(s.acceptCommand('unknown', 'x', 330000)).toBe(false);
+    });
+    it('applies bounded damage/cooldown and exactly one death, rejects corpse hits', () => { const s = setup(), a = arm(s), b = actor('b', { x: a.x, y: a.y }); expect(s.attack(a, b, 0)).toEqual({ ok: true, deaths: [] }); expect(player(s, 'b').health).toBe(70); expect(s.attack(a, b, 799).ok).toBe(false); for (const t of [800, 1600])
+        expect(s.attack(a, b, t).ok).toBe(true); expect(s.attack(a, b, 2400)).toEqual({ ok: true, deaths: ['b'] }); expect(s.attack(a, b, 3200).ok).toBe(false); expect(s.snapshot().events.filter(e => e.kind === 'death')).toHaveLength(1); s.respawn('b'); expect(player(s, 'b').health).toBe(100); });
+    it('blocks an equipped attack through an obstacle even when both endpoints are nearby', () => {
+        let clear = true; const s = new SurvivalInventory({ random:()=>0, spawnPoints:[{x:20,y:20},{x:30,y:30}], trees:[], safe:()=>false, walkable:()=>true, lineOfSight:()=>clear });
+        s.tick(0,[actor('a'),actor('b')]); const a = arm(s); clear = false;
+        expect(s.attack(a,actor('b',{x:a.x,y:a.y}),0).ok).toBe(false); expect(player(s,'b').health).toBe(100);
+    });
+    it('rejects PvP across asylum/race/disconnect/halo/seats and disabled toggle/sanctuary/range', () => { for (const over of [{ zone: 'asylum' }, { mode: 'race' as const }, { connected: false }, { haloUntil: 5000 }, { seatId: 'seat' }, { respawnAt: 5000 }]) {
+        const s = setup(), a = arm(s);
+        expect(s.attack(a, actor('b', { x: a.x, y: a.y, ...over }), 0).ok).toBe(false);
+    } const s = setup(), a = arm(s); s.setPvp(false); expect(s.attack(a, actor('b', { x: a.x, y: a.y }), 0).ok).toBe(false); s.setPvp(true); expect(s.attack({ ...a, x: 1 }, actor('b', { x: 1, y: a.y }), 0).ok).toBe(false); expect(s.attack(a, actor('b', { x: 60 }), 0).ok).toBe(false); });
+    it('snapshots do not mutate inventory and events expire', () => { const s = setup(); const copy = s.snapshot(); copy.players[0]!.health = 0; copy.backpacks.length = 0; expect(player(s).health).toBe(100); expect(s.snapshot().backpacks).toHaveLength(2); s.harvest(actor('a'), 'apple-a', 0); s.tick(4000, []); expect(s.snapshot().events).toHaveLength(0); });
+    it('does not spawn loot in blocked/safe spots and tolerates empty candidates', () => { const s = new SurvivalInventory({ random: () => 1, spawnPoints: [{ x: 1, y: 1 }], trees: [], safe: () => true, walkable: () => false, lineOfSight: () => false }); s.tick(0, []); expect(s.snapshot().backpacks).toEqual([]); });
+    it('starvation requires active exploration and emits one death; respawn restores hunger', () => { const s = setup(); let death: string[] = []; for (let t = 1000; t <= 1100000; t += 1000)
+        death.push(...s.tick(t, [actor('a')])); expect(death).toEqual(['a']); expect(player(s).health).toBe(0); s.respawn('a'); expect(player(s)).toMatchObject({ health: 100, hunger: 75 }); });
+});

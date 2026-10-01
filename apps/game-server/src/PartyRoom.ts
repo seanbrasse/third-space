@@ -1,5 +1,7 @@
 import { createIdlePresence, recordActivity, recordWatching, idleStatus, type IdlePresence } from "./idle-policy";
 import { ForestWerewolf } from "./ForestWerewolf";
+import { createForestSurvival } from './survival-world';
+import type { SurvivalResult } from './survival-inventory';
 import { ForestMimic } from "./ForestMimic";
 import { ForestEncounter } from "./ForestStalker";
 import { stepFlashlight } from "./flashlight";
@@ -64,6 +66,7 @@ export class PartyRoom extends Room {
   worldRevision = 0;
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
+  private survival = createForestSurvival();
   private idlePresence = new Map<string, IdlePresence>();
   private areaCooldowns=new Map<string,number>();
   private indoorSpawnSeats=new Map<string,string>();
@@ -236,6 +239,7 @@ export class PartyRoom extends Room {
     player.connected = true;
     player.flashlightOn ??= false; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
     this.players.set(auth.userId, player);
+    this.survival.ensure(auth.userId);
     this.roles.set(auth.userId, auth.role);
     this.clientsByUser.set(auth.userId, client);
     this.chooseHost();
@@ -305,6 +309,7 @@ export class PartyRoom extends Room {
       this.recordDnf(player, "disconnected");
     this.clientsByUser.delete(id);
     this.players.delete(id);
+    this.survival.remove(id);
     this.roles.delete(id);
     this.idlePresence.delete(id);
     this.intents.delete(id);
@@ -445,6 +450,10 @@ export class PartyRoom extends Room {
       return;
     }
     if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
+    if (command.type.startsWith("survival.")) {
+      this.survivalCommand(client, p, command as Extract<ClientCommand, {type: `survival.${string}`}>);
+      return;
+    }
     switch (command.type) {
       case "world.propose": {
         if(command.worldId!=="forest")return this.notice(client,"WORLD_UNAVAILABLE","Midnight Pines is the current campsite.");
@@ -896,6 +905,42 @@ export class PartyRoom extends Room {
         }
   }
 
+  private survivalCommand(client: Client, p: PlayerState, command: Extract<ClientCommand, {type: `survival.${string}`}>) {
+    const now=Date.now();
+    if (this.worldId!=="forest" || this.worldProposal || command.worldRevision!==this.worldRevision || p.mode!=="home" || p.respawnAt)
+      return this.notice(client,"SURVIVAL_STALE","Your area changed. Try again when you are back in the forest.",command.commandId);
+    if (command.type === "survival.pvp") {
+      if (this.hostId!==p.id) return this.notice(client,"HOST_ONLY","Only the host can change knife combat.",command.commandId);
+      if (this.survival.acceptCommand(p.id,command.commandId,now)) this.survival.setPvp(command.enabled);
+      this.sendSnapshots(); return;
+    }
+    if (command.lifeRevision!==(p.respawnCount??0) || command.zoneRevision!==(p.zoneRevision??0))
+      return this.notice(client,"SURVIVAL_STALE","Your view changed. Try again.",command.commandId);
+    if (!this.survival.acceptCommand(p.id,command.commandId,now)) { this.sendSnapshots(); return; }
+    let result: SurvivalResult;
+    switch (command.type) {
+      case "survival.equip": result=this.survival.equip(p.id,command.item); break;
+      case "survival.eat": result=this.survival.eat(p,now); break;
+      case "survival.harvest": result=this.survival.harvest(p,command.treeId,now); break;
+      case "survival.pickup": result=this.survival.pickup(p,command.backpackId,now); break;
+      case "survival.attack": {
+        const target=this.players.get(command.targetId);
+        result=target?this.survival.attack(p,target,now):{ok:false,reason:"That player is no longer here"}; break;
+      }
+    }
+    if (!result.ok) this.notice(client,"SURVIVAL_UNAVAILABLE",result.reason,command.commandId);
+    else { for (const id of result.deaths) this.knockout(id,"player",now); const idle=this.idlePresence.get(p.id); if(idle)recordActivity(idle,now); }
+    this.sendSnapshots();
+  }
+  /** All causes share one life fence, movement lock and respawn path. */
+  private knockout(id: string, cause: NonNullable<PlayerState["caughtBy"]>, now: number) {
+    const player=this.players.get(id); if(!player || player.respawnAt)return false;
+    player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.caughtBy=cause;player.respawnAt=now+900;
+    player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(id)?.value.seq??-1);
+    cancelSprint(player,now);delete player.seatId;delete player.roastingAt;this.intents.delete(id);
+    if(cause==="hunger"||cause==="player") {const client=this.clientsByUser.get(id);if(client)this.notice(client,"SURVIVAL_KNOCKOUT",cause==="hunger"?"You ran out of energy. Returning to the fire…":"You were knocked down. Returning to the fire…");}
+    return true;
+  }
   private changeWorld(worldId: "living-room"|"forest") {
     this.worldId=worldId; this.worldRevision++; this.worldProposal=null;
     this.encounter=getWorld(worldId).stalker?new ForestEncounter(getWorld(worldId)):null;
@@ -910,7 +955,7 @@ export class PartyRoom extends Room {
     // Includes grace-reserved avatars; reconnect never restores the old map.
     for (const p of this.players.values()) Object.assign(p, clearRaceBoosts(p));
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
-    sorted.forEach((p,i)=>{cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.caughtBy;delete p.respawnAt;});
+    sorted.forEach((p,i)=>{if(p.respawnAt)this.survival.respawn(p.id);cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.caughtBy;delete p.respawnAt;});
     this.intents.clear();
     this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
     this.sendSnapshots();
@@ -924,6 +969,7 @@ export class PartyRoom extends Room {
     for (const [id, p] of this.players) {
       if(p.respawnAt){
         if(now<p.respawnAt){p.vx=p.vy=0;continue;}
+        this.survival.respawn(id);
         Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000,flashlightBattery:1,flashlightOn:false});delete p.respawnAt;this.intents.delete(id);
       }
       if(p.caughtAt&&now-p.caughtAt>2500){delete p.caughtAt;delete p.caughtBy;}
@@ -968,6 +1014,8 @@ export class PartyRoom extends Room {
         }
       }
     }
+    const hungerDeaths=this.survival.tick(now,this.worldId==="forest"?[...this.players.values()]:[]);
+    for(const id of hungerDeaths)this.knockout(id,"hunger",now);
     const outside=[...this.players.values()].filter(p=>!p.zone);
     // One threat at a time; overdue rare encounters get first safe opportunity.
     const mimicCaught=!this.encounter?.state&&!this.werewolf?.state?this.mimic?.update(now,outside):null;
@@ -980,10 +1028,9 @@ export class PartyRoom extends Room {
     const encounter=mimicCaught?this.mimic?.state:wolfCaught?this.werewolf?.state:this.encounter?.state;
     if(caught){
       const player=this.players.get(caught)!;
-      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.caughtBy=mimicCaught?"mimic":wolfCaught?"werewolf":"clown";player.respawnAt=now+900;
+      this.knockout(caught,mimicCaught?"mimic":wolfCaught?"werewolf":"clown",now);
       this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(mimicCaught?"mimic:":wolfCaught?"werewolf:":"")+encounter!.id+(mimicCaught?":hit:"+caught:wolfCaught?":claw":":slash"),kind:mimicCaught?"mimic-hit":wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
-      player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
-      cancelSprint(player,now);delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
+
       const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT",mimicCaught?"The mimic caught you. Returning to the fire...":wolfCaught?"The werewolf caught you. Returning to the fire...":"The clown caught you. Returning to the fire...");
       this.sendSnapshots();
     }
@@ -1069,6 +1116,7 @@ export class PartyRoom extends Room {
       const voiceScope={instanceId:waitingBridge?this.homeId+":waiting:"+this.race.id:instanceId,mode:waitingBridge?"room" as const:this.voiceModes[p.mode],participantIds:[...this.players.values()].filter(v=>v.connected&&(waitingBridge?!v.zone&&(v.mode==="home"||this.race.joinedIds?.includes(v.id)):v.mode===p.mode&&v.zone===p.zone)).map(v=>v.id)};
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
+        survival: this.worldId==="forest"?this.survival.snapshot():undefined,
         idle: this.idlePresence.has(id) ? (() => { const { warningAt, kickAt } = idleStatus(this.idlePresence.get(id)!, now); return { warningAt, kickAt }; })() : undefined,
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
         werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,

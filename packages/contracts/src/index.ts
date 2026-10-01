@@ -1,3 +1,5 @@
+import type { SurvivalSnapshot } from './survival';
+export type { SurvivalItem, SurvivalPlayer, Backpack, AppleTree, SurvivalEvent, SurvivalSnapshot } from './survival';
 import { z } from "zod";
 import {
   ACCESSORY_IDS,
@@ -59,7 +61,7 @@ export interface PlayerState {
   respawnCount?: number;
   caughtAt?: number;
   /** Server-selected creature responsible for this catch, for local presentation. */
-  caughtBy?: "clown" | "werewolf" | "mimic";
+  caughtBy?: "clown" | "werewolf" | "mimic" | "hunger" | "player";
   respawnAt?: number;
   haloUntil?: number;
   avatar: AvatarConfig;
@@ -170,6 +172,12 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flashlight"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
+  z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.harvest"),treeId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.eat"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.pickup"),backpackId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.attack"),targetId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
+  z.object({type:z.literal("survival.pvp"),enabled:z.boolean(),commandId:CommandIdSchema,worldRevision:z.number().int().min(0)}).strict(),
   z.object({ type: z.literal("session.replace") }).strict(),
 ]);
 export type ClientCommand = z.infer<typeof CommandSchema>;
@@ -219,6 +227,7 @@ export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;
 export interface ForestMimicState {kind:"mimic";id:string;x:number;y:number;originX:number;originY:number;coverId:string;targetId:string;disguisePlayerId:string;disguise:AvatarConfig;phase:"approach"|"morph"|"chase"|"retreat";startedAt:number;phaseUntil:number;transformed:boolean;}
 export interface ForestStalker {greeting?:{id:string;text:string;shownAt:number;until:number};leap?:{phase:"windup"|"air";startedAt:number;until:number;fromX:number;fromY:number;toX:number;toY:number};kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
+  survival?: SurvivalSnapshot;
   /** Recipient-only authoritative idle deadline; never a client-provided timestamp. */
   idle?: { warningAt: number; kickAt: number };
   stalker?: ForestStalker | null;
