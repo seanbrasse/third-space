@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { getWorld, resolveMediaLink } from "@third-space/config";
 import { reportVisiblePlayback } from "../lib/watching-presence";
-import YouTubeWatching from "./YouTubeWatching";
+import YouTubeWatching, { type YouTubePlaybackHandle } from "./YouTubeWatching";
+import { playFromUserGesture } from "../lib/watching-controls";
 import type { Snapshot } from "../lib/types";
 export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded, onExpand, send }: {
     snapshot: Snapshot | null;
@@ -14,6 +15,10 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
 }) {
     const video = useRef<HTMLVideoElement>(null), anchor = useRef({ server: 0, client: 0 }), [url, setUrl] = useState(""), [seek, setSeek] = useState("0"), [volume, setVolume] = useState(.7), [error, setError] = useState(""), [buffering, setBuffering] = useState(false);
     const screen = useRef<HTMLElement>(null);
+    const youtube = useRef<YouTubePlaybackHandle>(null), fileBlocked = useRef<string | null>(null);
+    const [blockedPlayback, setBlockedPlayback] = useState<string | null>(null);
+    const playbackId = snapshot?.media.playbackId ?? snapshot?.media.url ?? "";
+    const deviceBlocked = !!playbackId && blockedPlayback === playbackId;
     const source = snapshot?.media.url ? resolveMediaLink(snapshot.media.url) : null;
     const self = snapshot?.players.find(p => p.id === selfId), surface = getWorld(snapshot?.worldId).mediaSurface;
     const latest = useRef({ snapshot, self, expanded, volume, surface, getSnapshot, selfId });
@@ -61,8 +66,8 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
             const target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0);
             if (v.readyState > 0 && Math.abs(v.currentTime - target) > .6)
                 v.currentTime = Math.min(target, Number.isFinite(v.duration) ? Math.max(0, v.duration - .05) : target);
-            if (m.playing && v.paused)
-                void v.play().catch(() => setError("Tap the screen to enable playback in this browser."));
+            if (m.playing && v.paused && fileBlocked.current !== (m.playbackId ?? m.url))
+                void v.play().catch(() => {fileBlocked.current=m.playbackId??m.url;setBlockedPlayback(m.playbackId??m.url);});
             else if (!m.playing && !v.paused)
                 v.pause();
             v.volume = Math.max(0, Math.min(1, volume * (expanded ? 1 : Math.max(0, 1 - Math.hypot((self?.x ?? 0) - surface.source.x, (self?.y ?? 0) - surface.source.y) / 12))));
@@ -79,22 +84,40 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
     useEffect(()=>{if(!expanded&&screen.current&&document.fullscreenElement===screen.current)void document.exitFullscreen().catch(()=>{});},[expanded]);
     const control = (action: string, extra: Record<string, unknown> = {}) => {
         const current = getSnapshot() ?? snapshot;
-        if (current)
+        if (!current) return;
+        const sendCommand = () =>
             send({ type: "media.control", action, revision: current.media.revision, commandId: crypto.randomUUID(), ...extra });
+        if (action === "play" || action === "resume") {
+            action = "play";
+            playFromUserGesture(current.media.playing, () => {
+                setError("");
+                if (youtube.current) {
+                    if (!youtube.current.playFromGesture()) setError("The player is still loading. Tap play again when it is ready.");
+                } else if (video.current) {
+                    const id = current.media.playbackId ?? current.media.url;
+                    // Call play before any asynchronous room update loses the tap gesture.
+                    void video.current.play().catch(() => {fileBlocked.current=id;setBlockedPlayback(id);});
+                }
+            }, sendCommand);
+            return;
+        }
+        sendCommand();
     };
     if (!snapshot || self?.mode !== "home" || getWorld(snapshot.worldId).mediaEnabled===false)
         return null;
     return <section ref={screen} className={`shared-watching ${expanded ? "expanded" : "surface"}`} style={expanded ? undefined : { left: 0, top: 0, visibility: near ? "visible" : "hidden" }} aria-label="Shared screen">
     {expanded && <header><div><small>WATCHING TOGETHER</small><strong>{snapshot.worldId === "asylum" ? "The asylum projector" : "The campsite TV"}</strong></div><button onClick={() => onExpand(false)} aria-label="Close shared screen">×</button></header>}
-    {source?.kind === "youtube" ? <YouTubeWatching key={snapshot.media.playbackId??source.videoId} videoId={source.videoId} playbackId={snapshot.media.playbackId??source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} expanded={expanded} playing={snapshot.media.playing} onPlayback={action=>control(action)} onEnded={(playbackId)=>control("ended",{playbackId})} onError={setError}/> : snapshot.media.url ? <video key={snapshot.media.playbackId??snapshot.media.url} ref={video} src={snapshot.media.url} onLoadStart={()=>setBuffering(true)} onWaiting={()=>setBuffering(true)} onCanPlay={()=>setBuffering(false)} onPlaying={()=>setBuffering(false)} onEnded={()=>control("ended",{playbackId:snapshot.media.playbackId})} playsInline preload="metadata" onClick={() => { setError(""); if (!expanded)onExpand(true); else control(snapshot.media.playing?"pause":"play"); }} onError={() => {setBuffering(false);setError("This link could not play. Try a YouTube video or another video file.");}}/> : <button className={`screen-placeholder ${snapshot.worldId==="asylum"?"creepy-static":""}`} onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : snapshot.worldId==="asylum"?"STATIC · CLICK TO WATCH":"MOVIE NIGHT"}</button>}
+    {source?.kind === "youtube" ? <YouTubeWatching ref={youtube} key={snapshot.media.playbackId??source.videoId} videoId={source.videoId} playbackId={snapshot.media.playbackId??source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} expanded={expanded} playing={snapshot.media.playing} onPlayback={action=>control(action)} onBlockedChange={blocked=>setBlockedPlayback(blocked?playbackId:null)} onEnded={(playbackId)=>control("ended",{playbackId})} onError={setError}/> : snapshot.media.url ? <video key={snapshot.media.playbackId??snapshot.media.url} ref={video} src={snapshot.media.url} onLoadStart={()=>setBuffering(true)} onWaiting={()=>setBuffering(true)} onCanPlay={()=>setBuffering(false)} onPlaying={()=>{setBuffering(false);fileBlocked.current=null;setBlockedPlayback(null);}} onEnded={()=>control("ended",{playbackId:snapshot.media.playbackId})} playsInline preload="metadata" onClick={() => { setError(""); if (!expanded)onExpand(true); else control(deviceBlocked?"resume":snapshot.media.playing?"pause":"play"); }} onError={() => {setBuffering(false);setError("This link could not play. Try a YouTube video or another video file.");}}/> : <button className={`screen-placeholder ${snapshot.worldId==="asylum"?"creepy-static":""}`} onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : snapshot.worldId==="asylum"?"STATIC · CLICK TO WATCH":"MOVIE NIGHT"}</button>}
     {buffering && source?.kind === "file" && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading video…</div>}
-    {!expanded&&source&&<button className="tv-open-controls" aria-label="Open shared watching controls" onClick={()=>onExpand(true)}>↗</button>}
+    {!expanded&&source&&<button className="tv-open-controls" aria-label={deviceBlocked?"Enable playback on this device and open shared watching controls":"Open shared watching controls"} onClick={()=>{if(deviceBlocked)control("resume");onExpand(true);}}>{deviceBlocked?"▶":"↗"}</button>}
     {expanded && <div className="watching-controls">
       {error && <p role="status">{error}</p>}
+      {deviceBlocked && <p className="device-playback-status" role="status">This browser needs a tap to start audio and video on this device. Your friends’ playback keeps going.</p>}
+      {snapshot.media.url && <p className="active-video-link">Now watching: <a href={snapshot.media.url} target="_blank" rel="noopener noreferrer">{snapshot.media.url}</a></p>}
       <p>Playback is shared. Your volume is personal. Walking away fades screen audio. Anyone here can play, pause or seek for the group.</p>
       <label>Screen volume<input aria-label="Screen volume" type="range" min="0" max="1" step=".05" value={volume} onChange={e => setVolume(Number(e.target.value))}/></label>
-      <><form onSubmit={e => { e.preventDefault(); setError(""); control("source", { url }); }}><label>Paste a video link<input aria-label="Video link" type="url" placeholder="YouTube link or video file link" value={url} onChange={e => setUrl(e.target.value)} required/></label><button>Load for everyone</button><button type="button" onClick={()=>{if(url){setError("");control("queue.add",{url});}}}>Add to queue</button></form><div className="watching-actions"><button disabled={!snapshot.media.url} onClick={() => control(snapshot.media.playing ? "pause" : "play")}>{snapshot.media.playing ? "Pause together" : "Play together"}</button><label>Seek (seconds)<input type="number" min="0" max="86400" value={seek} onChange={e => setSeek(e.target.value)}/></label><button disabled={!snapshot.media.url} onClick={() => control("seek", { position: Number(seek) })}>Seek together</button></div></>
-      <button onClick={()=>{if(screen.current?.requestFullscreen)void screen.current.requestFullscreen().catch(()=>setError("Fullscreen is unavailable in this browser."));}}>Full screen</button>
+      <><form onSubmit={e => { e.preventDefault(); setError(""); control("source", { url }); }}><label>Paste a video link<input aria-label="Video link" type="url" placeholder="YouTube link or video file link" value={url} onChange={e => setUrl(e.target.value)} required/></label><button>{snapshot.media.url ? "Replace current video" : "Load for everyone"}</button><button type="button" onClick={()=>{if(url){setError("");control("queue.add",{url});}}}>Add to queue</button></form><div className="watching-actions"><button disabled={!snapshot.media.url} onClick={() => control(deviceBlocked ? "resume" : snapshot.media.playing ? "pause" : "play")}>{deviceBlocked ? "Enable playback on this device" : snapshot.media.playing ? "Pause together" : "Play together"}</button><label>Seek (seconds)<input type="number" min="0" max="86400" value={seek} onChange={e => setSeek(e.target.value)}/></label><button disabled={!snapshot.media.url} onClick={() => control("seek", { position: Number(seek) })}>Seek together</button></div></>
+      <button onClick={()=>{if(screen.current?.requestFullscreen)void screen.current.requestFullscreen().catch(()=>setError("Fullscreen is unavailable in this browser. You can keep watching in this panel."));else setError("Fullscreen is unavailable in this browser. You can keep watching in this panel.");}}>Full screen</button>
       <button disabled={!snapshot.media.queue?.length} onClick={()=>control("next")}>Play next</button>
       <ol className="video-queue" aria-label="Shared video queue">{snapshot.media.queue?.map((item,i)=><li key={item.id}><span>{i+1}. {item.url}</span><button aria-label={`Remove queued video ${i+1}`} onClick={()=>control("queue.remove",{itemId:item.id})}>Remove</button></li>)}</ol>
       <small>Paste a YouTube watch/share/Shorts link, or a link to an MP4, WebM or Ogg file. Other website pages and live screen sharing are not supported yet.</small>

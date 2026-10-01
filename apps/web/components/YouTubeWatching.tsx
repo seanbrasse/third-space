@@ -2,7 +2,7 @@
 import { reportVisiblePlayback } from "../lib/watching-presence";
 import {getWorld} from "@third-space/config";
 import Script from "next/script";
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Snapshot } from "../lib/types";
 type Player = {
     getCurrentTime: () => number;
@@ -12,6 +12,7 @@ type Player = {
     pauseVideo: () => void;
     seekTo: (seconds: number, allow: boolean) => void;
     setVolume: (volume: number) => void;
+    getIframe?: () => HTMLIFrameElement;
     destroy: () => void;
 };
 type YouTubeWindow = Window & {
@@ -20,7 +21,8 @@ type YouTubeWindow = Window & {
     };
     onYouTubeIframeAPIReady?: () => void;
 };
-export default function YouTubeWatching({ videoId, playbackId, getSnapshot, selfId, volume, expanded, playing, onPlayback, onEnded, onError }: {
+export type YouTubePlaybackHandle = { playFromGesture: () => boolean };
+export default forwardRef<YouTubePlaybackHandle, {
     videoId: string;
     playbackId:string;
     getSnapshot: () => Snapshot | null;
@@ -28,15 +30,24 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
     volume: number;
     expanded:boolean;
     playing:boolean;
-    onPlayback:(action:"play"|"pause")=>void;
+    onPlayback:(action:"play"|"pause"|"resume")=>void;
+    onBlockedChange: (blocked: boolean) => void;
     onEnded:(playbackId:string)=>void;
     onError: (message: string) => void;
-}) {
+}>(function YouTubeWatching({ videoId, playbackId, getSnapshot, selfId, volume, expanded, playing, onPlayback, onBlockedChange, onEnded, onError }, ref) {
     const clock = useRef({ server: 0, client: 0 });
     const autoplayBlocked = useRef(false);
     const sync = useRef({ anchor: NaN, position: NaN, playing: false, lastPlay: -Infinity, lastVolume: NaN });
-    const root = useRef<HTMLDivElement>(null), player = useRef<Player | null>(null), latest = useRef({ getSnapshot, selfId, volume, expanded, onEnded, onError }), [ready, setReady] = useState(false), [blocked, setBlocked] = useState(false), [loading, setLoading] = useState(true);
-    useEffect(() => { latest.current = { getSnapshot, selfId, volume, expanded, onEnded, onError }; }, [getSnapshot, selfId, volume, expanded, onEnded, onError]);
+    const root = useRef<HTMLDivElement>(null), player = useRef<Player | null>(null), latest = useRef({ getSnapshot, selfId, volume, expanded, onEnded, onError, onBlockedChange }), [ready, setReady] = useState(false), [blocked, setBlocked] = useState(false), [loading, setLoading] = useState(true);
+    useEffect(() => { latest.current = { getSnapshot, selfId, volume, expanded, onEnded, onError, onBlockedChange }; }, [getSnapshot, selfId, volume, expanded, onEnded, onError, onBlockedChange]);
+    useImperativeHandle(ref, () => ({ playFromGesture: () => {
+        if (!player.current) return false;
+        // Keep recovery visible until the provider actually reports PLAYING.
+        autoplayBlocked.current = false;
+        player.current.playVideo();
+        sync.current.lastPlay = performance.now();
+        return true;
+    } }), []);
     useEffect(() => {
         const w = window as YouTubeWindow, previous = w.onYouTubeIframeAPIReady;
         const loaded = () => { previous?.(); setReady(true); };
@@ -57,10 +68,10 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
         root.current.appendChild(target);
         const instance = new api.Player(target, { width: "480", height: "270", videoId, playerVars: { origin: location.origin, playsinline: 1, controls: 0, rel: 0 }, events: {
                 onReady: () => { if (!stopped)
-                    {player.current = instance;setLoading(false);} },
-                onStateChange: (event:{data:number}) => {if(!stopped){setLoading(event.data===3);if(event.data===0)latest.current.onEnded(playbackId);}},
+                    {player.current = instance;instance.getIframe?.().setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");setLoading(false);} },
+                onStateChange: (event:{data:number}) => {if(!stopped){setLoading(event.data===3);if(event.data===1){autoplayBlocked.current=false;setBlocked(false);latest.current.onBlockedChange(false);}if(event.data===0)latest.current.onEnded(playbackId);}},
                 onAutoplayBlocked: () => { if (!stopped)
-                    {autoplayBlocked.current=true;setBlocked(true);setLoading(false);} },
+                    {autoplayBlocked.current=true;setBlocked(true);latest.current.onBlockedChange(true);setLoading(false);} },
                 onError: (e: {
                     data: number;
                 }) => { if (!stopped) {setLoading(false);
@@ -78,6 +89,7 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
             const serverNow = clock.current.server + Date.now() - clock.current.client;
             const target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0);
             const now = performance.now(), state = p.getPlayerState(), policy = sync.current;
+            if (state === 1 && blocked) { autoplayBlocked.current=false;setBlocked(false);latest.current.onBlockedChange(false); }
             reportVisiblePlayback(root.current, state === 1, playbackId);
             // Only align on join/source or an explicit shared playback command.
             // Decoder delays and keyframe rounding must never trigger a seek loop.
@@ -95,12 +107,12 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
             if(nextVolume!==policy.lastVolume){p.setVolume(nextVolume);policy.lastVolume=nextVolume;}
         }, 500);
         return () => clearInterval(timer);
-    }, [playbackId]);
+    }, [playbackId, blocked]);
     useEffect(()=>{
       const host=root.current,parent=host?.parentElement;if(!host||!parent)return;
       const resize=()=>{const w=parent.clientWidth,h=parent.clientHeight||270,scale=Math.min(w/480,h/270);host.style.transform=`translate(${(w-480*scale)/2}px,${(h-270*scale)/2}px) scale(${scale})`;};
       const observer=new ResizeObserver(resize);observer.observe(parent);resize();return()=>observer.disconnect();
     },[]);
     return <div className="youtube-watching"><Script src="https://www.youtube.com/iframe_api" strategy="afterInteractive" onReady={() => { if ((window as YouTubeWindow).YT?.Player)
-        setReady(true); }} onError={() => {setLoading(false);onError("YouTube could not load. Check your connection or browser content blocker.");}}/><div ref={root} className="youtube-player"/>{loading && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading YouTube…</div>}{blocked && <button onClick={() => { autoplayBlocked.current=false; onPlayback("play"); player.current?.playVideo(); setBlocked(false); }}>Tap to enable YouTube playback</button>}{expanded&&!blocked&&<button className="youtube-shared-toggle" aria-label={playing?"Pause video for everyone":"Play video for everyone"} onClick={()=>onPlayback(playing?"pause":"play")}><span>{playing?"Ⅱ Pause together":"▶ Play together"}</span></button>}</div>;
-}
+        setReady(true); }} onError={() => {setLoading(false);onError("YouTube could not load. Check your connection or browser content blocker.");}}/><div ref={root} className="youtube-player"/>{expanded&&loading && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading YouTube…</div>}{expanded&&blocked && <button className="youtube-enable-playback" onClick={() => onPlayback("resume")}>Tap to enable playback on this device</button>}{expanded&&!blocked&&<button className="youtube-shared-toggle" aria-label={playing?"Pause video for everyone":"Play video for everyone"} onClick={()=>onPlayback(playing?"pause":"play")}><span>{playing?"Ⅱ Pause together":"▶ Play together"}</span></button>}</div>;
+});

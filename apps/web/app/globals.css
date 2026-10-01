@@ -2464,3 +2464,18 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .dark-theme .youtube-shared-toggle:is(:hover,:active,:focus-visible){background:transparent}
 .dark-theme .tv-open-controls:hover{background:#0002}
 .youtube-watching>button:not(.youtube-shared-toggle){position:absolute;z-index:3;left:10px;bottom:10px}
+/* Device activation must remain tappable above the projected TV surface. */
+.youtube-watching>button.youtube-enable-playback{inset:12px;margin:auto;height:fit-content;min-height:44px;padding:12px;background:#243d2d;color:#fff7dd;border:1px solid #aaba94;border-radius:6px;font-size:13px;line-height:1.4;white-space:normal}
+.active-video-link a{color:#344e38;text-decoration:underline;overflow-wrap:anywhere}
+.dark-theme .active-video-link a{color:#d6e6ba}
+.device-playback-status{padding:10px;border:1px solid #a7b991;border-radius:6px;background:#e6edda;color:#25382b}
+.dark-theme .device-playback-status{background:#1b3024;color:#e6efda;border-color:#8a9d76}
+@media(max-width:650px){
+ .shared-watching.expanded{right:12px;bottom:max(12px,env(safe-area-inset-bottom));width:calc(100vw - 24px);max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px - env(safe-area-inset-bottom));overscroll-behavior:contain}
+ .shared-watching.expanded .youtube-watching{height:clamp(200px,calc((100vw - 26px)*.5625),270px)}
+ .shared-watching.expanded video{height:auto;aspect-ratio:16/9}
+ .shared-watching.expanded header,.watching-controls{padding:12px}
+ .shared-watching.expanded button{min-height:44px}
+ .shared-watching.expanded input{font-size:16px}
+ .shared-watching.expanded .media-loading{max-width:calc(100% - 24px);white-space:normal;text-align:center}
+}

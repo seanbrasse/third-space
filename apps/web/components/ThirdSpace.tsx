@@ -1383,7 +1383,7 @@ export default function ThirdSpace() {
               </div>
               <div className="social-buttons">
                 {snapshot&&getWorld(snapshot.worldId).dark&&!race&&<><button aria-keyshortcuts="F" title="Toggle flashlight (F)" onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"} · {Math.ceil((self?.flashlightBattery??1)*100)}%</span></button></>}
-                {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
+                {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button aria-label="▣ Watch together" onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
                 <button onClick={() => setModal("emotes")}>
                   ☺ <span>Emotes</span>
                 </button>
