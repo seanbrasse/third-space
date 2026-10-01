@@ -1,7 +1,11 @@
 import type { TakedownCreature } from '../lib/takedown';
 /** Original low-resolution silhouette art. Deliberately no wound/gore frames. */
 export default function TakedownCreature({ kind }: { kind: TakedownCreature }) {
-  return kind === 'clown' ? <svg viewBox="0 0 32 40" aria-hidden="true" shapeRendering="crispEdges">
+  return kind === 'mimic' ? <svg viewBox="0 0 32 48" aria-hidden="true" shapeRendering="crispEdges">
+    <path fill="#11161a" d="M12 0h10v3H12zM9 3h16v12H9zM7 15h18v15H7zM3 17h4v22H3zm22 0h3v24h-3zM8 30h5v18H8zm10 0h5v18h-5z"/>
+    <path fill="#68766c" d="M9 4h2v9H9zM7 16h2v14H7zM4 30h2v11H4zm21-4h2v17h-2z"/>
+    <path fill="#c8cbb4" d="M12 6h4v1h-4zm7-1h4v1h-4z"/><path fill="#030406" d="M14 10h6v6h-6z"/>
+  </svg> : kind === 'clown' ? <svg viewBox="0 0 32 40" aria-hidden="true" shapeRendering="crispEdges">
     <path fill="#7d3740" d="M8 0h16v4H8zM4 4h24v4H4z"/>
     <path fill="#d5cbb4" d="M8 8h16v12H8z"/><path fill="#bc3542" d="M13 13h6v4h-6z"/>
     <path fill="#16151c" d="M9 10h4v3H9zm10 0h4v3h-4zM10 18h12v2H10z"/>

@@ -1,5 +1,6 @@
 import { createIdlePresence, recordActivity, recordWatching, idleStatus, type IdlePresence } from "./idle-policy";
 import { ForestWerewolf } from "./ForestWerewolf";
+import { ForestMimic } from "./ForestMimic";
 import { ForestEncounter } from "./ForestStalker";
 import { stepFlashlight } from "./flashlight";
 import { Room, ServerError, type Client } from "@colyseus/core";
@@ -93,6 +94,7 @@ export class PartyRoom extends Room {
   private tick = 0;
   private encounter: ForestEncounter | null = null;
   private werewolf: ForestWerewolf | null = null;
+  private mimic: ForestMimic | null = null;
   private accumulation = 0;
   private hostId: string | null = null;
   private windows = new Map<string, number[]>();
@@ -117,6 +119,7 @@ export class PartyRoom extends Room {
     PartyRoom.liveRooms.set(this.homeId, this);
     this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
     this.werewolf = this.worldId === "forest" ? new ForestWerewolf(getWorld(this.worldId)) : null;
+    this.mimic = this.worldId === "forest" ? new ForestMimic(getWorld(this.worldId)) : null;
     this.onMessage("connection.ping", (client, raw: unknown) => {
       const id = (client.auth as Admission)?.userId;
       if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0 || raw > 1e9 || this.clientsByUser.get(id) !== client || !this.cooled(id, "ping", 1000)) return;
@@ -910,6 +913,8 @@ export class PartyRoom extends Room {
     this.encounter?.reset(Date.now());
     this.werewolf=worldId==="forest"?new ForestWerewolf(getWorld(worldId)):null;
     this.werewolf?.reset(Date.now());
+    this.mimic=worldId==="forest"?new ForestMimic(getWorld(worldId)):null;
+    this.mimic?.reset(Date.now());
     this.proposals.clear(); this.chats.home=[]; this.chats.race=[];
     this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
     const map=getWorld(worldId).map;
@@ -975,19 +980,21 @@ export class PartyRoom extends Room {
     }
     const outside=[...this.players.values()].filter(p=>!p.zone);
     // One threat at a time; overdue rare encounters get first safe opportunity.
-    const wolfCaught=!this.encounter?.state?this.werewolf?.update(now,outside):null;
-    const clownCaught=!this.werewolf?.state?this.encounter?.update(now,outside):null;
+    const mimicCaught=!this.encounter?.state&&!this.werewolf?.state?this.mimic?.update(now,outside):null;
+    const wolfCaught=!this.encounter?.state&&!this.mimic?.state?this.werewolf?.update(now,outside):null;
+    const clownCaught=!this.werewolf?.state&&!this.mimic?.state?this.encounter?.update(now,outside):null;
     for(const cue of this.encounter?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
     for(const cue of this.werewolf?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
-    const caught=wolfCaught??clownCaught;
-    const encounter=wolfCaught?this.werewolf?.state:this.encounter?.state;
+    for(const cue of this.mimic?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
+    const caught=mimicCaught??wolfCaught??clownCaught;
+    const encounter=mimicCaught?this.mimic?.state:wolfCaught?this.werewolf?.state:this.encounter?.state;
     if(caught){
       const player=this.players.get(caught)!;
-      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.caughtBy=wolfCaught?"werewolf":"clown";player.respawnAt=now+900;
-      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(wolfCaught?"werewolf:":"")+encounter!.id+(wolfCaught?":claw":":slash"),kind:wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
+      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.caughtBy=mimicCaught?"mimic":wolfCaught?"werewolf":"clown";player.respawnAt=now+900;
+      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(mimicCaught?"mimic:":wolfCaught?"werewolf:":"")+encounter!.id+(mimicCaught?":hit:"+caught:wolfCaught?":claw":":slash"),kind:mimicCaught?"mimic-hit":wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
       player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
       cancelSprint(player,now);delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
-      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT",wolfCaught?"The werewolf caught you. Returning to the fire...":"The clown caught you. Returning to the fire...");
+      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT",mimicCaught?"The mimic caught you. Returning to the fire...":wolfCaught?"The werewolf caught you. Returning to the fire...":"The clown caught you. Returning to the fire...");
       this.sendSnapshots();
     }
     if (this.race.phase === "running" && now >= this.race.endAt) {
@@ -1075,6 +1082,7 @@ export class PartyRoom extends Room {
         idle: this.idlePresence.has(id) ? (() => { const { warningAt, kickAt } = idleStatus(this.idlePresence.get(id)!, now); return { warningAt, kickAt }; })() : undefined,
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
         werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,
+        mimic:p.zone?null:this.mimic?.visibleTo(p)??null,
         rootWorldId:this.worldId,worldId:p.zone??this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
         instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision + ":" + (p.zone??"outside") + ":" + (p.zoneRevision??0) : this.race.id,
         epoch: this.epoch,

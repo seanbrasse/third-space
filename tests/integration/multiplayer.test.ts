@@ -6,11 +6,14 @@ import type {
   RoomSnapshot,
   ServerNotice,
   SocialEffect,
+  WorldSoundEvent,
 } from "../../packages/contracts/src/index";
 import { HOME_MAP, RACE_MAP } from "../../packages/config/src/index";
 import { distance, findHomePath } from "../../packages/simulation/src/index";
 import { createGameServer } from "../../apps/game-server/src/server";
 
+import {ForestMimic} from "../../apps/game-server/src/ForestMimic";
+import {getWorld} from "../../packages/config/src/index";
 import { PartyRoom } from "../../apps/game-server/src/PartyRoom";
 const origin = "http://localhost:3000";
 type Identity = { id: string; cookie: string; name: string };
@@ -21,6 +24,7 @@ type Peer = {
   chats: ChatMessage[];
   notices: ServerNotice[];
   effects: SocialEffect[];
+  sounds: WorldSoundEvent[];
   seq: number;
   left: boolean;
 };
@@ -93,6 +97,7 @@ async function connect(
     chats: [],
     notices: [],
     effects: [],
+    sounds: [],
     seq: 0,
     left: false,
   };
@@ -102,6 +107,7 @@ async function connect(
   room.onMessage("chat", (chat: ChatMessage) => peer.chats.push(chat));
   room.onMessage("notice", (notice: ServerNotice) => peer.notices.push(notice));
   room.onMessage("effect", (effect: SocialEffect) => peer.effects.push(effect));
+  room.onMessage("world.sound", (sound: WorldSoundEvent) => peer.sounds.push(sound));
   room.onMessage("welcome", () => {});
   room.onMessage("transition", () => {});
   room.onMessage("board.changed", () => {});
@@ -212,6 +218,29 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
     await runtime.server.gracefullyShutdown(false);
     runtime.store.close();
     vi.restoreAllMocks();
+  });
+
+  it("shares mimic morph and catch over real sockets without replaying its roar on tab replacement",async()=>{
+    const homeId=await home(identities[0]!,"Mimic socket QA");
+    const peers=[await connect(homeId,identities[0]!),await connect(homeId,identities[1]!)];
+    const authority=PartyRoom.liveRooms.get(homeId)!;
+    const controls=authority as unknown as {changeWorld(id:'forest'):void;mimic:ForestMimic;encounter:null;werewolf:null};
+    controls.changeWorld('forest');controls.encounter=null;controls.werewolf=null;
+    const now=Date.now(),mimic=new ForestMimic(getWorld('forest'),()=>.5);mimic.reset(now);
+    const target=authority.players.get(peers[0]!.identity.id)!;
+    for(const peer of peers)Object.assign(authority.players.get(peer.identity.id)!,{x:38,y:24,seatId:undefined});
+    mimic.state={kind:'mimic',id:'network-fixture',x:40,y:24,originX:40,originY:24,coverId:'tree',targetId:target.id,disguisePlayerId:peers[1]!.identity.id,disguise:{...target.avatar},phase:'approach',startedAt:now,phaseUntil:now+28000,transformed:false};controls.mimic=mimic;
+    await until(()=>peers.every(p=>p.snapshot?.mimic?.phase==='morph'),'Both peers did not see morph');
+    expect(peers[0]!.snapshot!.mimic!.disguise).toEqual(peers[1]!.snapshot!.mimic!.disguise);
+    for(const peer of peers)expect(peer.sounds.filter(e=>e.kind==='mimic-roar')).toHaveLength(1);
+    const replacement=await connect(homeId,identities[0]!,undefined,true);
+    expect(replacement.sounds.filter(e=>e.kind==='mimic-roar')).toHaveLength(0);
+    await until(()=>peers[1]!.snapshot?.players.some(p=>p.caughtBy==='mimic'),'No socket client observed catch',8000);
+    await until(()=>replacement.snapshot?.players.find(p=>p.id===target.id)?.haloUntil,'Victim did not receive respawn halo',3000);
+    expect(replacement.sounds.filter(e=>e.kind==='mimic-roar')).toHaveLength(0);
+    expect(replacement.sounds.filter(e=>e.kind==='mimic-hit'&&e.victimId===target.id)).toHaveLength(1);
+    expect(peers[1]!.sounds.filter(e=>e.kind==='mimic-hit'&&e.victimId===target.id)).toHaveLength(1);
+    expect(replacement.snapshot!.players).toHaveLength(2); // cosmetic disguise never becomes a member
   });
 
   it("admits eight independent identities into one room, shares movement, and refuses capacity forks", async () => {
