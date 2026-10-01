@@ -41,13 +41,13 @@ export class GameKeyboard {
     this.held.add(code);
     return true;
   }
-  keyup(event: KeyEvent): void { this.held.delete(event.code); }
+  keyup(event: KeyEvent): void { this.held.delete(event.code || gameKey(event)); }
   reset(): void { this.held.clear(); this.pendingSprint = false; }
   read() {
     return {
       axisX: Number(this.held.has("KeyD") || this.held.has("ArrowRight")) - Number(this.held.has("KeyA") || this.held.has("ArrowLeft")),
       axisY: Number(this.held.has("KeyS") || this.held.has("ArrowDown")) - Number(this.held.has("KeyW") || this.held.has("ArrowUp")),
-      jump: this.held.has("Space"), sprint: this.held.has("Space") || this.pendingSprint,
+      jump: this.held.has("Space"), sprint: this.held.has("Space"),
     };
   }
   takeSprintTap(): boolean { const tap = this.pendingSprint; this.pendingSprint = false; return tap; }

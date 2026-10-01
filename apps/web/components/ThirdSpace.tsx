@@ -12,7 +12,7 @@ import { restoreGameFocus } from "../lib/game-focus";
 import { usePanelGameFocus } from "../lib/use-panel-game-focus";
 import IdlePresence, { useIdleActivity } from "./IdlePresence";
 import StaminaBar from "./StaminaBar";
-import { canTouchBoost, queueTouchBoost } from "../lib/touch-boost";
+import { holdTouchSprint, releaseTouchSprint } from "../lib/touch-boost";
 import { gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -1215,7 +1215,7 @@ export default function ThirdSpace() {
                 <span>
                   {race
                     ? "← → MOVE · SPACE JUMP"
-                    : "CLICK TO WALK · WASD / ARROWS · SPACE BOOST · F FLASHLIGHT"}
+                    : "CLICK TO WALK · WASD / ARROWS · HOLD SPACE SPRINT · F FLASHLIGHT"}
                 </span>
               </div>
               <World bridge={bridge} />
@@ -1440,11 +1440,12 @@ export default function ThirdSpace() {
                         bridge.touch.axisY = Number(y);
                       }}
                       onPointerUp={() =>
-                        (bridge.touch = { axisX: 0, axisY: 0, jump: false })
+                        (Object.assign(bridge.touch, { axisX: 0, axisY: 0 }))
                       }
                       onPointerCancel={() =>
-                        (bridge.touch = { axisX: 0, axisY: 0, jump: false })
+                        (Object.assign(bridge.touch, { axisX: 0, axisY: 0 }))
                       }
+                      onLostPointerCapture={() => Object.assign(bridge.touch,{axisX:0,axisY:0})}
                     >
                       {label}
                     </button>
@@ -1452,16 +1453,18 @@ export default function ThirdSpace() {
                 </div>
                 <button
                   className="touch-action"
-                  aria-label={race ? "Jump" : "Boost"}
-                  disabled={!race && (bridge.blocked || !canTouchBoost(self, snapshot?.serverTime ?? 0))}
-                  onPointerDown={() => { if (race) bridge.touch.jump = true; }}
-                  onPointerCancel={() => { bridge.touch.jump = false; }}
-                  onClick={() => {
-                    if (!race && !bridge.blocked)
-                      queueTouchBoost(bridge.touch, self, snapshot?.serverTime ?? 0);
+                  aria-label={race ? "Jump" : "Hold to sprint"}
+                  disabled={bridge.blocked || !self?.connected}
+                  onPointerDown={(event) => {
+                    event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+                    if (race) bridge.touch.jump = true;
+                    else if (!bridge.blocked) holdTouchSprint(bridge.touch, self, snapshot?.serverTime ?? 0);
                   }}
+                  onPointerUp={() => { bridge.touch.jump = false; releaseTouchSprint(bridge.touch); }}
+                  onPointerCancel={() => { bridge.touch.jump = false; releaseTouchSprint(bridge.touch); }}
+                  onLostPointerCapture={() => { bridge.touch.jump = false; releaseTouchSprint(bridge.touch); }}
                 >
-                  {race ? "Jump" : "Boost"}
+                  {race ? "Jump" : "Hold to sprint"}
                 </button>
               </div>
             </div>

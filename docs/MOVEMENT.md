@@ -1,24 +1,24 @@
 # Movement and stamina
 
-Tap Space in the home/campsite to receive a 1.6× movement boost for 1.5
-seconds. The stamina bar drains during the boost, then refills over five seconds.
-A second boost requires a full bar. This interprets “refill every five seconds”
-as five seconds after the boost ends: a complete cycle lasts 6.5 seconds.
-Standing still still spends the boost. Race Space remains jump.
+Hold Space while moving to sprint at 1.6× normal walking speed. A full reserve
+buys three seconds of cumulative sprinting. Releasing immediately stops drain
+and preserves the remaining reserve for another hold. Stationary input does not
+drain. Mobile uses Hold to sprint with pointer capture and release/cancel cleanup.
+Race Space remains jump.
 
-The room owns the boost timestamps, recharge gate and speed. Input packets
-provide intent and a monotonic press counter, never velocity, position, duration
-or elapsed time. Each new press is consumed even when recharge is incomplete,
-so holding Space through recharge cannot start another boost. The press counter
-also distinguishes a rapid release/repress between two network packets.
-Client prediction uses the same movement rules, timestamps and bounded
-collision integration, then reconciles accepted snapshots.
+After 500 ms without sprinting, stamina refills at one full bar per ten seconds.
+Using the entire reserve causes two seconds of out-of-breath walking at 0.75×
+normal speed. Release before sprinting again; holding through recharge cannot
+automatically restart it. Repeated short taps spend the same reserve and cannot
+bypass the rest delay or exhaustion. Seated players recover without sprinting.
 
-Seated players, roasting players, disconnected players, race participants and
-players awaiting respawn cannot start a boost. World/area changes, death and
-transport drops cancel an active boost and start its five-second refill. The
-spent charge and consumed press counter survive reconnect and world changes.
-Ordinary focus/modal changes stop movement while the existing boost clock runs.
+Authority and prediction share the pure fixed-step resource integrator. Packets
+carry held intent, never charge, speed, duration, or elapsed time. Old press and
+timed-boost fields remain readable for compatibility but do not drive physics.
+Simulation caps elapsed time at 250 ms, preserving collision subdivision and
+preventing a stall or reconnect gap from spending/refilling a wall-clock debt.
+Disconnect, race and respawn pause resource integration. Transport drops and
+area changes release sprint without gifting a full charge or erasing exhaustion.
 
 Physical WASD and arrow keys move after ordinary nontext button clicks. Typing
 fields, inherited contenteditable, native dialogs, accessibility composite

@@ -1,48 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { GAME_CONFIG } from "@third-space/config";
-import { createPlayer, stepHome, requestSprint, cancelSprint, sprintStatus, SPRINT } from "../src/index";
-const clearMap = { width: 100, height: 100, solids: [] };
-const start = () => ({ ...createPlayer("a", "A"), x: 10, y: 10 });
-const input = { seq: 1, axisX: 1, axisY: 0, jump: false, sprint: true };
-describe("server-timed sprint", () => {
-  it("boosts for exactly 1.5 seconds, then refills over five seconds", () => {
-    const p = requestSprint(start(), 1_000);
-    expect(p.sprintUntil).toBe(2_500);
-    expect(p.sprintReadyAt).toBe(7_500);
-    expect(sprintStatus(p, 1_750)).toEqual({ phase: "boosting", fraction: .5 });
-    expect(sprintStatus(p, 2_500)).toEqual({ phase: "refilling", fraction: 0 });
-    expect(sprintStatus(p, 5_000)).toEqual({ phase: "refilling", fraction: .5 });
-    expect(requestSprint(p, 7_499)).toBe(p);
-    expect(sprintStatus(p, 7_500)).toEqual({ phase: "ready", fraction: 1 });
-    expect(requestSprint(p, 7_500).sprintUntil).toBe(9_000);
-  });
-  it("limits diagonal speed, crosses duration boundaries precisely and never accepts speed from input", () => {
-    const p = requestSprint(start(), 1_000);
-    const boosted = stepHome(p, { ...input, axisY: 1 }, .1, clearMap, 2_000);
-    expect(Math.hypot(boosted.x - p.x, boosted.y - p.y)).toBeCloseTo(GAME_CONFIG.homeSpeed * .1 * SPRINT.multiplier);
-    const boundary = stepHome(p, input, .1, clearMap, 2_450);
-    expect(boundary.x - p.x).toBeCloseTo(GAME_CONFIG.homeSpeed * .1 * 1.3);
-    const spent = stepHome(p, input, .1, clearMap, 2_500);
-    expect(spent.x - p.x).toBeCloseTo(GAME_CONFIG.homeSpeed * .1);
-    const uncharged = stepHome(start(), input, .1, clearMap, 2_000);
-    expect(uncharged.x - 10).toBeCloseTo(GAME_CONFIG.homeSpeed * .1);
-  });
-  it("retains swept collision protection during boost", () => {
-    const p = requestSprint({ ...start(), x: 4 }, 1_000);
-    const map = { width: 100, height: 100, solids: [{ x: 5, y: 0, width: .05, height: 100 }] };
-    const moved = stepHome(p, input, .25, map, 1_100);
-    expect(moved.x).toBeLessThanOrEqual(5 - GAME_CONFIG.playerRadius);
-    expect(moved.vx).toBe(0);
-  });
-  it("blocks seats, actions, race, disconnect and death; cancellation keeps the cooldown", () => {
-    for (const patch of [{ seatId: "seat" }, { roastingAt: 1 }, { mode: "race" as const }, { connected: false }, { respawnAt: 5000 }]) {
-      const p = { ...start(), ...patch };
-      expect(requestSprint(p, 1_000)).toBe(p);
-    }
-    const p = requestSprint(start(), 1_000);
-    cancelSprint(p, 2_000);
-    expect(p.sprintUntil).toBe(2_000);
-    expect(p.sprintReadyAt).toBe(7_000);
-    expect(requestSprint(p, 6_999)).toBe(p);
-  });
+import { createPlayer, stepHome, stepSprint, cancelSprint, sprintStatus, SPRINT } from "../src/index";
+const start = () => ({...createPlayer("a", "A"), x:10,y:10});
+function run(p = start(), ms = 1000, held = true, now = 1000) {
+ for(let t=0;t<ms;t+=50) p=stepSprint(p,held,true,now+t,.05).player;
+ return p;
+}
+describe("continuous hold stamina", () => {
+ it("drains exactly a three-second reserve and preserves partial release/reuse",()=>{
+  let p=run(); expect(p.stamina).toBeCloseTo(2/3);
+  p=run(p,300,false,2000); expect(p.stamina).toBeCloseTo(2/3);
+  p=run(p,1000,true,2300); expect(p.stamina).toBeCloseTo(1/3);
+ });
+ it("exhaustion slows walking briefly, requires release and is never sticky",()=>{
+  let p=run(start(),3000);expect(p.stamina).toBe(0);expect(sprintStatus(p,4000).phase).toBe("exhausted");
+  expect(stepSprint(p,true,true,4000,.05).multiplier).toBe(.75);
+  p=run(p,11000,true,4000);expect(p.stamina).toBe(1);expect(p.sprinting).toBe(false);
+  p=run(p,50,false,15000);expect(stepSprint(p,true,true,15050,.05).multiplier).toBe(1.6);
+ });
+ it("rest starts after release and refills in ten seconds without tap exploits",()=>{
+  let p=run(start(),1500);p=run(p,500,false,2500);expect(p.stamina).toBeCloseTo(.5);
+  p=run(p,5000,false,3000);expect(p.stamina).toBeCloseTo(1);
+  let taps=start();for(let i=0;i<60;i++) {taps=run(taps,50,true,1000+i*100);taps=run(taps,50,false,1050+i*100);}
+  expect(taps.stamina).toBe(0);
+ });
+ it("does not drain stationary, seated, disconnected, race or dead players",()=>{
+  for(const patch of [{connected:false},{mode:"race" as const},{seatId:"s"},{respawnAt:9999}]) {
+   const p={...start(),stamina:.5,...patch};expect(stepSprint(p,true,true,1000,.05).player.stamina).toBeGreaterThanOrEqual(.5);
+  }
+  expect(stepSprint(start(),true,false,1000,.05).player.stamina).toBe(1);
+ });
+ it("bounds stalls, uses precise depletion boundary and preserves reconnect reserve",()=>{
+  const p={...start(),stamina:.01};const step=stepSprint(p,true,true,1000,.05);
+  expect(step.multiplier).toBeCloseTo((30*1.6+20*.75)/50);
+  expect(stepSprint(start(),true,true,1000,100).player.stamina).toBeCloseTo(1-.25/3);
+  const spent=run();cancelSprint(spent,2000);expect(spent.stamina).toBeCloseTo(2/3);
+  const off=stepSprint({...spent,connected:false},false,false,999999,.25).player;expect(off.stamina).toBe(spent.stamina);
+ });
+ it("keeps diagonal normalization, swept collision and independent client resources",()=>{
+  const map={width:100,height:100,solids:[{x:11,y:0,width:.05,height:100}]};
+  const p=stepHome(start(),{seq:1,axisX:1,axisY:1,jump:false,sprint:true},.25,map,1000);
+  expect(p.x).toBeLessThanOrEqual(11-.3);expect(p.stamina).toBeCloseTo(1-.25/3);
+  expect(start().stamina).toBeUndefined();expect(SPRINT.durationMs).toBe(3000);
+ });
 });

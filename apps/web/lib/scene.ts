@@ -5,7 +5,6 @@ import { darknessFill } from "./forest-visibility";
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
 import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
 import { RacePresentation } from "./race-presentation";
-import { takeTouchBoost } from "./touch-boost";
 import { InputSequence } from "./input-sequence";
 import { GameKeyboard, isGameInputBlocked } from "./game-keyboard";
 import {asylumFloorCanvas,asylumObjectCanvas} from "./asylum-art";
@@ -20,7 +19,7 @@ import {
 } from "@third-space/config";
 import {
   stepHome,
-  requestSprint,
+
   stepRace,
   findHomePath,
   isHomeSegmentWalkable,
@@ -59,8 +58,6 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private nodes = new Map<string, Node>();
     private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
     private movement = new GameKeyboard();
-    private sprintPacketPending = false;
-    private sprintPress = 0;
     private snapshotReceivedAt = 0;
     private currentInstance = "";
     private hoveredId = "";
@@ -92,7 +89,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private mapObjects: Phaser.GameObjects.GameObject[] = [];
     private prediction: Player | null = null;
     private authoritativeTime = 0;
-    private inputHistory: { input: PlayerInput; dt: number; at: number; sprintTap: boolean }[] = [];
+    private inputHistory: { input: PlayerInput; dt: number; at: number }[] = [];
     private correction = { x: 0, y: 0 };
     private path: Point[] = [];
     private destination: Point | null = null;
@@ -135,7 +132,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           const owned = event.type === "keydown" && this.movement.keydown(event, blocked);
           if(keyboard.manager)keyboard.manager.preventDefault = owned;
         };
-        const resetKeys = () => { this.movement.reset(); this.sprintPacketPending = false; if(keyboard.manager)keyboard.resetKeys(); };
+        const resetKeys = () => { this.movement.reset(); if(keyboard.manager)keyboard.resetKeys(); };
         const focusPolicy = (event: FocusEvent) => { if (isGameInputBlocked(event.target)) resetKeys(); };
         window.addEventListener("keydown", capturePolicy, true);
         window.addEventListener("keyup", capturePolicy, true);
@@ -638,7 +635,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.inputHistory = []; this.correction = { x: 0, y: 0 }; this.prediction = null;
       }
       if (mode !== this.currentMode || snapshot.worldId!==this.currentWorld || snapshot.worldRevision!==this.currentRevision || snapshot.instanceId!==this.currentInstance) {
-        this.currentInstance=snapshot.instanceId;this.movement.reset();this.sprintPacketPending=false;
+        this.currentInstance=snapshot.instanceId;this.movement.reset();
         this.currentWorld=snapshot.worldId;this.currentRevision=snapshot.worldRevision;
         this.currentMode = mode;
         this.cancelWalk();
@@ -655,12 +652,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         !typing &&
         document.visibilityState === "visible" &&
         !!self?.connected && !self.respawnAt;
-      if (!active) { this.cancelWalk(); this.movement.reset(); this.sprintPacketPending = false; }
+      if (!active) { this.cancelWalk(); this.movement.reset(); bridge.touch.sprint = false; }
       if (self && snapshot.serverTime !== this.authoritativeTime) {
         this.authoritativeTime = snapshot.serverTime;
         this.snapshotReceivedAt = time;
         this.seq = Math.max(this.seq, self.lastInputSeq);
-        this.sprintPress = Math.max(this.sprintPress, self.lastSprintPress ?? 0);
         if((self.respawnCount??0)!==(this.prediction?.respawnCount??0)){
           this.cancelWalk();this.inputHistory=[];this.correction={x:0,y:0};this.prediction=null;
         }
@@ -678,7 +674,6 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           if (mode === "race" && snapshot.race?.phase === "running")
             this.prediction = stepRace(this.prediction, h.input, h.dt);
           else if (mode === "home") {
-            if (h.sprintTap) this.prediction = requestSprint(this.prediction, h.at);
             this.prediction = stepHome(this.prediction, h.input, h.dt, this.map, h.at);
           }
         }
@@ -691,18 +686,12 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             : { x: 0, y: 0 };
       }
       const controls = this.movement.read();
-      const keyboardSprintTap = this.movement.takeSprintTap();
-      const touchSprintTap = takeTouchBoost(bridge.touch);
-      const sprintTap = active && (keyboardSprintTap || touchSprintTap);
-      if (sprintTap && mode === "home") { this.sprintPacketPending = true; this.sprintPress++; }
       if(mode==="home"&&this.forest&&this.prediction){
         const d=distance(this.prediction,{x:15,y:14.5});
         if(d>2)this.racePromptArmed=true;
         else if(active&&d<1&&this.racePromptArmed){this.racePromptArmed=false;this.cancelWalk();bridge.interact("race-house");}
       }
       const predictedNow = snapshot.serverTime + Math.max(0, time - this.snapshotReceivedAt);
-      if (sprintTap && mode === "home" && this.prediction)
-        this.prediction = requestSprint(this.prediction, predictedNow);
       let axisX = active ? controls.axisX || bridge.touch.axisX : 0;
       let axisY = active ? controls.axisY || bridge.touch.axisY : 0;
       if (axisX || axisY) this.cancelWalk();
@@ -726,9 +715,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         }
       }
       const jump = active && (controls.jump || bridge.touch.jump);
-      const sprint = active && mode === "home" && (controls.sprint || this.sprintPacketPending);
+      const sprint = active && mode === "home" && (controls.sprint || bridge.touch.sprint === true);
       if (this.prediction) {
-        const input = { seq: this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
+        const input = { seq: this.seq, axisX, axisY, jump, sprint };
         if (mode === "race" && snapshot.race?.phase === "running")
           this.prediction = stepRace(
             this.prediction,
@@ -1020,6 +1009,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         avatarTextureCount: String(this.textureIds.size),
         sprintUntil: String(self?.sprintUntil ?? 0),
         sprintReadyAt: String(self?.sprintReadyAt ?? 0),
+        stamina: String(self?.stamina ?? 1),
+        sprinting: String(self?.sprinting ?? false),
+        sprintExhaustedUntil: String(self?.sprintExhaustedUntil ?? 0),
         flashlightOn: String(self?.flashlightOn),
         flashlightBattery:String(self?.flashlightBattery),
         zoneRevision:String(self?.zoneRevision??0),
@@ -1074,9 +1066,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.seq = nextInputSeq;
         const dt = Math.min((time - this.lastInput) / 1000, 0.05);
         this.lastInput = time;
-        const input = { seq: this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
-        this.inputHistory.push({ input, dt, at: predictedNow, sprintTap: this.sprintPacketPending });
-        this.sprintPacketPending = false;
+        const input = { seq: this.seq, axisX, axisY, jump, sprint };
+        this.inputHistory.push({ input, dt, at: predictedNow });
+
         if (this.inputHistory.length > 100) this.inputHistory.shift();
         bridge.send({ type: "input", input, lifeRevision:self.respawnCount??0 });
         bridge.touch.jump = false;

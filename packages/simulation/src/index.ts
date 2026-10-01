@@ -15,8 +15,8 @@ import {
 } from "@third-space/contracts";
 import { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
 export { clearRaceBoosts, stepRaceBoosts, raceSpeedMultiplier, raceJumpMultiplier } from './race-boosts';
-import { sprintMultiplier } from "./sprint";
-export { SPRINT, requestSprint, cancelSprint, sprintStatus, sprintMultiplier } from "./sprint";
+import { stepSprint } from "./sprint";
+export { SPRINT, requestSprint, cancelSprint, sprintStatus, sprintMultiplier, stepSprint, canSprint } from "./sprint";
 
 export { GAME_CONFIG, HOME_MAP, RACE_MAP } from "@third-space/config";
 export type { Point, Rect } from "@third-space/config";
@@ -261,7 +261,9 @@ export function stepHome(
           ? "down"
           : "up";
   }
-  const speed = GAME_CONFIG.homeSpeed * sprintMultiplier(player, now, safeTime(dt));
+  const sprintStep = stepSprint(next, !!input.sprint, magnitude > 0, now, safeTime(dt));
+  Object.assign(next, sprintStep.player);
+  const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier;
   next.vx = axisX * speed;
   next.vy = axisY * speed;
   if (next.seatId) {

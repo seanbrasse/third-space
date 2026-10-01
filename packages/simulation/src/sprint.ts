@@ -1,37 +1,50 @@
 import type { PlayerState } from "@third-space/contracts";
 
-/** A full charge buys 1.5 seconds; refill starts when the boost ends. */
-export const SPRINT = Object.freeze({ multiplier: 1.6, durationMs: 1_500, refillMs: 5_000 });
-
-export function requestSprint(player: PlayerState, now: number): PlayerState {
-  if (!Number.isFinite(now) || !player.connected || player.mode !== "home" ||
-      player.seatId || player.roastingAt !== undefined || player.respawnAt ||
-      now < (player.sprintReadyAt ?? 0)) return player;
-  return { ...player, sprintUntil: now + SPRINT.durationMs,
-    sprintReadyAt: now + SPRINT.durationMs + SPRINT.refillMs };
+/** Three seconds of sprint; a ten-second refill after a short rest. */
+export const SPRINT = Object.freeze({ multiplier: 1.6, durationMs: 3_000, refillMs: 10_000,
+  restMs: 500, exhaustionMs: 2_000, exhaustedMultiplier: .75 });
+const charge = (p: PlayerState) => Math.max(0, Math.min(1, Number.isFinite(p.stamina) ? p.stamina! : 1));
+function eligible(p: PlayerState) { return p.connected && p.mode === "home" && !p.seatId && p.roastingAt === undefined && !p.respawnAt; }
+export function canSprint(p: PlayerState, now: number) {
+  return eligible(p) && Number.isFinite(now) && now >= (p.sprintExhaustedUntil ?? 0) && !p.sprintNeedsRelease && charge(p) > 1e-9;
 }
+/** Compatibility for callers checking eligibility. This never spends or starts a timed boost. */
+export function requestSprint(p: PlayerState, now: number): PlayerState { return canSprint(p, now) ? { ...p } : p; }
+/** Stops intent while retaining the reserve and exhaustion recovery across transport/area changes. */
+export function cancelSprint(p: PlayerState, _now: number): void { p.sprinting = false; p.sprintNeedsRelease = false; }
 
-/** Preserve the spent charge across area/world changes and transport drops. */
-export function cancelSprint(player: PlayerState, now: number): void {
-  if ((player.sprintUntil ?? 0) > now) {
-    player.sprintUntil = now;
-    player.sprintReadyAt = now + SPRINT.refillMs;
+/** Pure fixed-step resource integration, shared by authority and client prediction. */
+export function stepSprint(player: PlayerState, held: boolean, moving: boolean, now: number, seconds: number) {
+  const next = { ...player, stamina: charge(player), sprinting: false };
+  const ms = Number.isFinite(seconds) ? Math.max(0, Math.min(.25, seconds)) * 1000 : 0;
+  if (!Number.isFinite(now) || !ms) return { player: next, multiplier: 1 };
+  if (!held) next.sprintNeedsRelease = false;
+  if (!next.connected || next.mode !== "home" || next.respawnAt) return { player: next, multiplier: 1 };
+  const end = now + ms;
+  if (canSprint(next, now) && held && moving) {
+    const sprintMs = Math.min(ms, next.stamina * SPRINT.durationMs);
+    next.stamina = Math.max(0, next.stamina - sprintMs / SPRINT.durationMs);
+    next.sprinting = sprintMs > 0;
+    next.sprintRecoverAfter = end + SPRINT.restMs;
+    if (next.stamina <= 1e-9) {
+      next.stamina = 0; next.sprintNeedsRelease = true;
+      next.sprintExhaustedUntil = now + sprintMs + SPRINT.exhaustionMs;
+    }
+    const remainder = ms - sprintMs;
+    return { player: next, multiplier: (SPRINT.multiplier * sprintMs + SPRINT.exhaustedMultiplier * remainder) / ms };
   }
+  // Never charge reconnect gaps or server stalls: only this bounded simulation interval counts.
+  const refillMs = Math.max(0, end - Math.max(now, next.sprintRecoverAfter ?? 0));
+  next.stamina = Math.min(1, next.stamina + refillMs / SPRINT.refillMs);
+  const tiredMs = Math.max(0, Math.min(end, next.sprintExhaustedUntil ?? 0) - now);
+  return { player: next, multiplier: 1 - (1 - SPRINT.exhaustedMultiplier) * tiredMs / ms };
 }
-
 export function sprintStatus(player: PlayerState, now: number) {
-  const until = player.sprintUntil ?? 0, ready = player.sprintReadyAt ?? 0;
-  if (now < until) return { phase: "boosting" as const, fraction: Math.max(0, Math.min(1, (until - now) / SPRINT.durationMs)) };
-  if (now < ready) return { phase: "refilling" as const, fraction: Math.max(0, Math.min(1, 1 - (ready - now) / SPRINT.refillMs)) };
-  return { phase: "ready" as const, fraction: 1 };
+  const fraction = charge(player);
+  return { phase: now < (player.sprintExhaustedUntil ?? 0) ? "exhausted" as const :
+    player.sprinting ? "boosting" as const : fraction < 1 ? "refilling" as const : "ready" as const, fraction };
 }
-
-/** Average speed over the server-owned interval, including boost boundaries. */
+/** Read-only preview, integration belongs to stepSprint. */
 export function sprintMultiplier(player: PlayerState, now: number, seconds: number): number {
-  if (!Number.isFinite(now) || !Number.isFinite(seconds) || seconds <= 0 ||
-      !player.connected || player.mode !== "home" || player.seatId ||
-      player.roastingAt !== undefined || player.respawnAt) return 1;
-  const until = player.sprintUntil ?? 0, end = now + seconds * 1000;
-  const boostedMs = Math.max(0, Math.min(end, until) - Math.max(now, until - SPRINT.durationMs));
-  return 1 + (SPRINT.multiplier - 1) * boostedMs / (seconds * 1000);
+  return stepSprint(player, !!player.sprinting, true, now, seconds).multiplier;
 }

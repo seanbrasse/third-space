@@ -33,7 +33,7 @@ export type WorldBridge = {
   selfId: string;
   blocked: boolean;
   transportConnected: boolean;
-  touch: { axisX: number; axisY: number; jump: boolean; boostTap?: boolean };
+  touch: { axisX: number; axisY: number; jump: boolean; sprint?: boolean };
   bubbles: boolean;
   mutedText: Set<string>;
   reducedMotion: boolean;
