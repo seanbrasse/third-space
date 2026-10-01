@@ -161,7 +161,7 @@ describe("local capacity migrations", () => {
     expect(GAME_CONFIG.partyCapacity).toBe(8);
     expect(home.capacity).toBe(8);
     expect(home.settingsRevision).toBe(1);
-    expect(store.db.prepare("PRAGMA user_version").get()?.user_version).toBe(1);
+    expect(store.db.prepare("PRAGMA user_version").get()?.user_version).toBe(2);
     const column = store.db
       .prepare("PRAGMA table_info(homes)")
       .all()
@@ -189,7 +189,7 @@ describe("local capacity migrations", () => {
       expect(home.capacity).toBe(8);
       expect(home.settingsRevision).toBe(1);
       expect(store.db.prepare("PRAGMA user_version").get()?.user_version).toBe(
-        1,
+        2,
       );
       const column = store.db
         .prepare("PRAGMA table_info(homes)")
@@ -287,7 +287,7 @@ describe("local capacity migrations", () => {
       expect(store.getHome(home.id)?.settingsRevision).toBe(8);
       expect(store.getHome(home.id)?.capacity).toBe(8);
       expect(store.db.prepare("PRAGMA user_version").get()?.user_version).toBe(
-        1,
+        2,
       );
       // A later deliberate setting must not be treated as a legacy default.
       store.db.prepare("UPDATE homes SET capacity=4 WHERE id=?").run(home.id);

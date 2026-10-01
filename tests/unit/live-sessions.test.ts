@@ -8,7 +8,7 @@ describe('live protected session discovery', () => {
         const plain = store.createHome(owner.id, { name: 'Invite only' });
         const rooms = [{ homeId: h.id, players: new Map([['host', { connected: true }], ['away', { connected: false }]]) }, { homeId: plain.id, players: new Map([['host', { connected: true }]]) }];
         const listed = listLiveSessions(rooms, store);
-        expect(listed).toEqual([{ homeId: h.id, name: 'Pines', world: 'Midnight Pines', players: 1, capacity: 8, full: false }]);
+        expect(listed).toEqual([{ homeId: h.id, joinAlias:h.joinAlias, name: 'Pines', world: 'Midnight Pines', players: 1, capacity: 8, full: false }]);
         expect(JSON.stringify(listed)).not.toMatch(/123456|ownerId|verifier|ticket|token/);
         rooms[0]!.players.get('host')!.connected = false;
         expect(listLiveSessions(rooms, store)).toEqual([]);

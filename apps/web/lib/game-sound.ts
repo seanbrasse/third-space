@@ -2,10 +2,13 @@ import { werewolfSoundSamples, type WerewolfSoundKind } from "./werewolf-sound";
 export type GameSoundKind = 'player-step' | 'clown-step' | 'giggle' | 'slash' | WerewolfSoundKind;
 /** Short game cues sit below conversation; smooth falloff has a hard hearing cutoff. */
 export function gameSoundGain(kind: GameSoundKind, distance: number, volume: number) {
-    const range = kind === 'player-step' ? 8 : kind === 'howl' ? 32 : 12, level = { 'player-step': .018, 'clown-step': .14, giggle: .075, slash: .24, howl: .16, growl: .11, claw: .24, 'werewolf-step': .085 }[kind];
-    return level * Math.max(0, Math.min(1, volume)) * Math.pow(Math.max(0, 1 - Math.max(0, distance) / range), 2);
+    const approach = kind === 'clown-step' || kind === 'werewolf-step';
+    const range = kind === 'player-step' ? 8 : kind === 'howl' ? 32 : approach ? 16 : 12;
+    const level = { 'player-step': .045, 'clown-step': .18, giggle: .075, slash: .24, howl: .20, growl: .18, claw: .24, 'werewolf-step': .16 }[kind];
+    return level * Math.max(0, Math.min(1, volume)) * Math.pow(Math.max(0, 1 - Math.max(0, distance) / range), approach ? 1.4 : 2);
 }
 export function clownStepInterval(distanceToTarget: number) { return 520 - 300 * Math.max(0, Math.min(1, 1 - distanceToTarget / 8)); }
+export function werewolfStepInterval(distanceToTarget: number) { return 320 - 160 * Math.max(0, Math.min(1, 1 - distanceToTarget / 10)); }
 /** Cached original procedural samples: dull soft steps, heavy boot crunch, giggle and knife swish/impact. */
 export function gameSoundSamples(kind: GameSoundKind, sampleRate: number) {
     if (kind === 'howl' || kind === 'growl' || kind === 'claw' || kind === 'werewolf-step') return werewolfSoundSamples(kind, sampleRate);

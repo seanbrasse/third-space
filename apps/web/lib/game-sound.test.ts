@@ -4,9 +4,9 @@ import { SoundboardAudio } from './audio';
 import type { Snapshot } from './types';
 afterEach(() => vi.unstubAllGlobals());
 describe('quiet positional game sounds', () => {
-    it('keeps peer movement below threats and fades to silence at range', () => { expect(gameSoundGain('player-step', 1, .5)).toBeLessThan(gameSoundGain('clown-step', 1, .5) / 5); for (const kind of ['player-step', 'clown-step', 'giggle', 'slash'] as const) {
+    it('keeps peer movement below threats and fades to silence at range', () => { expect(gameSoundGain('player-step', 1, .5)).toBeLessThan(gameSoundGain('clown-step', 1, .5) / 4); for (const kind of ['player-step', 'clown-step', 'giggle', 'slash'] as const) {
         expect(gameSoundGain(kind, 2, .5)).toBeGreaterThan(gameSoundGain(kind, 6, .5));
-        expect(gameSoundGain(kind, 12, 1)).toBe(0);
+        expect(gameSoundGain(kind, kind === 'clown-step' ? 16 : 12, 1)).toBe(0);
         expect(gameSoundGain(kind, 0, 0)).toBe(0);
     } expect(gameSoundGain('player-step', 8, 1)).toBe(0); });
     it('speeds up heavy steps as the target gets closer', () => { expect(clownStepInterval(0)).toBe(220); expect(clownStepInterval(8)).toBe(520); expect(clownStepInterval(2)).toBeLessThan(clownStepInterval(6)); });

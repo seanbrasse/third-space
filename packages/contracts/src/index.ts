@@ -58,6 +58,8 @@ export interface PlayerState {
   roastingAt?: number;
   respawnCount?: number;
   caughtAt?: number;
+  /** Server-selected creature responsible for this catch, for local presentation. */
+  caughtBy?: "clown" | "werewolf";
   respawnAt?: number;
   haloUntil?: number;
   avatar: AvatarConfig;
@@ -208,7 +210,7 @@ export interface RaceState {
 export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
 export interface SharedMedia { playbackId?:string; revision: number; url: string; playing: boolean; position: number; anchorAt: number; queue?: {id:string;url:string;addedBy:string;start?:number}[]; }
 export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;kind:"giggle"|"slash"|"howl"|"growl"|"claw";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
-export interface ForestStalker {kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
+export interface ForestStalker {leap?:{phase:"windup"|"air";startedAt:number;until:number;fromX:number;fromY:number;toX:number;toY:number};kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
   /** Recipient-only authoritative idle deadline; never a client-provided timestamp. */
   idle?: { warningAt: number; kickAt: number };

@@ -1,3 +1,4 @@
+import { chooseHomeAlias, normalizeHomeReference } from "./home-alias.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   randomBytes,
@@ -39,6 +40,7 @@ export interface Home {
   capacity: number;
   settingsRevision: number;
   pinEnabled: boolean;
+  joinAlias?: string;
 }
 export interface BoardNote {
   id: string;
@@ -148,7 +150,7 @@ function coordinate(value: unknown, fallback?: number): number {
   return Math.max(0, Math.min(1, value));
 }
 type Row = Record<string, any>;
-const LOCAL_SCHEMA_VERSION = 1;
+const LOCAL_SCHEMA_VERSION = 2;
 
 /** A single-process development provider. Every sensitive mutation rechecks current grants. */
 export class LocalStore {
@@ -165,7 +167,7 @@ export class LocalStore {
       .exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS profiles(id TEXT PRIMARY KEY,name TEXT NOT NULL,avatar TEXT NOT NULL,preferences TEXT NOT NULL DEFAULT '{}',revision INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES profiles(id),expires_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS homes(id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL REFERENCES profiles(id),capacity INTEGER NOT NULL DEFAULT ${GAME_CONFIG.partyCapacity},settings_revision INTEGER NOT NULL DEFAULT 1,pin_verifier TEXT,pin_version INTEGER NOT NULL DEFAULT 1);
+      CREATE TABLE IF NOT EXISTS homes(id TEXT PRIMARY KEY,name TEXT NOT NULL,owner_id TEXT NOT NULL REFERENCES profiles(id),capacity INTEGER NOT NULL DEFAULT ${GAME_CONFIG.partyCapacity},settings_revision INTEGER NOT NULL DEFAULT 1,pin_verifier TEXT,pin_version INTEGER NOT NULL DEFAULT 1,join_alias TEXT COLLATE NOCASE);
       CREATE TABLE IF NOT EXISTS members(home_id TEXT NOT NULL REFERENCES homes(id),user_id TEXT NOT NULL REFERENCES profiles(id),role TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',PRIMARY KEY(home_id,user_id));
       CREATE INDEX IF NOT EXISTS members_user ON members(user_id,status,home_id);
       CREATE TABLE IF NOT EXISTS invites(id TEXT PRIMARY KEY,home_id TEXT NOT NULL REFERENCES homes(id),token_hash TEXT UNIQUE NOT NULL,expires_at INTEGER NOT NULL,max_uses INTEGER NOT NULL,use_count INTEGER NOT NULL DEFAULT 0,revoked_at INTEGER);
@@ -181,15 +183,18 @@ export class LocalStore {
     `);
     this.transaction(() => {
       const version = Number(this.one("PRAGMA user_version")!.user_version);
-      if (version < LOCAL_SCHEMA_VERSION) {
+      if (version < 1) {
         // Version-zero databases used a fixed four-person default. Apply this
         // once, so future intentional capacity settings survive restarts.
         this.run(
           "UPDATE homes SET capacity=?,settings_revision=settings_revision+1 WHERE capacity=4",
           GAME_CONFIG.partyCapacity,
         );
-        this.db.exec(`PRAGMA user_version=${LOCAL_SCHEMA_VERSION}`);
       }
+      if (!this.all("PRAGMA table_info(homes)").some(column => column.name === "join_alias"))
+        this.db.exec("ALTER TABLE homes ADD COLUMN join_alias TEXT COLLATE NOCASE");
+      this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS homes_join_alias ON homes(join_alias COLLATE NOCASE) WHERE join_alias IS NOT NULL");
+      if (version < LOCAL_SCHEMA_VERSION) this.db.exec(`PRAGMA user_version=${LOCAL_SCHEMA_VERSION}`);
     });
     // A fresh process may never admit a ticket minted by an old live authority.
     this.db.prepare("DELETE FROM tickets").run();
@@ -356,6 +361,7 @@ export class LocalStore {
           capacity: row.capacity,
           settingsRevision: row.settings_revision,
           pinEnabled: !!row.pin_verifier,
+          ...(row.join_alias ? { joinAlias: row.join_alias as string } : {}),
         }
       : undefined;
   }
@@ -396,13 +402,17 @@ export class LocalStore {
           ? null
           : pinVerifier(input.pin);
     this.transaction(() => {
+      const occupied = new Set(this.all("SELECT join_alias FROM homes WHERE join_alias IS NOT NULL").map(row => String(row.join_alias).toLowerCase()));
+      const joinAlias = chooseHomeAlias(occupied);
+      if (!joinAlias) return fail("HOME_IDS_EXHAUSTED", "No short home IDs are available. Please try again later.", 503);
       this.run(
-        "INSERT INTO homes(id,name,owner_id,pin_verifier,capacity) VALUES(?,?,?,?,?)",
+        "INSERT INTO homes(id,name,owner_id,pin_verifier,capacity,join_alias) VALUES(?,?,?,?,?,?)",
         id,
         name,
         userId,
         verifier,
         GAME_CONFIG.partyCapacity,
+        joinAlias,
       );
       this.run("INSERT INTO members VALUES(?,?, 'owner','active')", id, userId);
       this.run(
@@ -470,6 +480,8 @@ export class LocalStore {
   ): Home {
     if (!this.getProfile(userId))
       return fail("UNAUTHENTICATED", "Create a local profile first.", 401);
+    const reference = normalizeHomeReference(homeId);
+    homeId = this.one("SELECT id FROM homes WHERE id=? OR join_alias=? COLLATE NOCASE", reference, reference)?.id ?? reference;
     // A supplied PIN must be verified even when a previous grant exists.
     // This permits safely remembering a submitted PIN without trusting grants.
     if (this.canAccess(homeId, userId)) {

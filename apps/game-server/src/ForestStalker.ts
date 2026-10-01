@@ -1,6 +1,7 @@
 import { type WorldDefinition, type Point, GAME_CONFIG } from '@third-space/config';
-import { type PlayerState, type ForestStalker } from '@third-space/contracts';
+import { type PlayerState, type ForestStalker, type WorldSoundEvent } from '@third-space/contracts';
 import { distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable } from '@third-space/simulation';
+import { ENCOUNTER_TUNING as T, encounterSegmentSafe } from './encounter-tuning';
 export interface EncounterBehavior {
     kind: 'werewolf';
     intervalMs: number;
@@ -23,6 +24,12 @@ export class ForestEncounter {
     private lingerUntil = 0;
     private retreatUntil = 0;
     private caughtIds = new Set<string>();
+    private encounterSounds: WorldSoundEvent[] = [];
+    private acquisitionAt = -Infinity;
+    private acquisitionSerial = 0;
+    private retargetAt = 0;
+    private leapAt = 0;
+    private leapRecoverUntil = 0;
     private cover: {
         point: Point;
         id: string;
@@ -37,12 +44,13 @@ export class ForestEncounter {
                     this.cover.push({ point, id: item.id });
         }
     }
-    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; this.lingerUntil = 0; this.retreatUntil = 0; this.caughtIds.clear(); }
+    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; this.lingerUntil = 0; this.retreatUntil = 0; this.caughtIds.clear(); this.retargetAt = 0; this.leapAt = 0; this.leapRecoverUntil = 0; this.encounterSounds = []; this.acquisitionAt = -Infinity; }
     private interval() { return (this.behavior?.intervalMs ?? this.world.stalker!.intervalMs) * (.85 + this.random() * .3); }
     visibleTo(player: PlayerState) { return player.connected && !player.zone && player.mode === 'home' && this.state && !(this.state.phase === "retreat" && this.lastMove >= this.retreatUntil) && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
     private retreat(now: number) {
         if (this.state) {
             this.state.phase = 'retreat';
+            delete this.state.leap;
             this.retreatUntil = now + 900;
             this.lingerUntil = now + 15000;
             // Preserve the existing client fade clock; the hidden linger stays server-owned.
@@ -61,13 +69,25 @@ export class ForestEncounter {
         return players.filter(p => this.eligible(p, now) && distance(p, state) <= 16)
             .sort((a, b) => distance(a, state) - distance(b, state) || a.id.localeCompare(b.id))[0];
     }
-    private pursue(player: PlayerState, now: number) {
+    drainSounds() { return this.encounterSounds.splice(0); }
+    private acquisition(now: number) {
+        if (this.behavior || !this.state || now - this.acquisitionAt < 5000) return;
+        this.acquisitionAt = now;
+        this.encounterSounds.push({ id: `clown:${this.state.id}:acquire:${++this.acquisitionSerial}`, kind: 'giggle', x: this.state.x, y: this.state.y, createdAt: now, expiresAt: now + 1200 });
+    }
+    private pursue(player: PlayerState, now: number, warningMs = this.world.stalker!.peekMs) {
         const state = this.state!;
+        const changed = state.targetId !== player.id || state.phase === 'retreat';
         state.targetId = player.id;
+        if (changed) this.acquisition(now);
         state.intent = 'hunt';
         // Reacquisition and close retargets give a fresh, visible warning before a catch.
         state.phase = 'peek';
-        state.phaseUntil = now + this.world.stalker!.peekMs;
+        state.phaseUntil = now + warningMs;
+        delete state.leap;
+        this.retargetAt = now + T.retargetCooldownMs;
+        this.leapAt = now + warningMs + T.leapCooldownMs;
+        this.leapRecoverUntil = 0;
         this.path = [];
         this.pathGoal = null;
         this.lastMove = now;
@@ -79,6 +99,11 @@ export class ForestEncounter {
         this.lastPath = 0;
         this.caughtIds.clear();
         this.lingerUntil = 0;
+        this.retargetAt = now + this.world.stalker!.peekMs + T.retargetCooldownMs;
+        this.leapAt = now + this.world.stalker!.peekMs + 1800;
+        this.leapRecoverUntil = 0;
+        if (intent === "hunt") this.acquisition(now);
+        else if (this.state.giggleAt) this.encounterSounds.push({ id: `clown:${this.state.id}:perimeter`, kind: "giggle", x: point.x, y: point.y, createdAt: now, expiresAt: now + 1200 });
     }
     /** Returns a caught identity once. PartyRoom alone performs the respawn. */
     update(now: number, players: readonly PlayerState[]): string | null {
@@ -171,7 +196,16 @@ export class ForestEncounter {
             return null;
         }
         if (s.phase === 'peek') {
+            // Hidden initial wolf spawn gradually peeks into sight; keep at least 7.5 tiles of warning distance.
+            if (this.behavior && s.startedAt + rules.peekMs === s.phaseUntil && s.originX !== undefined && s.originY !== undefined) {
+                const origin = { x: s.originX, y: s.originY }, d = distance(origin, target) || 1;
+                const amount = Math.min(T.wolfPeekAdvance, Math.max(0, d - 7.5)) * Math.min(1, (now - s.startedAt) / T.wolfPeekAdvanceMs);
+                const point = { x: origin.x + (target.x - origin.x) / d * amount, y: origin.y + (target.y - origin.y) / d * amount };
+                if (encounterSegmentSafe(origin, point, this.world)) { s.x = point.x; s.y = point.y; }
+            }
             if (now >= s.phaseUntil) {
+                // Cover/walls can block the peek. Do not start an unseen wolf attack.
+                if (this.behavior && distance(s, target) > rules.viewRadius - .5) { this.retreat(now); return null; }
                 s.phase = 'chase';
                 s.phaseUntil = now + rules.chaseMs;
                 this.lastMove = now;
@@ -181,6 +215,41 @@ export class ForestEncounter {
         if (now >= s.phaseUntil || distance(s, target) > 16) {
             this.retreat(now);
             return null;
+        }
+        if (now >= this.retargetAt && !s.leap) {
+            const closer = this.nearest(players, now), currentDistance = distance(s, target);
+            if (closer && closer.id !== target.id && distance(s, closer) + T.retargetAdvantage < currentDistance
+                && distance(s, closer) < currentDistance * T.retargetRatio) {
+                this.pursue(closer, now, T.retargetWarningMs);
+                return null;
+            }
+        }
+        // A committed leap aims at a fixed point. It never tracks a dodging player or teleports a catch.
+        if (s.leap) {
+            const leap = s.leap;
+            if (leap.phase === 'windup') {
+                if (now < leap.until) return null;
+                const end = { x: leap.toX, y: leap.toY };
+                if (!encounterSegmentSafe(s, end, this.world)) { delete s.leap; this.leapRecoverUntil = now + T.leapRecoveryMs; return null; }
+                leap.phase = 'air'; leap.startedAt = now; leap.until = now + T.leapFlightMs;
+            }
+            const progress = Math.min(1, Math.max(0, (now - leap.startedAt) / T.leapFlightMs));
+            const point = { x: leap.fromX + (leap.toX - leap.fromX) * progress, y: leap.fromY + (leap.toY - leap.fromY) * progress };
+            if (!encounterSegmentSafe(s, point, this.world)) { delete s.leap; this.leapRecoverUntil = now + T.leapRecoveryMs; return null; }
+            s.x = point.x; s.y = point.y; this.lastMove = now;
+            if (progress >= 1) { delete s.leap; this.leapRecoverUntil = now + T.leapRecoveryMs; }
+            return null;
+        }
+        if (now < this.leapRecoverUntil) return null;
+        const targetDistance = distance(s, target);
+        if (this.behavior && now >= this.leapAt && targetDistance >= T.leapMinDistance && targetDistance <= T.leapMaxDistance) {
+            const length = Math.min(T.leapLength, targetDistance);
+            const end = { x: s.x + (target.x - s.x) / targetDistance * length, y: s.y + (target.y - s.y) / targetDistance * length };
+            if (encounterSegmentSafe(s, end, this.world)) {
+                s.leap = { phase: 'windup', startedAt: now, until: now + T.leapWindupMs, fromX: s.x, fromY: s.y, toX: end.x, toY: end.y };
+                this.leapAt = now + T.leapCooldownMs;
+                return null;
+            }
         }
         if (distance(s, target) < .65 && isHomeSegmentWalkable(s, target, map)) {
             this.caughtIds.add(target.id);
@@ -215,7 +284,7 @@ export class ForestEncounter {
         if (!d)
             return null;
         // Clown lurches or a continuous quadruped gallop; both use swept collision geometry.
-        const speed = GAME_CONFIG.homeSpeed * (this.behavior?.speedMultiplier ?? (Math.sin((now - s.startedAt) / 340) > -.65 ? 1.35 : .35)), step = Math.min(d, speed * dt);
+        const speed = GAME_CONFIG.homeSpeed * (this.behavior?.speedMultiplier ?? (Math.sin((now - s.startedAt) / 340) > -.65 ? T.clownStride : T.clownLurch)), step = Math.min(d, speed * dt);
         const next = { x: s.x + (goal.x - s.x) / d * step, y: s.y + (goal.y - s.y) / d * step };
         if (distance(next, fire) <= rules.safeRadius + .25) {
             this.retreat(now);

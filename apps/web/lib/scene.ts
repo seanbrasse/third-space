@@ -1,3 +1,4 @@
+import { chatTextMetrics } from "./chat-presentation";
 import { darknessFill } from "./forest-visibility";
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
 import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
@@ -27,6 +28,7 @@ import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
 import { homeFloorCanvas } from "./home-art";
 import { cameraFollowX, decayCorrection } from "./presentation";
+import { werewolfLeapPresentation } from "./werewolf-leap-presentation";
 import { werewolfSpriteCanvas } from "./werewolf-art";
 import { forestFloorCanvas, forestObjectCanvas, flashlightContains, clownSpriteCanvas } from "./forest-art";
 const AVATAR_SCALE = 1.65,
@@ -70,6 +72,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private stalkerId="";
     private werewolfSprite: Phaser.GameObjects.Image | null = null;
     private werewolfId="";
+    private werewolfFeet: Point | null = null;
+    private werewolfLeapTell: Phaser.GameObjects.Graphics | null = null;
     private pathTorches: Phaser.GameObjects.Image[] = [];
     private fireArt: Phaser.GameObjects.Graphics | null = null;
     private roastArt: Phaser.GameObjects.Graphics | null = null;
@@ -205,7 +209,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
       this.stalkerSprite=null;this.stalkerId="";
-      this.werewolfSprite=null;this.werewolfId="";
+      this.werewolfSprite=null;this.werewolfId="";this.werewolfFeet=null;this.werewolfLeapTell=null;
       this.pathTorches=[];
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
       this.hoveredFurniture = null;
@@ -332,6 +336,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.werewolfSprite=this.add.image(0,0,this.texture("forest-werewolf-0",werewolfSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<6;i++)this.texture("forest-werewolf-"+i,werewolfSpriteCanvas(i));
         this.mapObjects.push(this.werewolfSprite);
+        this.werewolfLeapTell=this.add.graphics();
+        this.mapObjects.push(this.werewolfLeapTell);
         this.fireArt = this.add.graphics().setDepth((this.forest?24.5:10.5) * TILE);
         this.mapObjects.push(this.fireArt);
         this.roastArt = this.add.graphics().setDepth(1100);
@@ -768,7 +774,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             bubble: this.add
               .text(0, 0, "", {
                 fontFamily: "sans-serif",
-                fontSize: "11px",
+                fontSize: "13px",
                 color: "#403c42",
                 backgroundColor: "#fff7e2",
                 wordWrap: { width: 130 },
@@ -817,6 +823,16 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         const canSee=!this.forest || local || (!!self && Math.hypot(p.x-self.x,p.y-self.y)<14 && (Math.hypot(p.x-24,p.y-24)<9 || snapshot.players.some(light=>flashlightContains(light,p))));
         node.sprite.setVisible(canSee);if(node.sprite.input)node.sprite.input.enabled=canSee;
         const showName = canSee && (this.hoveredId === p.id || this.clickedId === p.id);
+        const textMetrics = chatTextMetrics(window.devicePixelRatio, this.cameras.main.zoom);
+        // Resize textures only when DPR changes; avoid regenerating text each frame.
+        for (const text of [node.label, node.bubble]) {
+          if (text.style.resolution !== textMetrics.resolution) {
+            // CanvasRenderer reads the texture source density independently of TextStyle.
+            text.frame.source.resolution = textMetrics.resolution;
+            text.setResolution(textMetrics.resolution);
+          }
+          text.setScale(textMetrics.scale);
+        }
         node.label
           .setText(`${p.name} · ${local ? "You" : "Click to interact"}`)
           .setPosition(node.sprite.x, node.sprite.y - AVATAR_HEAD)
@@ -832,7 +848,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         node.bubble
           .setPosition(
             node.sprite.x,
-            node.sprite.y - (showName ? AVATAR_HEAD + 26 : AVATAR_HEAD),
+            node.sprite.y - AVATAR_HEAD - (showName ? 26 * textMetrics.scale : 0),
           )
           .setText(
             bridge.bubbles
@@ -880,16 +896,30 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       }
       const wolf=this.forest?snapshot.werewolf:null;
       if(this.werewolfSprite){
-        const sprite=this.werewolfSprite;sprite.setVisible(!!wolf);
+        const sprite=this.werewolfSprite,tell=this.werewolfLeapTell;
+        sprite.setVisible(!!wolf);tell?.clear();
         if(wolf){
-          if(this.werewolfId!==wolf.id){this.werewolfId=wolf.id;sprite.setPosition(wolf.x*TILE,wolf.y*TILE);}
-          const t=snapshot.serverTime-wolf.startedAt,target=snapshot.players.find(p=>p.id===wolf.targetId);
-          sprite.x+=(wolf.x*TILE-sprite.x)*(1-Math.exp(-delta/60));
-          sprite.y+=(wolf.y*TILE-sprite.y)*(1-Math.exp(-delta/60));
-          sprite.setTexture("forest-werewolf-"+(wolf.phase!=="chase"||bridge.reducedMotion?0:Math.floor(t/75)%6));
+          if(this.werewolfId!==wolf.id||!this.werewolfFeet){this.werewolfId=wolf.id;this.werewolfFeet={x:wolf.x*TILE,y:wolf.y*TILE};}
+          const feet=this.werewolfFeet,t=snapshot.serverTime-wolf.startedAt,target=snapshot.players.find(p=>p.id===wolf.targetId);
+          feet.x+=(wolf.x*TILE-feet.x)*(1-Math.exp(-delta/60));
+          feet.y+=(wolf.y*TILE-feet.y)*(1-Math.exp(-delta/60));
+          const leap=werewolfLeapPresentation(wolf.leap,snapshot.serverTime,bridge.reducedMotion);
+          sprite.setPosition(feet.x,feet.y-leap.elevation).setScale(32*AVATAR_SCALE/38*leap.scaleX,32*AVATAR_SCALE/38*leap.scaleY);
+          sprite.setTexture("forest-werewolf-"+(leap.frame??(wolf.phase!=="chase"||bridge.reducedMotion?0:Math.floor(t/75)%6)));
           if(target)sprite.setFlipX(target.x<wolf.x);
-          sprite.setDepth(sprite.y).setAlpha(wolf.phase==="retreat"?Math.max(0,(wolf.phaseUntil-snapshot.serverTime)/900):.95);
-        }
+          // Depth always follows ground feet, never the decorative airborne offset.
+          sprite.setDepth(feet.y).setAlpha(wolf.phase==="retreat"?Math.max(0,(wolf.phaseUntil-snapshot.serverTime)/900):.95);
+          if(tell&&leap.tell){
+            const aim=leap.tell,fromX=aim.fromX*TILE,fromY=aim.fromY*TILE,toX=aim.toX*TILE,toY=aim.toY*TILE;
+            // The danger tell stays readable above darkness, only for an already visible enemy.
+            tell.setDepth(1801);
+            tell.lineStyle(2,0xffba83,.95);
+            tell.lineBetween(fromX,fromY,toX,toY);
+            tell.strokeEllipse(toX,toY,28,12);
+            tell.lineBetween(toX-5,toY,toX+5,toY);tell.lineBetween(toX,toY-4,toX,toY+4);
+            tell.fillStyle(0x070907,.55);tell.fillEllipse(feet.x,feet.y+1,24,8);
+          }
+        }else{this.werewolfFeet=null;this.werewolfId="";}
       }
       const stalker=this.forest?snapshot.stalker:null;
       if(this.stalkerSprite){
@@ -976,6 +1006,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         ),
         hoveredPlayerId: this.hoveredId,
         visibleNameCount: String(visibleNames),
+        chatTextResolution: String(localNode?.bubble.style.resolution ?? 0),
+        chatTextureResolution: String(localNode?.bubble.frame.source.resolution ?? 0),
+        chatScreenWidth: String(localNode ? localNode.bubble.frame.width / localNode.bubble.frame.source.resolution * localNode.bubble.scaleX * camera.zoom : 0),
+        chatTextScale: String(localNode?.bubble.scaleX ?? 0),
         moveTargetX: this.destination ? String(this.destination.x) : "",
         moveTargetY: this.destination ? String(this.destination.y) : "",
       });

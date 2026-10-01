@@ -24,3 +24,15 @@ export function readSessionPin(storage: PinStorage | null, profileId: string, ho
     catch { /* Corrupt/unavailable storage is not a credential. */ }
     return '';
 }
+
+/** Candidate is never displayed before its current revision or PIN is verified. */
+export function readSessionPinCandidate(storage: PinStorage | null, profileId: string, homeId: string): {pin:string;revision:number} | null {
+  try {
+    const value = JSON.parse(storage?.getItem(key(profileId,homeId)) || "null");
+    if (Number.isInteger(value?.revision) && /^\d{6,12}$/.test(value?.pin)) return {pin:value.pin, revision:value.revision};
+  } catch { /* Optional browser storage. */ }
+  return null;
+}
+export function forgetSessionPin(storage: PinStorage | null, profileId: string, homeId: string): void {
+  try { storage?.removeItem(key(profileId,homeId)); } catch { /* Optional browser storage. */ }
+}

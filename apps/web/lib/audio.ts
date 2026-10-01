@@ -1,8 +1,9 @@
+import { movementAudioCues } from "./movement-audio";
 import { ForestAmbience } from "./forest-ambience";
 import { AsylumAmbience, asylumAudioLocation } from "./asylum-ambience";
 import {ambienceSamples} from "./ambience";
 import { RaceAudio } from "./race-audio";
-import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
+import { gameSoundGain,gameSoundSamples,type GameSoundKind } from "./game-sound";
 import type { WorldSoundEvent } from "@third-space/contracts";
 import type { Effect, Snapshot } from "./types";
 import { listenerGain } from "./person-volume";
@@ -39,19 +40,13 @@ export class SoundboardAudio {
     if(this.soundInstance!==snapshot.instanceId){this.soundInstance=snapshot.instanceId;this.stepAt.clear();}
     const now=snapshot.serverTime;
     const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");live.add("werewolf");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
-    for(const p of snapshot.players){
-      if(!p.connected||p.respawnAt||p.seatId||(p.mode==="race"&&!p.grounded)||Math.hypot(p.vx,p.vy)<.2||this.muted.has(p.id))continue;
-      if(now-(this.stepAt.get(p.id)??0)<390)continue;
-      this.stepAt.set(p.id,now);this.cue("player-step",p.x,p.y,self,volume,p.id===selfId);
+    const cues=movementAudioCues(snapshot,selfId,this.muted);
+    const moving=new Set(cues.map(cue=>cue.id));
+    for(const id of this.stepAt.keys())if(!moving.has(id))this.stepAt.delete(id);
+    for(const cue of cues){
+      if(now-(this.stepAt.get(cue.id)??-Infinity)<cue.interval)continue;
+      this.stepAt.set(cue.id,now);this.cue(cue.kind,cue.x,cue.y,self,volume,cue.own);
     }
-    const s=snapshot.stalker;if(s?.phase==="chase"){
-      const target=snapshot.players.find(p=>p.id===s.targetId),d=target?Math.hypot(s.x-target.x,s.y-target.y):8;
-      if(now-(this.stepAt.get("clown")??0)>=clownStepInterval(d)){this.stepAt.set("clown",now);this.cue("clown-step",s.x,s.y,self,volume);}
-    }else this.stepAt.delete("clown");
-    const wolf=snapshot.werewolf;
-    if(wolf?.phase==="chase"&&now-(this.stepAt.get("werewolf")??0)>=180){
-      this.stepAt.set("werewolf",now);this.cue("werewolf-step",wolf.x,wolf.y,self,volume);
-    }else if(wolf?.phase!=="chase")this.stepAt.delete("werewolf");
   }
   private forestAmbience: ForestAmbience | null = null;
   private asylumAmbience: AsylumAmbience | null = null;

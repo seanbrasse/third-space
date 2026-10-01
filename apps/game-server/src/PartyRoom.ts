@@ -916,7 +916,7 @@ export class PartyRoom extends Room {
     // Includes grace-reserved avatars; reconnect never restores the old map.
     for (const p of this.players.values()) Object.assign(p, clearRaceBoosts(p));
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
-    sorted.forEach((p,i)=>{cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.respawnAt;});
+    sorted.forEach((p,i)=>{cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.caughtBy;delete p.respawnAt;});
     this.intents.clear();
     this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
     this.sendSnapshots();
@@ -932,7 +932,7 @@ export class PartyRoom extends Room {
         if(now<p.respawnAt){p.vx=p.vy=0;continue;}
         Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000,flashlightBattery:1,flashlightOn:false});delete p.respawnAt;this.intents.delete(id);
       }
-      if(p.caughtAt&&now-p.caughtAt>2500)delete p.caughtAt;
+      if(p.caughtAt&&now-p.caughtAt>2500){delete p.caughtAt;delete p.caughtBy;}
       const intent = this.intents.get(id);
       const input =
         p.connected && intent && now - intent.receivedAt < 250
@@ -973,18 +973,17 @@ export class PartyRoom extends Room {
         }
       }
     }
-    const previousEncounter=this.encounter?.state?.id;
     const outside=[...this.players.values()].filter(p=>!p.zone);
     // One threat at a time; overdue rare encounters get first safe opportunity.
     const wolfCaught=!this.encounter?.state?this.werewolf?.update(now,outside):null;
     const clownCaught=!this.werewolf?.state?this.encounter?.update(now,outside):null;
+    for(const cue of this.encounter?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
     for(const cue of this.werewolf?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
     const caught=wolfCaught??clownCaught;
     const encounter=wolfCaught?this.werewolf?.state:this.encounter?.state;
-    if(encounter?.id!==previousEncounter&&encounter?.giggleAt)this.worldSound({id:this.epoch+":"+this.worldRevision+":"+encounter.id+":giggle",kind:"giggle",x:encounter.x,y:encounter.y,createdAt:now,expiresAt:now+1200});
     if(caught){
       const player=this.players.get(caught)!;
-      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.respawnAt=now+900;
+      player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.caughtBy=wolfCaught?"werewolf":"clown";player.respawnAt=now+900;
       this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(wolfCaught?"werewolf:":"")+encounter!.id+(wolfCaught?":claw":":slash"),kind:wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
       player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
       cancelSprint(player,now);delete player.seatId;delete player.roastingAt;this.intents.delete(caught);

@@ -43,6 +43,38 @@ describe('werewolf live spatial audio', () => {
         audio.setWorld(snapshot({ werewolf: state }), 'self', 1); expect(sources).toHaveLength(count);
         audio.dispose();
     });
+    it('plays a live clown acquisition giggle once, without replaying snapshots or muted events', async () => {
+        const sources=context(), audio=new SoundboardAudio(); await audio.unlock();
+        const giggle=howl({id:'room:2:clown:1:acquire:1',kind:'giggle',x:3,y:0});
+        const s=snapshot();
+        audio.playWorld(giggle,s,'self',1);audio.playWorld(giggle,s,'self',1);
+        expect(sources).toHaveLength(1);
+        audio.setWorld(s,'self',1);const count=sources.length;
+        audio.setWorld(s,'self',1);expect(sources).toHaveLength(count);
+        audio.playWorld({...giggle,id:'far',x:20},s,'self',1);expect(sources).toHaveLength(count);
+        audio.setMix(1,{},new Set(),true);
+        audio.playWorld({...giggle,id:'muted-acquisition'},s,'self',1);
+        audio.setMix(1,{},new Set(),false);
+        audio.playWorld({...giggle,id:'muted-acquisition'},s,'self',1);expect(sources).toHaveLength(count);
+        // A new authoritative acquisition ID is distinct; repeated transport delivery is not.
+        const retarget={...giggle,id:'room:2:clown:1:acquire:2'};
+        audio.playWorld(retarget,s,'self',1);audio.playWorld(retarget,s,'self',1);
+        expect(sources).toHaveLength(count+1);audio.dispose();
+    });
+    it('routes both creature strides through the unlocked game bus, with cadence and mute intact', async () => {
+        const sources=context(), audio=new SoundboardAudio(); await audio.unlock();
+        const state={phase:'chase',x:8,y:0,targetId:'self'};
+        const s=snapshot({stalker:state,werewolf:state});
+        audio.setWorld(s,'self',1); // Two creature steps plus the two cached forest loops.
+        expect(sources).toHaveLength(4);
+        audio.setWorld({...s,serverTime:1100},'self',1);expect(sources).toHaveLength(4);
+        audio.setWorld({...s,serverTime:1700},'self',1);expect(sources).toHaveLength(6);
+        audio.setMix(1,{},new Set(),true);
+        audio.setWorld({...s,serverTime:2400},'self',1);expect(sources).toHaveLength(6);
+        audio.setMix(1,{},new Set(),false);
+        audio.setWorld({...s,serverTime:3100},'self',1);expect(sources).toHaveLength(8);
+        audio.dispose();
+    });
     it('drops expired/previous world cues and suppresses race/indoor delivery', async () => {
         const sources = context(), audio = new SoundboardAudio(); await audio.unlock();
         audio.playWorld(howl({ id: 'old', expiresAt: 999 }), snapshot(), 'self', 1);
