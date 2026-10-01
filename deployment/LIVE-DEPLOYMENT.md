@@ -1,3 +1,17 @@
+# PR27 final verified release — sole deployment lane
+
+Both frontend/backend LIVE **82ae22f0e60f8603be12f2cbf624e74799186000** at https://third-space-topaz.vercel.app. Includes PR26 survival, PR25 held sprint/calm catch and PR24 mimic by verified ancestry. Frontend READY dpl_41ZuHT9GM1RSera1YVbqveziKrpD, stable public alias verified. Existing Fly machine2874440daddd98 started/ready, updated2026-10-01T07:30:18Z, full OCI revision exact, image release-82ae22f digestd547020a64840a582758e3a2590276f10584e30265aa1bc4a5a43c4cce27b61c. Same512MiB/two shared CPUs/1GB encrypted volume. No added resources/credentials.
+
+Independent423 cases/66files:422PASS/1flashlight timeout in88.99sec full run; complete18-test flashlight file PASS25.86sec isolated recheck. Types/build/merged-test tree parity PASS. Actual512MiB/no-swap/noOOM entrypoint/readiness PASS164MiB startup sample. Fresh3 hosted checks PASS26.9sec: legitimate walking harvest into slot2/tree cooldown/eat+25hunger/stack empty; desktop1440/mobile390 each with separate mobile friend PIN/WSS/shared default state,5 slots/empty hands/number keys/chat typing/native fullscreen/viewport placement, flashlight/shared hostPvP policy/reload,>=44px targets/no HUD overflow/no page errors. Three production screenshots inspected. Scoped Vercel errors0.
+
+PR26 completed first: exacte9792f93eb42ba64592ab252cff76e63f09087b6,417tests/65files/types/build PASS and two hosted survival cases PASS10.6sec; proof .data/pr26-release-proof.json retained. PR27 proof .data/pr27-release-proof.json, tests .data/pr27-live-acceptance.log, screenshots .data/pr27-live-results, current feature matrix52 exact-source paths independently checked. Own smoke containers removed and builder stopped. All original/Astra previews3010/2577 and3011/2578 untouched.
+
+Limits: inventory is room-local and resets on process restart; persisted SQLite homes retained. Hosted knife/bag contest not asserted, real8-client local socket authority tests pass. Physicalphone/Safari/multitouch/speaker, natural productionMimic/livewolf catch and snapshotrestore unverified. No high WAN-capacity claim. Nativevoice/Google signin remain unconfigured. No deployment blocker; Astra owns next NPC/content milestone, task3 sole production release owner. User authorized continued tested releases overnight with existing cost/access limits.
+
+---
+
+## Historical initial provisioning record
+
 # Third Space live deployment
 
 Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://third-space-seanbrasse.fly.dev/health. Provisioned September 30, 2026, New York time, after Sean's explicit payment/deployment approval.
