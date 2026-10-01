@@ -20,7 +20,8 @@ for (const width of [1440, 390, 320]) test(`public footer Updates keyboard/histo
   await expect(region.locator("article").first()).toContainText(formatReleaseDate(published[0]));
   await expect(region).toContainText("these are not release times");
   await expect(region).toContainText("A living forest");
-  await expect(region).not.toContainText("Follow Third Space updates");
+  for (const draft of (history as { entries: { status: string; title: string }[] }).entries.filter(entry => entry.status === "draft"))
+    await expect(region).not.toContainText(draft.title);
   await expect(region.locator("a")).toHaveCount(0);
   expect(await toggle.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
