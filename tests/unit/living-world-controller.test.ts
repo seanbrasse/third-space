@@ -76,7 +76,7 @@ describe('living Lantern Road runtime', () => {
     }
     expect(count).toBeGreaterThanOrEqual(10); expect(n.health).toBe(0); expect(failed).toBe(true);
     expect(c.pendingEvents().filter(e => e.event === 'setback')).toHaveLength(1);
-    expect(c.snapshot().mobs).toEqual([]);
+    expect(c.snapshot().mobs).toHaveLength(2);
   });
 
   it('declining dismisses personal help while nearby bandits can still turn on an exposed player', () => {
@@ -112,6 +112,97 @@ describe('living Lantern Road runtime', () => {
     const setback = c.pendingEvents().filter(event => event.event === 'setback');
     expect(setback).toHaveLength(1); expect(setback[0]).toMatchObject({ actorId: 'departing-witness', participantIds: [] });
     expect(c.snapshot().rescue).toMatchObject({ phase: 'cooldown', helperIds: [] });
+  });
+
+  it.each(['dead', 'missing'] as const)('preserves bandit positions after Mara is %s and commits a fresh human warning', casualty => {
+    const c = setup({ ...road, bandits: [{ x: 50.9, y: 50 }, { x: 53, y: 52 }] });
+    const p = human('witness', { x: 49, y: 50 }), n = npc({ x: 50.7, y: 50 }); activate(c, p, n);
+    c.update(2100, [p], [n]); const before = c.snapshot().mobs;
+    expect(before[0]!.windup).toMatchObject({ x: n.x, y: n.y, until: 3000 });
+    Object.assign(p, { x: n.x, y: n.y }); n.health = 0; n.phase = 'respawning'; n.lifeRevision = 1;
+    const remaining = casualty === 'missing' ? [] : [n];
+    expect(c.update(2200, [p], remaining).damage).toEqual([]);
+    const after = c.snapshot().mobs;
+    expect(after).toHaveLength(2); after.forEach((mob, i) => expect({ x: mob.x, y: mob.y }).toEqual({ x: before[i]!.x, y: before[i]!.y }));
+    expect(after[0]!.windup).toMatchObject({ x: p.x, y: p.y, until: 3100 });
+    expect(c.snapshot().rescue).toMatchObject({ phase: 'cooldown', retryAt: 47200 });
+    expect(c.update(3000, [p], remaining).damage).toEqual([]);
+    const hits = c.update(3100, [p], remaining).damage;
+    expect(hits).toContainEqual(expect.objectContaining({ targetId: p.id, targetKind: 'human', targetLifeRevision: 0 }));
+    expect(hits.some(hit => hit.targetKind === 'npc')).toBe(false); expect(c.update(3100, [p], remaining).damage).toEqual([]);
+    expect(c.pendingEvents().filter(event => event.event === 'setback')).toHaveLength(1);
+  });
+
+  it('preserves the original initial tell when the casualty occurs immediately after activation', () => {
+    const c = setup({ ...road, bandits: [{ x: 50.9, y: 50 }, { x: 53, y: 52 }] });
+    const p = human('witness', { x: 50.7, y: 50 }), n = npc({ x: 49, y: 50 }); activate(c, p, n);
+    n.health = 0; n.phase = 'respawning'; c.update(200, [p], [n]);
+    expect(c.snapshot().mobs[0]!.windup).toBeUndefined(); expect(c.update(2099, [p], [n]).damage).toEqual([]);
+    c.update(2100, [p], [n]); expect(c.snapshot().mobs[0]!.windup!.until).toBe(3000);
+  });
+
+  it.each([{ zone: 'interior:inn' }, { haloUntil: 9000 }, { respawnAt: 9000 }, { connected: false }, { watching: true }, { seatId: 'bench' }, { x: 24, y: 24 }, { lifeRevision: 1 }, { y: 52 }])('rechecks post-casualty protection, dodging and target life at impact %j', protection => {
+    const c = setup({ ...road, bandits: [{ x: 50.9, y: 50 }, { x: 53, y: 52 }] });
+    const p = human('witness', { x: 49, y: 50 }), n = npc({ x: 50.7, y: 50 }); activate(c, p, n);
+    c.update(2100, [p], [n]); Object.assign(p, { x: n.x, y: n.y }); n.health = 0; n.phase = 'respawning';
+    c.update(2200, [p], [n]); Object.assign(p, protection);
+    expect(c.update(3100, [p], [n]).damage.filter(hit => hit.targetId === p.id)).toEqual([]);
+    expect(c.snapshot().mobs).toHaveLength(2);
+  });
+
+  it('cancels post-casualty windups under live light and permits ordinary fenced counterattacks', () => {
+    const c = setup({ ...road, bandits: [{ x: 50.9, y: 50 }, { x: 53, y: 52 }] });
+    const p = human('witness', { x: 49, y: 50 }), n = npc({ x: 50.7, y: 50 }); activate(c, p, n);
+    c.update(2100, [p], [n]); Object.assign(p, { x: n.x, y: n.y }); n.health = 0; n.phase = 'respawning';
+    c.update(2200, [p], [n], { night: true }); const mob = c.snapshot().mobs[0]!; expect(mob.windup).toBeDefined();
+    Object.assign(p, { flashlightOn: true, flashlightBattery: 1, facing: 'right' });
+    expect(c.update(2300, [p], [n], { night: true }).damage).toEqual([]); expect(c.snapshot().mobs[0]!.windup).toBeUndefined();
+    const spend = swing(); expect(c.strike(p, mob.id, mob.lifeRevision + 1, 2400, spend).ok).toBe(false); expect(spend).not.toHaveBeenCalled();
+    expect(c.strike(p, mob.id, mob.lifeRevision, 2400, spend, 500).ok).toBe(true);
+    expect(c.snapshot().mobs[0]!.phase).toBe('defeated'); expect(c.pendingEvents().some(event => event.event === 'protected')).toBe(false);
+  });
+
+  it('does not acquire a nearby post-casualty target through a solid obstacle', () => {
+    const blocked = { ...world, map: { ...world.map, solids: [{ x: 51.4, y: 48, width: .2, height: 5 }] } };
+    const c = new LivingWorldController(blocked, { definition: road, sessionId: 'blocked-casualty' });
+    const p = human('witness', { x: 52.2, y: 51 }), n = npc({ x: 52.2, y: 50 }); activate(c, p, n);
+    c.update(2100, [p], [n]); expect(c.snapshot().mobs[0]!.windup).toBeDefined();
+    Object.assign(p, { x: 50.7, y: 50 }); n.health = 0; n.phase = 'respawning';
+    for (let now = 2200; now <= 8200; now += 100) {
+      expect(c.update(now, [p], [n]).damage).toEqual([]);
+      expect(c.snapshot().mobs.every(mob => mob.windup === undefined)).toBe(true);
+    }
+  });
+
+  it('ends post-casualty pursuit at six seconds, cancels an unfinished tell, and remains visible while returning', () => {
+    const c = setup(), { p, n } = activate(c); n.health = 0; n.phase = 'respawning';
+    c.update(1000, [], [n]);
+    const first = c.snapshot().mobs[0]!; Object.assign(p, { x: first.x - .8, y: first.y });
+    c.update(6500, [p], [n]); expect(c.snapshot().mobs[0]!.windup!.until).toBe(7400);
+    expect(c.update(7000, [p], [n]).damage).toEqual([]); expect(c.snapshot().mobs[0]!.windup).toBeUndefined();
+    expect(c.snapshot().encounters[0]!.phase).toBe('resetting'); expect(c.snapshot().mobs).toHaveLength(2);
+    for (let now = 7100; now <= 9000; now += 100) expect(c.update(now, [p], [n]).damage).toEqual([]);
+    expect(c.pendingEvents().filter(event => event.event === 'setback')).toHaveLength(1);
+  });
+
+  it('walks home from actual pursuit positions with eight spread humans and the shared route budget', () => {
+    const c = setup(), { p, n } = activate(c); n.health = 0; n.phase = 'respawning'; Object.assign(p, { x: 55, y: 50 });
+    const humans = [p, ...Array.from({ length: 7 }, (_, i) => human(`offscreen-${i}`, { x: 85 + i * 5, y: 60 + i * 5 }))];
+    let before = c.snapshot().mobs, farthest = 0;
+    for (let now = 1000; now <= 14000; now += 100) {
+      const budget = now % 200 ? 0 : 1;
+      const update = c.update(now, humans, [n], { pathSearchBudget: budget });
+      const after = c.snapshot().mobs; expect(after).toHaveLength(2);
+      after.forEach((mob, i) => { expect(distance(mob, before[i]!)).toBeLessThanOrEqual(.190001); expect(isHomeSegmentWalkable(before[i]!, mob, world.map)).toBe(true); expect(distance(mob, road.bandits[i]!)).toBeLessThanOrEqual(LIVING_WORLD_RULES.leashRadius); });
+      farthest = Math.max(farthest, distance(after[0]!, road.bandits[0]!));
+      expect(update.damage.every(hit => hit.targetId === p.id)).toBe(true);
+      expect(c.diagnostics().lastPathQueries).toBeLessThanOrEqual(budget); if (now >= 7000) expect(update.damage).toEqual([]);
+      before = after;
+    }
+    expect(farthest).toBeGreaterThan(.2); before.forEach((mob, i) => expect(distance(mob, road.bandits[i]!)).toBeLessThan(.1));
+    n.health = 100; n.phase = 'wander'; c.update(46000, humans, [n]);
+    expect(c.snapshot().rescue.phase).toBe('dormant'); expect(c.snapshot().mobs.every(mob => mob.lifeRevision === 1)).toBe(true);
+    expect(c.pendingEvents().filter(event => event.event === 'setback')).toHaveLength(1);
   });
 
   it.each([{ zone: 'interior:inn' }, { haloUntil: 9999 }, { respawnAt: 9999 }, { connected: false }, { watching: true }, { seatId: 'bench' }, { x: 24, y: 24 }])('rechecks safe eligibility at windup impact %j', protection => {

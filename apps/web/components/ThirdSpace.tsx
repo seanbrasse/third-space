@@ -177,6 +177,20 @@ export default function ThirdSpace() {
     connectGeneration = useRef(0),
     savedSession = useRef("");
   const gameFullscreen = useGameFullscreen(!!home);
+  const [shortLandscape, setShortLandscape] = useState(false);
+  const conversationCloser = useRef<() => void>(() => {});
+  useEffect(() => {
+    const query = window.matchMedia('(min-width:600px) and (max-width:850px) and (max-height:480px)');
+    const changed = () => {
+      // A rotation/fullscreen change must not dismiss an editor that owns focus.
+      if (query.matches && gameFullscreen.active && document.activeElement?.closest('.chat-panel') && isEditingTarget(document.activeElement)) conversationCloser.current();
+      setShortLandscape(query.matches);
+    };
+    changed(); query.addEventListener('change', changed);
+    return () => query.removeEventListener('change', changed);
+  }, [gameFullscreen.active]);
+  const compactConversation = shortLandscape && gameFullscreen.active && !!conversation && !modal && !storyOpen;
+  const chatVisible = chatOpen && !compactConversation, peopleVisible = peopleOpen && !compactConversation;
   const visitsRef = useRef<HomeVisit[]>([]), suggestedNameAssigned = useRef(false);
   const chatSubmissions = useRef(new ChatSubmissions()), draftRevision = useRef(0), draftRef = useRef(draft), chatComposing = useRef(false);
   draftRef.current = draft;
@@ -188,7 +202,7 @@ export default function ThirdSpace() {
     if (result.focus && bridge.transportConnected && !document.hidden) restoreGameFocus(result.owners);
   }
   usePanelGameFocus(!!modal, ".modal-backdrop");
-  usePanelGameFocus(chatOpen && prefs.panel, ".chat-panel", ".chat-panel .chat-heading");
+  usePanelGameFocus(chatVisible && prefs.panel, ".chat-panel", ".chat-panel .chat-heading");
   function changeAvatar(selected: Avatar) {
     setAvatar(selected);
     saveCustomization(browserStorage(), identityRef.current?.id ?? null, selected);
@@ -262,6 +276,8 @@ export default function ThirdSpace() {
   }
   function openStoryBoard(tab:NPCJournalTab='leads'){setStoryTab(tab);dismissStoryNotice();setStoryOpen(true);send({type:'story.read'});}
   function closeConversation(){if(conversation?.mode==='help')send({type:'npc.decline',npcId:`npc:${conversation.view.npcId}`});npcConversationSession.current.close();setConversation(null);setNpcPending(null);setNpcNotice('');}
+  conversationCloser.current = closeConversation;
+  function openRoomChat(){ if(compactConversation)closeConversation();setChatOpen(true); }
   function actOnNpc(offer:NPCActionOffer){
     if(!conversation||npcPendingRef.current||!livingRef.current)return;
     const commandId=id();setNpcNotice('');npcPendingRef.current={commandId,actionId:offer.actionId};setNpcPending(npcPendingRef.current);
@@ -326,7 +342,7 @@ export default function ThirdSpace() {
   prefsRef.current = prefs;
   homeRef.current = home;
   identityRef.current = identity;
-  chatOpenRef.current = chatOpen;
+  chatOpenRef.current = chatVisible;
   useEffect(() => {
     mounted.current=true;leaving.current=false;
     let disposed=false;
@@ -448,7 +464,7 @@ export default function ThirdSpace() {
       }
       if (prefs.panel && shouldOpenChatWithSlash(event, !!modal || connection !== "Connected" || !!document.querySelector('[aria-modal="true"]'))) {
         event.preventDefault();
-        setChatOpen(true);
+        openRoomChat();
         requestAnimationFrame(() => {
           if (bridge.transportConnected && prefsRef.current.panel && !document.querySelector('[aria-modal="true"]')) chatInput.current?.focus();
         });
@@ -456,7 +472,7 @@ export default function ThirdSpace() {
       }
       if (prefs.panel && shouldOpenChat(event, !!modal || connection !== "Connected")) {
         event.preventDefault();
-        setChatOpen(true);
+        openRoomChat();
         setTimeout(() => chatInput.current?.focus(), 0);
       }
     };
@@ -483,7 +499,7 @@ export default function ThirdSpace() {
       window.removeEventListener("orientationchange", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [home, modal, storyOpen, conversation, connection, prefs.panel, bridge, send]);
+  }, [home, modal, storyOpen, conversation, compactConversation, connection, prefs.panel, bridge, send]);
   useEffect(() => {
     if (modal === "board" && home) {
       void api<{ notes: Note[] }>(`/homes/${home.id}/board`)
@@ -1220,7 +1236,7 @@ export default function ThirdSpace() {
                 <div className="game-menu-actions">
                   <button data-close-game-menu="true" onClick={()=>{const button=gameFullscreen.ref.current?.querySelector<HTMLButtonElement>(".world-menu-toggle");if(button?.getAttribute("aria-expanded")!=="true")button?.click();}}>Worlds</button>
                   <button data-close-game-menu="true" disabled={race} onClick={()=>{const button=gameFullscreen.ref.current?.querySelector<HTMLButtonElement>(".navigation-map > button");if(button?.getAttribute("aria-expanded")!=="true")button?.click();}}>Map</button>
-                  <button data-close-game-menu="true" onClick={()=>{setPrefs(p=>({...p,panel:true}));setChatOpen(true);setUnread(0);}}>Chat</button>
+                  <button data-close-game-menu="true" onClick={()=>{setPrefs(p=>({...p,panel:true}));openRoomChat();setUnread(0);}}>Chat</button>
                   <button data-close-game-menu="true" onClick={()=>setModal("people")}>People</button>
                   <button data-close-game-menu="true" onClick={()=>setModal("settings")}>Settings</button>
                   {host && <button data-close-game-menu="true" onClick={()=>setModal("host")}>Host & invitations</button>}
@@ -1284,7 +1300,7 @@ export default function ThirdSpace() {
             </div>
           </section>
           <section className="play-area">
-            <div className={`world-shell ${race ? "race-view" : "home-view"} ${snapshot?.worldId==="forest"&&!race?"forest-view":""}`}>
+            <div className={`world-shell ${race ? "race-view" : "home-view"} ${snapshot?.worldId==="forest"&&!race?"forest-view":""} ${compactConversation?"compact-npc-conversation":""}`}>
               <WorldMenu snapshot={snapshot} send={send}/>
               <div className="world-topline">
                 <span>
@@ -1308,7 +1324,7 @@ export default function ThirdSpace() {
                   canAccuse={canDiscussStory} onAccuse={suspectId=>actOnStory({type:'story.accuse',suspectId})} pendingAccusationId={pendingStoryAction?.type==='story.accuse'?pendingStoryAction.targetId:null}/>
                 {!modal&&!storyOpen&&nearbyNpc&&!conversation&&bridge.transportConnected&&<button type="button" className="nearby-npc-prompt" onClick={()=>{send({type:'npc.interact',npcId:nearbyNpc.id});restoreGameFocus([document.activeElement]);}}><kbd>E</kbd> Talk to {nearbyNpc.name}</button>}
                 <NpcInteractionPanel open={!!conversation&&!modal&&!storyOpen} conversation={conversation?.view??null} npc={conversationNpc} inRange={conversationInRange} playerAlive={!!self&&!self.respawnAt} connected={bridge.transportConnected&&!!room.current?.connection?.isOpen}
-                  mode={conversation?.mode} pendingActionId={npcPending?.actionId} notice={npcNotice} serverTime={snapshot?.serverTime} onAction={actOnNpc} onClose={closeConversation} onOpenJournal={tab=>{npcConversationSession.current.close();setConversation(null);openStoryBoard(tab);}} onFocusGame={()=>restoreGameFocus([document.activeElement])}/>
+                  mode={conversation?.mode} pendingActionId={npcPending?.actionId} notice={compactConversation?[npcNotice,toast].filter(Boolean).join(' · '):npcNotice} serverTime={snapshot?.serverTime} onAction={actOnNpc} onClose={closeConversation} onOpenJournal={tab=>{npcConversationSession.current.close();setConversation(null);openStoryBoard(tab);}} onFocusGame={()=>restoreGameFocus([document.activeElement])}/>
                 {!race && survivalSelf && <SurvivalHUD player={survivalSelf} effects={self?.potionEffects} serverTime={snapshot?.serverTime} threatened={snapshot?.survival?.finishers?.some(t=>t.targetId===self?.id)} finishingTarget={finishingTarget?.name} onFinish={()=>{if(finishingTarget)send({type:"survival.finish",targetId:finishingTarget.id,targetLifeRevision:finishingTarget.respawnCount??0});}} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
                   const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
                   if(!player||!inventory?.equipped)return;
@@ -1368,14 +1384,14 @@ export default function ThirdSpace() {
                 </span>
               </div>
               <aside
-                className={`people-panel ${peopleOpen ? "open" : "collapsed"}`}
+                className={`people-panel ${peopleVisible ? "open" : "collapsed"}`}
                 aria-label="People and volume"
               >
                 <button
                   className="chat-heading"
-                  aria-expanded={peopleOpen}
+                  aria-expanded={peopleVisible}
                   aria-controls="corner-people"
-                  onClick={() => setPeopleOpen((open) => !open)}
+                  onClick={() => {if(compactConversation){closeConversation();setPeopleOpen(true);}else setPeopleOpen(open => !open);}}
                 >
                   <span>
                     ♬ People &amp; volume{" "}
@@ -1385,9 +1401,9 @@ export default function ThirdSpace() {
                       ).length || 0}
                     </b>
                   </span>
-                  <span>{peopleOpen ? "−" : "+"}</span>
+                  <span>{peopleVisible ? "−" : "+"}</span>
                 </button>
-                {peopleOpen && (
+                {peopleVisible && (
                   <div id="corner-people" className="corner-people">
                     <small>
                       Only affects what you hear. Game sounds and voice use independent volume controls.
@@ -1423,22 +1439,23 @@ export default function ThirdSpace() {
               </aside>
               {prefs.panel && (
                 <aside
-                  className={`chat-panel ${chatOpen ? "open" : "collapsed"}`}
+                  className={`chat-panel ${chatVisible ? "open" : "collapsed"}`}
                   aria-label="Room chat"
                 >
                   <button
                     className="chat-heading"
+                    aria-expanded={chatVisible}
                     onClick={() => {
-                      setChatOpen((v) => !v);
+                      if(compactConversation)openRoomChat();else setChatOpen(v => !v);
                       setUnread(0);
                     }}
                   >
                     <span>
                       ☏ Little conversations {unread > 0 && <b>{unread}</b>}
                     </span>
-                    <span>{chatOpen ? "−" : "+"}</span>
+                    <span>{chatVisible ? "−" : "+"}</span>
                   </button>
-                  {chatOpen && (
+                  {chatVisible && (
                     <>
                       <div
                         className="chat-messages"
@@ -2352,7 +2369,7 @@ export default function ThirdSpace() {
           <button onClick={() => setModal("portal")}>See results ↗</button>
         </div>
       )}
-      {toast && (
+      {toast && !compactConversation && (
         <div className="toast" role="status">
           {toast}
         </div>

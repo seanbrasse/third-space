@@ -95,6 +95,14 @@ describe('current, discovered NPC conversation guidance', () => {
     expect(view.chapter).toBe('wards');
   });
 
+  it('locates Morrow by the pond and sends recovering Mara visitors to town', () => {
+    expect(NPC_CONVERSATION_NEIGHBOURS['spirit-morrow']?.location).toMatch(/pond south of Bramblewick/);
+    for (const stage of ['endangered', 'escorting', 'recovering', 'complete'] as const) {
+      const lead = npcConversation({npcId:'washer-elsie', story:story(), rescue:{...rescue(true),stage}}).lead!;
+      expect(lead.location).toBe(stage==='recovering'||stage==='complete' ? 'Bramblewick, at the south end of town' : NPC_CONVERSATION_NEIGHBOURS['orchard-worker-mara']!.location);
+    }
+  });
+
   it('passes only matching recipient offers and relationships, preserving server prices and story access', () => {
     const offer: NPCActionOffer = { actionId: 'opaque', npcId: 'witch-tansy-reed', kind: 'trade', label: 'Buy speed potion', expiresAt: 50, appleCost: 7 };
     const relationship = { npcId: 'witch-tansy-reed', trust: -24, fear: 80, fearThreshold: 70, afraid: true, fearExpiresAt: 100, giftReadyAt: 0 };
