@@ -2,6 +2,16 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "public-updates",
+      "status": "published",
+      "date": "2026-10-01",
+      "dateKind": "release",
+      "title": "Follow Third Space updates",
+      "changes": [
+        "Open Updates in the footer to read what changed and when, including the earlier history."
+      ]
+    },
+    {
       "id": "living-world",
       "status": "published",
       "date": "2026-10-01",
@@ -332,16 +342,6 @@
       "title": "The first recorded prototype",
       "changes": [
         "Customize your character, make a private space, and spend time together with shared chat and activities."
-      ]
-    },
-    {
-      "id": "public-updates",
-      "status": "draft",
-      "date": null,
-      "dateKind": "release",
-      "title": "Follow Third Space updates",
-      "changes": [
-        "Open Updates in the footer to read what changed and when, including the earlier history."
       ]
     }
   ]

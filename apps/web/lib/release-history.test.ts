@@ -13,7 +13,11 @@ describe("public release history", () => {
     expect(publicEntries.map(entry => entry.id)).toContain("living-world");
     expect(publicEntries.map(entry => entry.id)).toContain("history-032");
     expect(publicEntries.at(-1)?.date).toBe("2026-09-30T21:29:55Z");
-    expect(JSON.stringify(publicEntries)).not.toMatch(/Follow Third Space updates|"status"|"draft"/);
+    expect(JSON.stringify(publicEntries)).not.toMatch(/"status"|"draft"/);
+    for (const draft of history.entries.filter(entry => entry.status === "draft")) {
+      expect(publicEntries.map(entry => entry.id)).not.toContain(draft.id);
+      expect(JSON.stringify(publicEntries)).not.toContain(draft.title);
+    }
   });
   it("handles an empty or entirely unpublished history", () => {
     expect(publishedReleases({ schemaVersion: 1, entries: [] })).toEqual([]);
