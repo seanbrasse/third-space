@@ -1,9 +1,12 @@
-import {ambienceSamples,fireAmbienceGain} from "./ambience";
+import { ForestAmbience } from "./forest-ambience";
+import {ambienceSamples} from "./ambience";
+import { RaceAudio } from "./race-audio";
 import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
 import type { WorldSoundEvent } from "@third-space/contracts";
 import type { Effect, Snapshot } from "./types";
 import { listenerGain } from "./person-volume";
 export class SoundboardAudio {
+  private race = new RaceAudio();
   private context: AudioContext | null = null;
   private environmentOutput: GainNode | null = null;
   private gameMuted = false;
@@ -49,31 +52,29 @@ export class SoundboardAudio {
       this.stepAt.set("werewolf",now);this.cue("werewolf-step",wolf.x,wolf.y,self,volume);
     }else if(wolf?.phase!=="chase")this.stepAt.delete("werewolf");
   }
-  private environment: {wind:AudioBufferSourceNode;fire:AudioBufferSourceNode;windGain:GainNode;fireGain:GainNode;filter:BiquadFilterNode;fireFilter:BiquadFilterNode} | null=null;
+  private forestAmbience: ForestAmbience | null = null;
+  private lastWorld: {snapshot:Snapshot|null;selfId:string;volume:number} | null = null;
+  private wasOutside = false;
   private lastEnvironmentAt=0;
   private howlBucket=0;
   private natureNodes=new Set<AudioBufferSourceNode>();
   setWorld(snapshot: Snapshot|null,selfId:string,volume:number){
+    this.lastWorld={snapshot,selfId,volume};
+    this.race.setWorld(this.context,snapshot,selfId,volume);
     this.movement(snapshot,selfId,volume);
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);
-    if(!ctx||ctx.state!=="running"||!self||self.mode!=="home"||snapshot?.worldId!=="forest"){
+    const outside=!!self&&self.connected&&self.mode==="home"&&!self.zone&&snapshot?.worldId==="forest";
+    if(ctx)this.forestAmbience??=new ForestAmbience(ctx,this.gameOutput(ctx));
+    if(!snapshot)this.forestAmbience?.clear();
+    else this.forestAmbience?.update({outside,x:self?.x??0,y:self?.y??0,volume});
+    if(!outside){
       for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
-      if(this.environment){this.environment.wind.stop();this.environment.fire.stop();this.environment.wind.disconnect();this.environment.fire.disconnect();this.environment.windGain.disconnect();this.environment.fireGain.disconnect();this.environment.filter.disconnect();this.environment.fireFilter.disconnect();this.environment=null;}return;
+      this.wasOutside=false;return;
     }
-    if(!this.environmentOutput){this.environmentOutput=ctx.createGain();this.environmentOutput.gain.value=this.gameMuted?0:1;this.environmentOutput.connect(ctx.destination);}
-    if(!this.environment){
-      const noise=(fire=false)=>{
-        const data=ambienceSamples(fire?'fire':'night',ctx.sampleRate),b=ctx.createBuffer(1,data.length,ctx.sampleRate);b.getChannelData(0).set(data);
-        const source=ctx.createBufferSource();source.buffer=b;source.loop=true;return source;
-      };
-      const wind=noise(),fire=noise(true),windGain=ctx.createGain(),fireGain=ctx.createGain(),filter=ctx.createBiquadFilter(),fireFilter=ctx.createBiquadFilter();
-      windGain.gain.value=0;fireGain.gain.value=0;
-      filter.type="lowpass";filter.frequency.value=6500;fireFilter.type="lowpass";fireFilter.frequency.value=4000;
-      wind.connect(windGain);windGain.connect(filter);filter.connect(this.environmentOutput!);fire.connect(fireFilter);fireFilter.connect(fireGain);fireGain.connect(this.environmentOutput!);
-      wind.start();fire.start();this.environment={wind,fire,windGain,fireGain,filter,fireFilter};this.howlBucket=Math.floor(snapshot.serverTime/95000);
-    }
+    if(!ctx||ctx.state!=="running")return;
+    if(!this.wasOutside){this.wasOutside=true;this.howlBucket=Math.floor(snapshot.serverTime/95000);}
     if(Date.now()-this.lastEnvironmentAt<200)return;this.lastEnvironmentAt=Date.now();
-    const level=Math.max(0,Math.min(1,volume));this.environment.windGain.gain.setTargetAtTime(level*.14,ctx.currentTime,.2);this.environment.fireGain.gain.setTargetAtTime(fireAmbienceGain(Math.hypot(self.x-24,self.y-24),level),ctx.currentTime,.15);
+    const level=Math.max(0,Math.min(1,volume));
     const bucket=Math.floor(snapshot.serverTime/95000);
     if(bucket!==this.howlBucket){this.howlBucket=bucket;if(level>0&&!this.gameMuted){const kind=bucket%3===0?'wolf':'owl',data=ambienceSamples(kind,ctx.sampleRate,bucket),buffer=ctx.createBuffer(1,data.length,ctx.sampleRate);buffer.getChannelData(0).set(data);const source=ctx.createBufferSource(),gain=ctx.createGain(),pan=ctx.createStereoPanner();source.buffer=buffer;gain.gain.value=level*(kind==='wolf'?.12:.08);pan.pan.value=kind==='wolf'?0:bucket%2?.65:-.65;source.connect(gain);gain.connect(pan);pan.connect(this.gameOutput(ctx));this.natureNodes.add(source);source.start();source.onended=()=>{this.natureNodes.delete(source);source.disconnect();gain.disconnect();pan.disconnect();};}}
 
@@ -94,6 +95,7 @@ export class SoundboardAudio {
     gameMuted = false,
   ) {
     this.gameMuted = gameMuted;
+    this.race.setMuted(gameMuted);
     if(this.environmentOutput)this.environmentOutput.gain.value=gameMuted?0:1;
     this.master = gameMuted ? 0 : master;
     this.personVolumes = personVolumes;
@@ -110,6 +112,7 @@ export class SoundboardAudio {
   async unlock() {
     this.context ??= new AudioContext();
     await this.context.resume();
+    if(this.lastWorld){const {snapshot,selfId,volume}=this.lastWorld;this.setWorld(snapshot,selfId,volume);}
   }
   play(effect: Effect, snapshot: Snapshot, selfId: string) {
     const context = this.context;
@@ -170,10 +173,12 @@ export class SoundboardAudio {
     }, 800);
   }
   dispose() {
+    this.forestAmbience?.dispose();this.forestAmbience=null;this.lastWorld=null;this.wasOutside=false;
+    for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
+    this.race.dispose();
     void this.context?.close();
     this.context = null;
     this.environmentOutput = null;
-    this.environment = null;
     this.active.clear();this.samples.clear();this.stepAt.clear();this.heard.clear();this.gameNodes=0;
   }
 }

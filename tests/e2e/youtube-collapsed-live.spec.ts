@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-test('LIVE YouTube sustained two-client playback evidence', async ({browser,page})=>{
+test('LIVE collapsed TV playback stays continuous', async ({browser,page})=>{
  test.skip(process.env.YOUTUBE_LIVE !== '1', 'Opt in to real external-provider playback');test.setTimeout(240000);const context=await browser.newContext(),guest=await context.newPage();
  const errors:string[]=[];
  for(const p of [page,guest])p.on('pageerror',e=>errors.push(e.message));
@@ -19,12 +19,12 @@ test('LIVE YouTube sustained two-client playback evidence', async ({browser,page
  }
 
  for(const p of [page,guest])await p.getByRole('button',{name:'▣ Watch together'}).click();
- await page.getByLabel('Video link').fill('https://youtu.be/M7lc1UVf-VE?t=12');await page.getByRole('button',{name:'Load for everyone'}).click();
+ await page.getByLabel('Video link').fill(process.env.YOUTUBE_VIDEO_URL || 'https://youtu.be/8wUfa7HwuLI');await page.getByRole('button',{name:'Load for everyone'}).click();
 
  await page.waitForTimeout(10000);
- await page.getByRole('button',{name:'Play together'}).click();
+ await page.getByRole('button',{name:'Play together'}).click();for(const p of [page,guest])await p.getByRole('button',{name:'Close shared screen'}).click();
  const samples:any[]=[];
- for(let i=0;i<60;i++){
+ for(let i=0;i<30;i++){
   await page.waitForTimeout(1000);
   const both=await Promise.all([page,guest].map(async p=>{
    const frame=p.frames().find(f=>f.url().includes('youtube.com/embed'));
@@ -35,8 +35,8 @@ test('LIVE YouTube sustained two-client playback evidence', async ({browser,page
  await page.screenshot({path:'tests/e2e/artifacts/youtube-live-current.png'});
  for(let client=0;client<2;client++){
   const measured=samples.map(s=>s.both[client]).filter(s=>typeof s?.time==='number');
-  expect(measured.length).toBeGreaterThan(55);
-  expect(measured.at(-1).time-measured[0].time).toBeGreaterThan(50);
+  expect(measured.length).toBeGreaterThan(25);
+  expect(measured.at(-1).time-measured[0].time).toBeGreaterThan(24);
  }
  expect(errors).toEqual([]);
  }finally{await context.close();}

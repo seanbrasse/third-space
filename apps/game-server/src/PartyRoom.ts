@@ -26,6 +26,7 @@ import {
   cancelSprint,
   stepRace,
   resetRacePlayer,
+  clearRaceBoosts,
   hasFinishedRace,
   respawnRacePlayer,
   overlapsPlayer,
@@ -61,6 +62,7 @@ export class PartyRoom extends Room {
   worldRevision = 0;
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
+  private areaCooldowns=new Map<string,number>();
   private indoorSpawnSeats=new Map<string,string>();
   private spawnSeats = new Map<string, string>();
   private acceptedWorldCommands = new Map<string,string>();
@@ -246,7 +248,7 @@ export class PartyRoom extends Room {
     )
       return;
     const player = this.players.get(id);
-    if (player) { player.connected = false; cancelSprint(player, Date.now()); }
+    if (player) { player.connected = false; cancelSprint(player, Date.now()); if(this.race.phase==="waiting")this.race.readyIds=this.race.readyIds.filter(pid=>pid!==id); }
     this.intents.delete(id);
     try {
       await this.allowReconnection(client, GAME_CONFIG.reconnectGraceMs / 1000);
@@ -290,13 +292,13 @@ export class PartyRoom extends Room {
 
   private removePresence(id: string) {
     const player = this.players.get(id);
-    if (player?.mode === "race" && !player.finishedAt)
+    if (player?.mode === "race" && !player.finishedAt && this.race.phase!=="waiting")
       this.recordDnf(player, "disconnected");
     this.clientsByUser.delete(id);
     this.players.delete(id);
     this.roles.delete(id);
     this.intents.delete(id);
-    this.spawnSeats.delete(id);this.indoorSpawnSeats.delete(id);
+    this.spawnSeats.delete(id);this.indoorSpawnSeats.delete(id);this.areaCooldowns.delete(id);
     if(this.worldProposal?.proposerId === id) this.worldProposal = null;
     const prefix = id + ":";
     for (const cache of [this.windows, this.cooldowns, this.chatAcks]) {
@@ -308,6 +310,8 @@ export class PartyRoom extends Room {
         this.proposals.delete(proposalId);
     }
     this.race.readyIds = this.race.readyIds.filter((value) => value !== id);
+    this.race.joinedIds=this.race.joinedIds?.filter(value=>value!==id);
+    this.startReadyLobby();
     if (this.hostId === id) this.hostId = null;
     this.chooseHost();
     this.checkRaceCompletion();
@@ -328,7 +332,7 @@ export class PartyRoom extends Room {
       if(seat)this.spawnSeats.set(excludeId,seat.id);
     }
     const occupied = [...this.players.values()].filter(
-      (player) => player.mode === "home" && player.id !== excludeId,
+      (player) => player.mode === "home" && !player.zone && player.id !== excludeId,
     );
     const safe = (point: { x: number; y: number }) =>
       point.x >= GAME_CONFIG.playerRadius &&
@@ -442,14 +446,7 @@ export class PartyRoom extends Room {
         if(entering===!!p.zone)break;
         const door=entering?ASYLUM_DOOR:{x:10,y:17.5};
         if(distance(p,door)>GAME_CONFIG.interactionDistance)return this.notice(client,"TOO_FAR","Walk to the doorway first.");
-        const zone=entering?"asylum":undefined;
-        const indoor=getWorld("asylum").map;
-        if(entering&&!this.indoorSpawnSeats.has(id)){const reserved=new Set(this.indoorSpawnSeats.values());const seat=indoor.seats.find(s=>s.id!=="charger-seat"&&!reserved.has(s.id));if(seat)this.indoorSpawnSeats.set(id,seat.id);}
-        const own=indoor.seats.find(s=>s.id===this.indoorSpawnSeats.get(id));
-        const candidates=entering?[...(own?[own]:[]),...indoor.spawns]:Array.from({length:8},(_,i)=>({x:67.5+i%4,y:13.5+Math.floor(i/4)}));
-        const spawn=candidates.find(s=>[...this.players.values()].every(o=>o.id===id||o.zone!==zone||distance(s,o)>.65));
-        if(!spawn)return this.notice(client,"DOOR_BUSY","The doorway is occupied. Try again.");
-        cancelSprint(p,Date.now());p.zone=zone;p.zoneRevision=(p.zoneRevision??0)+1;Object.assign(p,{x:spawn.x,y:spawn.y,vx:0,vy:0});delete p.seatId;if(entering&&own&&distance(own,spawn)<.01)p.seatId=own.id;delete p.roastingAt;this.intents.delete(id);this.sendSnapshots();break;
+        this.moveArea(p,entering,client);break;
       }
       case "flashlight": p.flashlightOn=command.enabled&&(p.flashlightBattery??1)>0; break;
       case "roast": {
@@ -731,6 +728,13 @@ export class PartyRoom extends Room {
           );
         break;
       case "race.ready": {
+        if(this.race.phase==="waiting") {
+          if(p.mode!=="race"||!this.race.joinedIds?.includes(id))return;
+          this.race.readyIds=this.race.readyIds.filter(pid=>pid!==id);
+          if(command.ready)this.race.readyIds.push(id);
+          this.startReadyLobby();this.sendSnapshots();break;
+        }
+        if(this.worldId==="forest")return this.notice(client,"TOO_FAR","Join the waiting lobby at the cabin first.");
         if(this.worldProposal) return this.notice(client,"WORLD_BUSY","Return to the campsite before starting Garden Dash.");
         if (p.mode !== "home" || this.race.phase !== "lobby")
           return this.notice(
@@ -751,18 +755,22 @@ export class PartyRoom extends Room {
       }
       case "race.enter": {
         if(p.mode!=="home"||p.zone||this.worldId!=="forest"||distance(p,CAMP_RACE_DOOR)>GAME_CONFIG.interactionDistance)return this.notice(client,"TOO_FAR","Walk to the cabin door to start racing.");
-        const now=Date.now();
-        if(!["lobby","countdown"].includes(this.race.phase)||(this.race.phase==="countdown"&&now>=this.race.startAt))return this.notice(client,"RACE_ACTIVE","This race has started. Join the next one.");
+        if(this.worldProposal)return this.notice(client,"WORLD_BUSY","Finish the world countdown first.");
+        if(!["lobby","waiting"].includes(this.race.phase))return this.notice(client,"RACE_ACTIVE","This race has started. Join the next one.");
         if(!this.cooled(id,"race.enter",5000))return;
-        if(this.race.phase==="lobby")this.startRace([id]);
-        else if(!this.race.readyIds.includes(id)){
-          this.race.readyIds.push(id);cancelSprint(p,now);
-          this.players.set(id,resetRacePlayer(p));this.intents.delete(id);
-          client.send("transition",{mode:"race",instanceId:this.race.id});
+        if(this.race.phase==="lobby") {
+          this.race={id:randomUUID(),phase:"waiting",startAt:0,endAt:0,joinedIds:[],readyIds:[],results:[]};
+          this.chats.race=[];
         }
+        this.race.joinedIds=[...(this.race.joinedIds??[]),id];
+        cancelSprint(p,Date.now());delete p.roastingAt;
+        this.players.set(id,resetRacePlayer(p));this.intents.delete(id);
+        client.send("transition",{mode:"race",instanceId:this.race.id});
         this.sendSnapshots();break;
       }
+
       case "race.start": {
+        if(this.worldId==="forest"){this.startReadyLobby();break;}
         if(this.worldProposal) return this.notice(client,"WORLD_BUSY","Finish the world change first.");
         if (id !== this.hostId)
           return this.notice(
@@ -792,19 +800,21 @@ export class PartyRoom extends Room {
       }
       case "race.return": {
         if (p.mode !== "race") break;
-        if (!p.finishedAt && this.race.phase !== "results")
+        if (!p.finishedAt && this.race.phase !== "results" && this.race.phase!=="waiting")
           this.recordDnf(p, "returned");
         const spawn = this.findHomeSpawn(id);
         p.mode = "home";
         p.x = spawn.x;
         p.y = spawn.y;
         p.vx = p.vy = 0;
+        Object.assign(p, clearRaceBoosts(p));
         delete p.finishedAt;
         this.intents.delete(id);
         client.send("transition", {
           mode: "home",
           instanceId: this.homeId + ":home",
         });
+        if(this.race.phase==="waiting"){this.race.joinedIds=this.race.joinedIds?.filter(pid=>pid!==id);this.race.readyIds=this.race.readyIds.filter(pid=>pid!==id);this.startReadyLobby();}
         this.checkRaceCompletion();
         if (![...this.players.values()].some((v) => v.mode === "race"))
           this.race = {
@@ -822,6 +832,28 @@ export class PartyRoom extends Room {
     }
   }
 
+  private moveArea(p:PlayerState,entering:boolean,client?:Client) {
+    const id=p.id;
+    if(Date.now()<(this.areaCooldowns.get(id)??0))return;
+    const zone=entering?"asylum":undefined;
+        const indoor=getWorld("asylum").map;
+        if(entering&&!this.indoorSpawnSeats.has(id)){const reserved=new Set(this.indoorSpawnSeats.values());const seat=indoor.seats.find(s=>s.id!=="charger-seat"&&!reserved.has(s.id));if(seat)this.indoorSpawnSeats.set(id,seat.id);}
+        const own=indoor.seats.find(s=>s.id===this.indoorSpawnSeats.get(id));
+        const candidates=entering?[...(own?[own]:[]),...indoor.spawns]:Array.from({length:8},(_,i)=>({x:69+(i%3-1)*.8,y:15.3+Math.floor(i/3)*.8}));
+        const map=getWorld(zone??this.worldId).map;
+        const spawn=candidates.find(s=>!map.solids.some(solid=>overlapsPlayer(s,solid))&&[...this.players.values()].every(o=>o.id===id||o.mode!=="home"||o.zone!==zone||distance(s,o)>.65));
+        if(!spawn){if(client)this.notice(client,"DOOR_BUSY","The doorway is occupied. Try again.");return;}
+        cancelSprint(p,Date.now());p.zone=zone;p.zoneRevision=(p.zoneRevision??0)+1;Object.assign(p,{x:spawn.x,y:spawn.y,vx:0,vy:0});delete p.seatId;if(entering&&own&&distance(own,spawn)<.01)p.seatId=own.id;delete p.roastingAt;this.intents.delete(id);this.areaCooldowns.set(id,Date.now()+1500);this.sendSnapshots();
+  }
+  private startReadyLobby() {
+    if(this.race.phase!=="waiting")return;
+    const joined=this.race.joinedIds??[];
+    if(!joined.length){this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,joinedIds:[],readyIds:[],results:[]};return;}
+    if(!joined.every(id=>this.players.get(id)?.connected&&this.race.readyIds.includes(id)))return;
+    const now=Date.now();this.race.phase="countdown";this.race.startAt=now+3000;this.race.endAt=now+123000;
+    // Discard waiting input so a held jump cannot launch the countdown start.
+    for(const id of joined)this.intents.delete(id);
+  }
   private startRace(ready:string[]) {
         const now = Date.now();
         this.race = {
@@ -829,6 +861,7 @@ export class PartyRoom extends Room {
           phase: "countdown",
           startAt: now + 3000,
           endAt: now + 123000,
+          joinedIds:ready,
           readyIds: ready,
           results: [],
         };
@@ -854,6 +887,7 @@ export class PartyRoom extends Room {
     this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
     const map=getWorld(worldId).map;
     // Includes grace-reserved avatars; reconnect never restores the old map.
+    for (const p of this.players.values()) Object.assign(p, clearRaceBoosts(p));
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
     sorted.forEach((p,i)=>{cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.respawnAt;});
     this.intents.clear();
@@ -881,7 +915,11 @@ export class PartyRoom extends Room {
         if(p.connected&&getWorld(p.zone??this.worldId).dark){
           Object.assign(p,stepFlashlight({flashlightBattery:p.flashlightBattery??1,flashlightOn:p.flashlightOn??false},dt));
         }
-        if (!p.seatId) this.players.set(id, stepHome(p, input, dt, this.mapFor(p), now-dt*1000));
+        if (!p.seatId) {
+          const next=stepHome(p,input,dt,this.mapFor(p),now-dt*1000);this.players.set(id,next);
+          const door=next.zone?{x:10,y:17.5}:ASYLUM_DOOR;
+          if(this.worldId==="forest"&&!this.worldProposal&&next.connected&&!next.respawnAt&&distance(next,door)<.65&&Math.hypot(next.vx,next.vy)>.05)this.moveArea(next,!next.zone);
+        }
 
       } else if (
         this.race.phase === "running" &&
@@ -891,6 +929,7 @@ export class PartyRoom extends Room {
         const next = stepRace(p, input, dt);
         this.players.set(id, next);
         if (hasFinishedRace(next)) {
+          Object.assign(next, clearRaceBoosts(next));
           next.finishedAt = now;
           this.race.results.push({
             playerId: id,
@@ -987,6 +1026,9 @@ export class PartyRoom extends Room {
     for (const [id, client] of this.clientsByUser) {
       const p = this.players.get(id);
       if (!p) continue;
+      const waitingBridge=this.race.phase==="waiting"&&!p.zone;
+      const instanceId=p.mode==="home"?this.homeId+":home:"+this.worldRevision+":"+(p.zone??"outside")+":"+(p.zoneRevision??0):this.race.id;
+      const voiceScope={instanceId:waitingBridge?this.homeId+":waiting:"+this.race.id:instanceId,mode:waitingBridge?"room" as const:this.voiceModes[p.mode],participantIds:[...this.players.values()].filter(v=>v.connected&&(waitingBridge?!v.zone&&(v.mode==="home"||this.race.joinedIds?.includes(v.id)):v.mode===p.mode&&v.zone===p.zone)).map(v=>v.id)};
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
@@ -997,7 +1039,7 @@ export class PartyRoom extends Room {
         serverTime: now,
         members:[...this.players.values()],
         players: [...this.players.values()].filter((v) => v.mode === p.mode&&v.zone===p.zone),
-        voiceMode: this.voiceModes[p.mode],
+        voiceMode: voiceScope.mode,voiceScope,
         hostId: this.hostId,
         soundboardEnabled: this.soundboardEnabled,
         chat: this.chats[p.mode],

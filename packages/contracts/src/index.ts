@@ -77,6 +77,12 @@ export interface PlayerState {
   coyoteTime?: number;
   jumpBuffer?: number;
   respawnTimer?: number;
+  raceSpeedBoostSeconds?: number;
+  raceJumpBoostSeconds?: number;
+  racePickupIds?: string[];
+  raceJumpCount?: number;
+  raceDeathCount?: number;
+  racePickupCount?: number;
 }
 
 export const InputSchema = z
@@ -189,9 +195,10 @@ export interface RaceResult {
 }
 export interface RaceState {
   id: string;
-  phase: "lobby" | "countdown" | "running" | "results";
+  phase: "lobby" | "waiting" | "countdown" | "running" | "results";
   startAt: number;
   endAt: number;
+  joinedIds?: string[];
   readyIds: string[];
   results: RaceResult[];
 }
@@ -214,6 +221,7 @@ export interface RoomSnapshot {
   members?: PlayerState[];
   players: PlayerState[];
   voiceMode: VoiceMode;
+  voiceScope?: { instanceId: string; participantIds: string[]; mode: VoiceMode };
   hostId: string | null;
   soundboardEnabled: boolean;
   chat: ChatMessage[];
