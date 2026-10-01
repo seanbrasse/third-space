@@ -1,4 +1,5 @@
 import { ForestAmbience } from "./forest-ambience";
+import { AsylumAmbience, asylumAudioLocation } from "./asylum-ambience";
 import {ambienceSamples} from "./ambience";
 import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
 import type { WorldSoundEvent } from "@third-space/contracts";
@@ -51,6 +52,7 @@ export class SoundboardAudio {
     }else if(wolf?.phase!=="chase")this.stepAt.delete("werewolf");
   }
   private forestAmbience: ForestAmbience | null = null;
+  private asylumAmbience: AsylumAmbience | null = null;
   private lastWorld: {snapshot:Snapshot|null;selfId:string;volume:number} | null = null;
   private wasOutside = false;
   private lastEnvironmentAt=0;
@@ -64,6 +66,9 @@ export class SoundboardAudio {
     if(ctx)this.forestAmbience??=new ForestAmbience(ctx,this.gameOutput(ctx));
     if(!snapshot)this.forestAmbience?.clear();
     else this.forestAmbience?.update({outside,x:self?.x??0,y:self?.y??0,volume});
+    const indoor = asylumAudioLocation(snapshot,selfId,volume);
+    if(ctx&&indoor.inside)this.asylumAmbience??=new AsylumAmbience(ctx,this.gameOutput(ctx));
+    this.asylumAmbience?.update(indoor);
     if(!outside){
       for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
       this.wasOutside=false;return;
@@ -169,6 +174,7 @@ export class SoundboardAudio {
     }, 800);
   }
   dispose() {
+    this.asylumAmbience?.dispose();this.asylumAmbience=null;
     this.forestAmbience?.dispose();this.forestAmbience=null;this.lastWorld=null;this.wasOutside=false;
     for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
     void this.context?.close();

@@ -10,7 +10,7 @@ function fixture() {
         state: AudioContextState = 'running'; sampleRate = 8000; currentTime = 1; destination = {};
         resume = vi.fn(async () => { this.state = 'running'; }); close = vi.fn(async () => {});
         createGain() { const g = { ...node(), gain: { value: 0, cancelScheduledValues: vi.fn(), setTargetAtTime: vi.fn() } }; gains.push(g); return g; }
-        createBiquadFilter() { return { ...node(), frequency: { value: 0 } }; }
+        createBiquadFilter() { return { ...node(), frequency: { value: 0 }, Q: { value: 0 } }; }
         createStereoPanner() { return { ...node(), pan: { value: 0 } }; }
         createBuffer(_: number, length: number) { const data = new Float32Array(length), b = { getChannelData: () => data }; buffers.push(b); return b; }
         createBufferSource() { const s = { ...node(), start: vi.fn(), stop: vi.fn(), onended: null as (() => void) | null, loop: false, buffer: null }; sources.push(s); return s; }
@@ -77,7 +77,8 @@ describe('continuous bounded forest ambience', () => {
             audio.setWorld(changed, 'self', 1);
             expect(gains[1].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, .045);
             expect(gains[2].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, .045);
-            audio.setWorld(snapshot, 'self', 1); expect(sources).toHaveLength(2);
+            audio.setWorld(snapshot, 'self', 1);
+            for (const source of sources.slice(0,2)) { expect(source.start).toHaveBeenCalledTimes(1); expect(source.stop).not.toHaveBeenCalled(); }
         }
         audio.setMix(1, {}, new Set(), true); expect(gains[0].gain.value).toBe(0);
         audio.setMix(1, {}, new Set(), false); expect(gains[0].gain.value).toBe(1);
