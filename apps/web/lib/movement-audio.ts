@@ -21,5 +21,12 @@ export function movementAudioCues(snapshot: Snapshot, selfId: string, muted: Rea
         const distance = target ? Math.hypot(state.x - target.x, state.y - target.y) : 10;
         cues.push({ id, kind, x: state.x, y: state.y, interval: stride(distance), own: false });
     }
+    const mimic = snapshot.mimic;
+    if (mimic && (mimic.phase === "approach" || mimic.phase === "chase")) {
+        const target = snapshot.players.find(p => p.id === mimic.targetId);
+        const d = target ? Math.hypot(mimic.x - target.x, mimic.y - target.y) : 10;
+        cues.push({ id: "mimic", kind: mimic.phase === "approach" ? "player-step" : "mimic-step", x: mimic.x, y: mimic.y,
+            interval: mimic.phase === "approach" ? 700 : werewolfStepInterval(d), own: false });
+    }
     return cues;
 }

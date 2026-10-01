@@ -16,4 +16,12 @@ describe('room-owned original clown greeting',()=>{
   e.update(40001,[p]);expect(e.state!.greeting).toEqual(greeting);expect(e.drainSounds()).toEqual([]);
   p.zone='asylum';const b=createPlayer('b','Friend');b.x=37;b.y=18;b.connected=true;e.update(41000,[p,b]);expect(e.state!.greeting).toEqual(greeting);
  });
+ it('pairs even a quiet perimeter greeting with exactly one initial giggle',()=>{
+  const w=getWorld('forest'),world={...w,map:{...w.map,furniture:[{id:'tree',kind:'tree' as const,footprint:{x:34,y:12,width:2,height:3},collider:null,usePoints:[],seats:[]}]}};
+  const e=new ForestEncounter(world,()=>.9);
+  // Authority fixture exercises the same private spawn path without waiting five minutes.
+  (e as any).spawn({x:34,y:15},'tree','camper','perimeter',1000);
+  expect(e.state!.greeting!.shownAt).toBe(1000);expect(e.drainSounds().map(x=>x.kind)).toEqual(['giggle']);expect(e.drainSounds()).toEqual([]);
+ });
+
 });

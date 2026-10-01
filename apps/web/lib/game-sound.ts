@@ -1,18 +1,20 @@
+import { mimicSoundSamples, type MimicSoundKind } from "./mimic-sound";
 import { catchStingSamples, type CatchStingKind } from "./catch-sting";
 import { werewolfSoundSamples, type WerewolfSoundKind } from "./werewolf-sound";
-export type GameSoundKind = 'player-step' | 'clown-step' | 'giggle' | 'slash' | WerewolfSoundKind | CatchStingKind;
+export type GameSoundKind = 'player-step' | 'clown-step' | 'giggle' | 'slash' | WerewolfSoundKind | CatchStingKind | MimicSoundKind;
 /** Short game cues sit below conversation; smooth falloff has a hard hearing cutoff. */
 export function gameSoundGain(kind: GameSoundKind, distance: number, volume: number) {
-    const approach = kind === 'clown-step' || kind === 'werewolf-step';
+    const approach = kind === 'clown-step' || kind === 'werewolf-step' || kind === 'mimic-step';
     const range = kind === 'player-step' ? 8 : kind === 'howl' ? 32 : approach ? 16 : 12;
-    const level = { 'player-step': .07, 'clown-step': .24, giggle: .075, slash: .24, howl: .20, growl: .18, claw: .24, 'werewolf-step': .22, 'clown-scare': .12, 'werewolf-scare': .12 }[kind];
+    const level = { 'player-step': .07, 'clown-step': .24, giggle: .075, slash: .24, howl: .20, growl: .18, claw: .24, 'werewolf-step': .22, 'clown-scare': .16, 'werewolf-scare': .16, 'mimic-scare': .16, 'mimic-step': .24, 'mimic-roar': .18, 'mimic-hit': .24 }[kind];
     return level * Math.max(0, Math.min(1, volume)) * Math.pow(Math.max(0, 1 - Math.max(0, distance) / range), approach ? 1.4 : 2);
 }
 export function clownStepInterval(distanceToTarget: number) { return 520 - 300 * Math.max(0, Math.min(1, 1 - distanceToTarget / 8)); }
 export function werewolfStepInterval(distanceToTarget: number) { return 320 - 160 * Math.max(0, Math.min(1, 1 - distanceToTarget / 10)); }
 /** Cached original procedural samples: dull soft steps, heavy boot crunch, giggle and knife swish/impact. */
 export function gameSoundSamples(kind: GameSoundKind, sampleRate: number) {
-    if (kind === "clown-scare" || kind === "werewolf-scare") return catchStingSamples(kind, sampleRate);
+    if (kind === "mimic-step" || kind === "mimic-roar" || kind === "mimic-hit") return mimicSoundSamples(kind, sampleRate);
+    if (kind === "clown-scare" || kind === "werewolf-scare" || kind === "mimic-scare") return catchStingSamples(kind, sampleRate);
     if (kind === 'howl' || kind === 'growl' || kind === 'claw' || kind === 'werewolf-step') return werewolfSoundSamples(kind, sampleRate);
     const duration = kind === 'giggle' ? .8 : kind === 'slash' ? .3 : kind === 'clown-step' ? .21 : .11, a = new Float32Array(Math.ceil(sampleRate * duration));
     let brown = 0;

@@ -96,7 +96,10 @@ export class ForestEncounter {
     }
     private spawn(point: Point, coverId: string, targetId: string, intent: "hunt" | "perimeter", now: number) {
         this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.behavior ? { kind: this.behavior.kind } : this.random() < .45 ? { giggleAt: now } : {}) };
-        if (!this.behavior) this.state.greeting = chooseClownGreeting(this.state.id, coverId, now);
+        if (!this.behavior) {
+            this.state.greeting = chooseClownGreeting(this.state.id, coverId, now);
+            this.state.giggleAt = now; // every initial greeting has one positional cue
+        }
         this.lastMove = now;
         this.lastPath = 0;
         this.caughtIds.clear();

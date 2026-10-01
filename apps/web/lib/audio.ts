@@ -31,7 +31,7 @@ export class SoundboardAudio {
       ||(event.epoch!==undefined&&event.epoch!==snapshot.epoch)
       ||(event.worldRevision!==undefined&&event.worldRevision!==snapshot.worldRevision))return;
     this.heard.add(event.id);if(this.heard.size>256)this.heard.delete(this.heard.values().next().value!);
-    const self=snapshot.players.find(p=>p.id===selfId);if(!self||!self.connected||self.mode!=="home"||self.zone||(snapshot.worldId!=="forest"&&["howl","growl","claw"].includes(event.kind)))return;
+    const self=snapshot.players.find(p=>p.id===selfId);if(!self||!self.connected||self.mode!=="home"||self.zone||(snapshot.worldId!=="forest"&&["howl","growl","claw","mimic-roar","mimic-hit"].includes(event.kind)))return;
     // The victim hears the impact at full personal game level, before their respawn.
     this.cue(event.kind,event.x,event.y,event.victimId===selfId?event:self,volume);
     const sting=catchStingKind(event,selfId,snapshot.serverTime,reducedMotion);
@@ -42,7 +42,7 @@ export class SoundboardAudio {
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);if(!ctx||ctx.state!=="running"||!snapshot||!self)return;
     if(this.soundInstance!==snapshot.instanceId){this.soundInstance=snapshot.instanceId;this.stepAt.clear();}
     const now=snapshot.serverTime;
-    const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");live.add("werewolf");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
+    const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");live.add("werewolf");live.add("mimic");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
     const cues=movementAudioCues(snapshot,selfId,this.muted);
     const moving=new Set(cues.map(cue=>cue.id));
     for(const id of this.stepAt.keys())if(!moving.has(id))this.stepAt.delete(id);

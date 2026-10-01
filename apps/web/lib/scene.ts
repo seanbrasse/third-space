@@ -1,3 +1,5 @@
+import { mimicSpriteCanvas } from "./mimic-art";
+import { mimicPresentation } from "./mimic-presentation";
 import { chatTextMetrics } from "./chat-presentation";
 import { darknessFill } from "./forest-visibility";
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
@@ -72,6 +74,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private stalkerSprite: Phaser.GameObjects.Image | null = null;
     private stalkerId="";
     private clownGreeting: Phaser.GameObjects.Text | null = null;
+    private mimicAvatar: Phaser.GameObjects.Image | null = null;
+    private mimicMonster: Phaser.GameObjects.Image | null = null;
     private werewolfSprite: Phaser.GameObjects.Image | null = null;
     private werewolfId="";
     private werewolfFeet: Point | null = null;
@@ -218,7 +222,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.racePresentation = null;
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
-      this.stalkerSprite=null;this.stalkerId="";this.clownGreeting=null;
+      this.stalkerSprite=null;this.stalkerId="";this.clownGreeting=null;this.mimicAvatar=null;this.mimicMonster=null;
       this.werewolfSprite=null;this.werewolfId="";this.werewolfFeet=null;this.werewolfLeapTell=null;
       this.pathTorches=[];
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
@@ -345,6 +349,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.mapObjects.push(this.stalkerSprite);
         this.clownGreeting=this.add.text(0,0,"",{fontFamily:"system-ui,sans-serif",fontSize:"13px",color:"#f1e6d4",backgroundColor:"#251b25",align:"center",padding:{x:8,y:5},wordWrap:{width:164,useAdvancedWrap:true}}).setOrigin(.5,1).setScrollFactor(0).setDepth(1900).setVisible(false);
         this.mapObjects.push(this.clownGreeting);
+        this.mimicAvatar=this.add.image(0,0,this.stalkerSprite.texture.key).setOrigin(.5,.96).setScale(AVATAR_SCALE).setVisible(false);
+        this.mimicMonster=this.add.image(0,0,this.texture("forest-mimic-0",mimicSpriteCanvas(0))).setOrigin(.5,.98).setScale(32*AVATAR_SCALE/38).setVisible(false);
+        for(let i=1;i<4;i++)this.texture("forest-mimic-"+i,mimicSpriteCanvas(i));
+        this.mapObjects.push(this.mimicAvatar,this.mimicMonster);
         this.werewolfSprite=this.add.image(0,0,this.texture("forest-werewolf-0",werewolfSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<6;i++)this.texture("forest-werewolf-"+i,werewolfSpriteCanvas(i));
         this.mapObjects.push(this.werewolfSprite);
@@ -600,6 +608,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!key) {
         if(this.textureIds.size>=256){
           const visible=new Set([...this.nodes.values()].map(node=>node.texture));
+          if(this.mimicAvatar?.visible)visible.add(this.mimicAvatar.texture.key);
           for(const [signature,key] of this.textureIds){
             if(!visible.has(key)){this.textures.remove(key);this.textureIds.delete(signature);}
             if(this.textureIds.size<=192)break;
@@ -906,6 +915,21 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         if(this.forest)camera.centerOn(cameraFollowX(localNode.sprite.x,this.map.width*TILE,vw),cameraFollowX(localNode.sprite.y,this.map.height*TILE,vh));
         this.lightForest(time,{...self,x:localNode.sprite.x/TILE,y:localNode.sprite.y/TILE},snapshot.players);
       }
+      const mimic=this.forest?snapshot.mimic:null;
+      if(this.mimicAvatar&&this.mimicMonster){
+        const avatar=this.mimicAvatar,monster=this.mimicMonster;
+        avatar.setVisible(!!mimic);monster.setVisible(!!mimic);
+        if(mimic){
+          const presentation=mimicPresentation(mimic,snapshot.serverTime,bridge.reducedMotion);
+          const target=snapshot.players.find(p=>p.id===mimic.targetId),dx=(target?.x??mimic.x)-mimic.x,dy=(target?.y??mimic.y)-mimic.y;
+          const facing=Math.abs(dx)>Math.abs(dy)?dx<0?"left":"right":dy<0?"up":"down";
+          // A cosmetic node never enters players/names/roster or receives an input identity.
+          const visual={...snapshot.players[0]!,avatar:mimic.disguise,facing,seatId:undefined} as Player;
+          avatar.setTexture(this.avatarTexture(visual,bridge.reducedMotion?0:Math.floor(snapshot.serverTime/250)%2));
+          avatar.setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.1).setAlpha(presentation.avatarAlpha*(mimic.phase==="retreat"?Math.max(0,(mimic.phaseUntil-snapshot.serverTime)/900):1));
+          monster.setTexture("forest-mimic-"+presentation.frame).setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.2).setAlpha(presentation.monsterAlpha).setRotation(presentation.rotation);
+        }
+      }
       const wolf=this.forest?snapshot.werewolf:null;
       if(this.werewolfSprite){
         const sprite=this.werewolfSprite,tell=this.werewolfLeapTell;
@@ -1007,6 +1031,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         haloVisible: String((self?.haloUntil??0)>snapshot.serverTime),
         stalkerId: snapshot.stalker?.id??"",
         werewolfId: snapshot.werewolf?.id??"",
+        mimicId: snapshot.mimic?.id??"",
+        mimicPhase: snapshot.mimic?.phase??"",
+        mimicDisguiseAlpha: String(this.mimicAvatar?.alpha??0),
+        mimicMonsterAlpha: String(this.mimicMonster?.alpha??0),
         werewolfPhase: snapshot.werewolf?.phase??"",
         stalkerPhase: snapshot.stalker?.phase??"",
         clownGreeting: this.clownGreeting?.visible?this.clownGreeting.text:"",

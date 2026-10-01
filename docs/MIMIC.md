@@ -1,0 +1,11 @@
+# Forest mimic
+
+One room-owned mimic can disguise itself using a captured human avatar appearance. It has no roster/chat/session identity and cannot occupy a human seat or room slot. The visual stays stable if the source changes appearance or disconnects.
+
+It checks for a spawn roughly every two minutes, approaches calmly from nearby cover, then holds still for a 1.6-second transformation warning within 3.2 tiles. The transformed creature is a taller original dark silhouette with overlong arms, a crooked jaw and a faster, uneven pursuit. A morph roar and heavier positional steps use the existing game-sound bus. Fire, asylum, race, disconnected and respawn-protected players remain safe. Retargeting gives a fresh warning. Retreat reserves the encounter for 15 seconds; only one clown, wolf or mimic can be active, including hidden retreat reservations.
+
+The shared catch presentation now has a faster closeup (first surge in 54 ms), then a forceful snatch/fall silhouette and finite blackout. There is no gore or strobe. Reduced motion removes the lunge, jolt and grasp; the short accent stays on the independent game-mute/effects controls. Every initial clown greeting now has one positional giggle, including perimeter encounters; there is no speech synthesis.
+
+Checks: 392 unit/integration tests pass, including a real two-client HTTP/Colyseus test for shared disguise/morph, single live roar, tab replacement without replay, victim and nearby catch impacts, respawn halo, and no additional roster member. Full types and production build pass. Actual Phaser scene rendering checks all mimic phases at desktop/mobile DPR 2; actual React component checks all three creature closeups, reduced motion, replay protection and finite completion. Real Chrome clown greeting/chase/catch/respawn plus chat DPR1/DPR2 regression passes.
+
+The mimic rendering fixture supplies snapshots; it is not evidence of a randomly occurring browser/network encounter. Spawn/navigation/protection policies are exercised through authority tests, with real sockets testing morph/catch/reconnect. The animation clip is a silent browser recording; physical speaker mix and physical-phone testing remain unverified. Native voice transport is still unconfigured.
