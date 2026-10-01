@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 afterEach(() => { room.onDispose(); room.clock.clear(); store.close(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function send(sprint: boolean, extra = {}) {
-  command(client, { type: "input", input: { seq: ++seq, axisX: 0, axisY: 0, jump: false, sprint, ...extra } });
+  command(client, { type: "input", input: { seq: ++seq, axisX: 1, axisY: 0, jump: false, sprint, ...extra } });
 }
 function advance(ms: number, held = false) {
   for (let elapsed = 0; elapsed < ms; elapsed += 50) {
@@ -37,78 +37,38 @@ function advance(ms: number, held = false) {
     tick(50);
   }
 }
-describe("real room sprint authority", () => {
-  it("distinguishes rapid release/repress from held packets without a sampled neutral frame", () => {
-    send(true, { sprintPress: 1 });
-    advance(6_600);
-    send(true, { sprintPress: 1 });
-    expect(room.players.get(id)!.sprintUntil).toBe(1_001_500);
-    send(true, { sprintPress: 2 });
-    expect(room.players.get(id)!.sprintUntil).toBe(Date.now() + 1_500);
-    send(true, { sprintPress: 3 }); // spent charge: consume the denied edge
-    const until = room.players.get(id)!.sprintUntil;
-    advance(6_600);
-    send(true, { sprintPress: 3 });
-    expect(room.players.get(id)!.sprintUntil).toBe(until);
-    send(true, { sprintPress: 4 });
-    expect(room.players.get(id)!.sprintUntil).toBe(Date.now() + 1_500);
+describe("real room hold sprint authority", () => {
+  it("integrates hold rather than packet count, releases with reserve and rejects forged resource",()=>{
+    const p=room.players.get(id)!;p.x=24;p.y=24;
+    send(true,{axisX:1});advance(500,true);
+    const reserve=room.players.get(id)!.stamina!;expect(reserve).toBeLessThan(1);expect(reserve).toBeGreaterThan(.8);
+    send(false);advance(100);expect(room.players.get(id)!.stamina).toBeCloseTo(reserve);
+    send(true,{axisX:1,stamina:1});advance(100);expect(room.players.get(id)!.stamina).toBeCloseTo(reserve);
+    send(true,{axisX:1});advance(100);expect(room.players.get(id)!.stamina!).toBeLessThan(reserve);
   });
-  it("accepts one boost per press; held Space never retriggers when recharge completes", () => {
-    send(true);
-    const until = room.players.get(id)!.sprintUntil;
-    expect(until).toBe(1_001_500);
-    advance(6_600, true);
-    expect(room.players.get(id)!.sprintUntil).toBe(until);
-    send(false); send(true);
-    expect(room.players.get(id)!.sprintUntil).toBe(Date.now() + 1_500);
+  it("input.stop and stale intent stop sprint; drop/reconnect preserves reserve",async()=>{
+    room.players.get(id)!.x=24;room.players.get(id)!.y=24;
+    send(true,{axisX:1});advance(100);
+    const reserve=room.players.get(id)!.stamina;
+    command(client,{type:"input.stop"});advance(100);expect(room.players.get(id)!.sprinting).toBe(false);expect(room.players.get(id)!.stamina).toBeCloseTo(reserve!);
+    vi.spyOn(room,"allowReconnection").mockResolvedValue(client);await room.onDrop(client);advance(1000);
+    expect(room.players.get(id)!.stamina).toBeCloseTo(reserve!);room.onReconnect(client);expect(room.players.get(id)!.stamina).toBeCloseTo(reserve!);
   });
-  it("rejects forged speed/timing packets and stale world/zone/life inputs", () => {
-    for (const extra of [{ speed: 100 }, { sprintUntil: Date.now() + 100_000 }, { dt: 10 }]) send(true, extra);
-    expect(room.players.get(id)!.sprintUntil).toBeUndefined();
-    for (const stale of [{ worldRevision: 1 }, { zoneRevision: 1 }, { lifeRevision: 1 }])
-      command(client, { type: "input", ...stale, input: { seq: ++seq, axisX: 1, axisY: 0, jump: false, sprint: true } });
-    expect(room.players.get(id)!.sprintUntil).toBeUndefined();
-    send(true);
-    expect(room.players.get(id)!.sprintUntil).toBe(Date.now() + 1_500);
+  it("keeps two human reserves independent in the same authoritative room",()=>{
+    const other=store.createIdentity({name:"Second runner"}).profile.id;
+    const second={sessionId:"second-sprint",send:vi.fn(),leave:vi.fn()} as unknown as Client;
+    store.joinHome(room.homeId,other,{pin:"123456"});
+    second.auth=room.onAuth(second,{homeId:room.homeId,ticket:store.issueTicket(room.homeId,other).ticket});room.onJoin(second,{});
+    delete room.players.get(other)!.seatId;room.players.get(id)!.x=24;room.players.get(id)!.y=24;
+    send(true,{axisX:1});advance(100);
+    expect(room.players.get(id)!.stamina!).toBeLessThan(1);expect(room.players.get(other)!.stamina??1).toBe(1);
+    command(second,{type:"input",input:{seq:1,axisX:0,axisY:1,jump:false,sprint:true}});advance(50);
+    expect(room.players.get(other)!.stamina!).toBeLessThan(1);
   });
-  it("blocks seated boosts and verifies authority speed against normal movement", () => {
-    let p = room.players.get(id)!;
-    p.seatId = "test-seat"; send(true);
-    expect(p.sprintUntil).toBeUndefined();
-    delete p.seatId; send(false); send(true);
-    // Clear forest spawn corridor, away from colliders.
-    p.x = 24; p.y = 24;
-    command(client, { type: "input", input: { seq: ++seq, axisX: 1, axisY: 0, jump: false, sprint: true } });
-    const x = p.x; advance(100);
-    p = room.players.get(id)!;
-    expect(p.vx).toBeCloseTo(GAME_CONFIG.homeSpeed * 1.6);
-    // Fixed-timestep accumulation may retain one floating-point boundary tick.
-    expect(p.x - x).toBeGreaterThan(GAME_CONFIG.homeSpeed * 1.6 * .08);
-    expect(p.x - x).toBeLessThanOrEqual(GAME_CONFIG.homeSpeed * 1.6 * .1 + 1e-8);
-  });
-  it("cancels active boost on world change without gifting a full charge", () => {
-    send(true); advance(1_000);
-    const authority = room as unknown as { changeWorld: (world: "forest" | "living-room") => void };
-    authority.changeWorld("living-room");
-    const p = room.players.get(id)!;
-    expect(p.sprintUntil).toBe(Date.now());
-    expect(p.sprintReadyAt).toBe(Date.now() + 5_000);
-    send(true);
-    expect(p.sprintReadyAt).toBe(Date.now() + 5_000);
-  });
-  it("preserves spent charge during transport drop and reconnect", async () => {
-    send(true); advance(1_000);
-    vi.spyOn(room, "allowReconnection").mockResolvedValue(client);
-    await room.onDrop(client);
-    const p = room.players.get(id)!;
-    expect(p.connected).toBe(false);
-    expect(p.sprintUntil).toBe(Date.now());
-    const readyAt = p.sprintReadyAt;
-    room.onReconnect(client);
-    expect(p.connected).toBe(true);
-    expect(p.sprintReadyAt).toBe(readyAt);
-    send(true);
-    expect(p.sprintReadyAt).toBe(readyAt);
+  it("walking velocity uses shared prediction and never accepts input speed",()=>{
+    const p=room.players.get(id)!;p.x=24;p.y=24;
+    send(true,{axisX:1,speed:100});advance(50);expect(room.players.get(id)!.stamina??1).toBe(1);
+    send(true,{axisX:1});advance(100);expect(room.players.get(id)!.vx).toBeCloseTo(GAME_CONFIG.homeSpeed*1.6);
   });
 });
 

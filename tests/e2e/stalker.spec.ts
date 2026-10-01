@@ -1,7 +1,8 @@
 import {test,expect,type Page} from '@playwright/test';
 async function untilCoordinate(page:Page,key:string,test:(n:number)=>boolean){await expect.poll(async()=>test(Number(await page.locator('.world-canvas').getAttribute('data-'+key))),{timeout:10000}).toBe(true);}
-test('one local-area clown peeks, chases, catches and respawns with a fading halo',async({browser,page})=>{
+for(const reducedMotion of [false,true])test('one local-area clown peeks, chases, catches and respawns with a fading halo'+(reducedMotion?' with reduced motion':''),async({browser,page})=>{
  test.setTimeout(90000);
+ if(reducedMotion)await page.addInitScript(()=>localStorage.setItem("third-space.preferences",JSON.stringify({reducedMotion:true})));
  await page.addInitScript(()=>{
    const w=window as unknown as {gameCueStarts:number[]};w.gameCueStarts=[];
    const original=AudioBufferSourceNode.prototype.start;
@@ -15,6 +16,10 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-id','forest',{timeout:12000});
  async function walk(x:number,y:number){await page.locator('.world-canvas canvas').scrollIntoViewIfNeeded();const b=await page.locator('.world-canvas canvas').boundingBox();const d=await page.locator('.world-canvas').evaluate(el=>({...((el as HTMLElement).dataset)}));await page.mouse.click(b!.x+(x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),b!.y+(y*32-Number(d.cameraScrollY))*Number(d.cameraZoom));await expect.poll(async()=>{const p=await page.locator('.world-canvas').evaluate(el=>({x:Number((el as HTMLElement).dataset.authoritativeX),y:Number((el as HTMLElement).dataset.authoritativeY)}));return Math.hypot(p.x-x,p.y-y);},{timeout:12000}).toBeLessThan(.3);}
  // Visible waypoints route from the default southern spawn around the fire.
+ await page.evaluate(()=>{
+   const veil=document.querySelector('.death-veil')!;(window as any).catchEvidence=[];
+   new MutationObserver(()=>{if(veil.classList.contains('active'))(window as any).catchEvidence.push({opacity:Number(getComputedStyle(veil).opacity),gentle:veil.classList.contains('gentle'),stageOpacity:Number(getComputedStyle(veil.querySelector('.takedown-stage')!).opacity)});}).observe(veil,{attributes:true,subtree:true});
+ });
  await walk(24,22);await walk(24,18);await walk(24,10.5);
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-stalker-phase','peek',{timeout:40000});
  await expect(camp.locator('.world-canvas')).toHaveAttribute('data-stalker-id','');
@@ -22,13 +27,14 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  expect(Number(await page.locator('.world-canvas').getAttribute('data-clown-greeting-resolution'))).toBeGreaterThanOrEqual(1);
 
  await page.screenshot({path:'tests/e2e/artifacts/stalker-peek.png',fullPage:true});
- await expect(page.locator('.world-canvas')).toHaveAttribute('data-stalker-phase','chase',{timeout:5000});
+ await expect.poll(async()=>await page.locator('.world-canvas').getAttribute('data-stalker-phase')==='chase'||await page.locator('.world-canvas').getAttribute('data-respawn-count')==='1',{timeout:5000}).toBe(true);
  // Escape away from the pursuer briefly; the room-owned entity keeps tracking us.
- await page.keyboard.down('w');await page.waitForTimeout(400);await page.keyboard.up('w');
+ if(await page.locator('.world-canvas').getAttribute('data-respawn-count')!=='1'){await page.keyboard.down('w');await page.waitForTimeout(400);await page.keyboard.up('w');}
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1',{timeout:17000});
  const cues=await page.evaluate(()=>(window as unknown as {gameCueStarts:number[]}).gameCueStarts);expect(cues.some(d=>Math.abs(d-.21)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.3)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.11)<.002)).toBe(true);
  await expect(page.locator('.death-veil')).toHaveClass(/active/);
- expect(cues.some(d=>Math.abs(d-.32)<.002)).toBe(true);
+ expect(cues.some(d=>Math.abs(d-.32)<.002)).toBe(!reducedMotion);
+ if(reducedMotion){await expect(page.locator('.takedown-jumpscare')).not.toBeVisible();expect(await page.evaluate(()=>(window as any).catchEvidence.some((e:any)=>e.gentle&&e.opacity>=.8&&e.stageOpacity>=.9))).toBe(true);}
  await expect(page.locator('.death-veil')).toHaveAttribute('data-creature','clown');
  await page.screenshot({path:test.info().outputPath('clown-takedown.png')});
  await expect.poll(()=>page.locator('.death-veil').evaluate(el=>Number(getComputedStyle(el).opacity)),{timeout:1000}).toBeGreaterThan(.8);

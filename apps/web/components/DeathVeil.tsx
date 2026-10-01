@@ -57,6 +57,7 @@ export default function DeathVeil({ caughtAt, caughtBy, avatar, victimId, server
         .takedown-veil.active.shock:not(.gentle) .takedown-jolt{animation:takedown-jolt 170ms linear both;animation-delay:var(--takedown-delay)}
         .takedown-stage{position:absolute;left:50%;top:50%;width:min(360px,90vw);height:240px;transform:translate(-50%,-50%);opacity:0}
         .takedown-veil.active .takedown-stage{animation:takedown-stage 1800ms linear both;animation-delay:var(--takedown-delay)}
+        .takedown-veil.gentle.active{opacity:.88;animation:none!important}
         .takedown-veil.gentle.active .takedown-stage{animation:none;opacity:1}
         .takedown-veil.gentle .takedown-jumpscare,.takedown-veil.gentle .takedown-grasp{display:none}
         .takedown-player{position:absolute;left:52%;top:46px;width:72px;height:96px;image-rendering:pixelated;transform-origin:50% 92%}
@@ -75,7 +76,7 @@ export default function DeathVeil({ caughtAt, caughtBy, avatar, victimId, server
         @keyframes takedown-lunge{0%{opacity:1;transform:translate(-50%,-44%) scale(.72)}3%{opacity:1;transform:translate(-50%,-50%) scale(1.20)}17%{opacity:1;transform:translate(-50%,-50%) scale(1.24)}22%,100%{opacity:0;transform:translate(-50%,-50%) scale(1.18)}}
         @keyframes takedown-jolt{0%{transform:translate(0,0)}22%{transform:translate(-8px,3px) rotate(-.7deg)}48%{transform:translate(6px,-2px) rotate(.5deg)}74%{transform:translate(-3px,1px)}100%{transform:translate(0,0)}}
         @keyframes takedown-stage{0%,20%{opacity:0}24%,65%{opacity:1}78%,100%{opacity:0}}
-        @media(prefers-reduced-motion:reduce){.takedown-veil .takedown-jumpscare,.takedown-veil .takedown-grasp{display:none!important}.takedown-veil.active .takedown-stage{animation:none!important;opacity:1}.takedown-veil.active{animation-name:forest-respawn-fade!important}.takedown-veil.active .takedown-player,.takedown-veil.active .takedown-attacker{animation:none!important}}
+        @media(prefers-reduced-motion:reduce){.takedown-veil .takedown-jumpscare,.takedown-veil .takedown-grasp{display:none!important}.takedown-veil.active .takedown-stage{animation:none!important;opacity:1}.takedown-veil.active{opacity:.88!important;animation:none!important}.takedown-veil.active .takedown-player,.takedown-veil.active .takedown-attacker{animation:none!important}}
       `}</style>
     </div>;
 }

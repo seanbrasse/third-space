@@ -24,7 +24,6 @@ import {
 import {
   createPlayer,
   stepHome,
-  requestSprint,
   cancelSprint,
   stepRace,
   resetRacePlayer,
@@ -511,7 +510,7 @@ export class PartyRoom extends Room {
         this.acceptedMediaCommands.add(key); if(this.acceptedMediaCommands.size>256)this.acceptedMediaCommands.delete(this.acceptedMediaCommands.values().next().value!);
         this.sendSnapshots(); break;
       }
-      case "input.stop": { const seq=this.intents.get(id)?.value.seq??p.lastInputSeq;this.intents.set(id,{value:neutral(seq),receivedAt:Date.now()});p.vx=p.vy=0;break;}
+      case "input.stop": { const seq=this.intents.get(id)?.value.seq??p.lastInputSeq;this.intents.set(id,{value:neutral(seq),receivedAt:Date.now()});p.vx=p.vy=0;cancelSprint(p,Date.now());break;}
       case "input": {
         if(command.zoneRevision!==undefined && command.zoneRevision!==(p.zoneRevision??0))return;
         if(command.worldRevision!==undefined && command.worldRevision!==this.worldRevision)return;
@@ -530,17 +529,7 @@ export class PartyRoom extends Room {
           const state = this.idlePresence.get(id); if (state) recordActivity(state, now);
         }
         if(command.input.axisX||command.input.axisY){delete p.seatId;delete p.roastingAt;}
-        // Packets carry only intent. Charge, duration and speed come from authority.
-        if (command.input.sprint) {
-          const press = command.input.sprintPress;
-          const fresh = press === undefined ? !this.intents.get(id)?.value.sprint :
-            press > (p.lastSprintPress ?? 0) && press <= (p.lastSprintPress ?? 0) + 10_000;
-          if (fresh) {
-            // Consume even a denied tap: holding during refill never rearms it.
-            if (press !== undefined) p.lastSprintPress = press;
-            Object.assign(p, requestSprint(p, now));
-          }
-        }
+        // Hold intent is integrated by stepHome; packets cannot refill or extend stamina.
         // Acknowledge accepted input even when seated or race physics is frozen.
         p.lastInputSeq = command.input.seq;
         this.intents.set(id, { value: command.input, receivedAt: now });
@@ -947,6 +936,7 @@ export class PartyRoom extends Room {
         if(p.connected&&getWorld(p.zone??this.worldId).dark){
           Object.assign(p,stepFlashlight({flashlightBattery:p.flashlightBattery??1,flashlightOn:p.flashlightOn??false},dt));
         }
+        if (p.seatId) Object.assign(p, stepHome(p, neutral(p.lastInputSeq), dt, this.mapFor(p), now-dt*1000));
         if (!p.seatId) {
           const next=stepHome(p,input,dt,this.mapFor(p),now-dt*1000);this.players.set(id,next);
           const door=next.zone?{x:10,y:17.5}:ASYLUM_DOOR;

@@ -73,6 +73,12 @@ export interface PlayerState {
   seatId?: string;
   grounded?: boolean;
   jumpHeld?: boolean;
+  stamina?: number;
+  sprinting?: boolean;
+  sprintRecoverAfter?: number;
+  sprintExhaustedUntil?: number;
+  sprintNeedsRelease?: boolean;
+  /** Legacy snapshots; no longer drive sprint physics. */
   sprintUntil?: number;
   sprintReadyAt?: number;
   lastSprintPress?: number;

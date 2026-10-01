@@ -1,3 +1,4 @@
+import {gameAction} from "./menu-actions";
 import { test, expect, type Page } from "@playwright/test";
 
 async function create(page: Page) {
@@ -34,61 +35,53 @@ async function still(page: Page, keys: string[]) {
 test("arrows/WASD after button focus; typing/modal/Space activation remain accessible", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   await create(page);
-  const map = page.getByRole("button", { name: "Toggle map" });
-  await map.click();
+  const map = page.locator(".game-menu-toggle");
   const scroll = await page.evaluate(() => window.scrollY);
   for (const key of ["ArrowRight", "ArrowLeft", "d", "a", "ArrowDown", "ArrowUp", "s", "w"]) {
     await map.focus(); await move(page, key);
   }
   expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
-  const until = await page.locator(".world-canvas").getAttribute("data-sprint-until");
+  const until = await page.locator(".world-canvas").getAttribute("data-stamina");
   await map.focus(); const expanded = await map.getAttribute("aria-expanded"); await page.keyboard.press("Space");
   await expect(map).toHaveAttribute("aria-expanded", expanded === "true" ? "false" : "true");
-  expect(await page.locator(".world-canvas").getAttribute("data-sprint-until")).toBe(until);
+  expect(await page.locator(".world-canvas").getAttribute("data-stamina")).toBe(until);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".world-canvas")).toBeFocused();
   await map.focus(); await page.keyboard.press("Enter");
-  await expect(map).toBeFocused();
+  await expect(page.getByRole("dialog",{name:"Game menu",exact:true})).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".world-canvas")).toBeFocused();
   await page.locator(".world-canvas").focus(); await page.keyboard.press("Enter");
   const chat = page.getByPlaceholder("Say something nice…");
   await expect(chat).toBeFocused();
   await still(page, ["w", "a", "s", "d", "ArrowRight", "ArrowLeft", "Space"]);
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await gameAction(page,()=>page.locator(".game-menu-panel").getByRole("button", { name: "Settings", exact: true }).click());
   await still(page, ["ArrowRight", "d", "Space"]);
   await page.keyboard.press("Escape");
   await map.focus(); await move(page, "ArrowRight");
   expect(errors).toEqual([]);
 });
-test("Space boost drains for1.5s, refills5s, repeat/hold cannot restart; blur clears held keys", async ({ page }) => {
-  await create(page);
-  const world = page.locator(".world-canvas"), stamina = page.locator(".stamina-hud");
-  await world.focus();await move(page,"ArrowDown"); const scroll = await page.evaluate(() => window.scrollY); await page.keyboard.down("Space");
-  await expect(stamina).toHaveAttribute("data-phase", "boosting");
-  expect(await page.evaluate(() => window.scrollY)).toBe(scroll);
-  const until = await world.getAttribute("data-sprint-until");
-  await page.keyboard.down("Space"); // repeated keydown while physically held
-  await expect(stamina).toHaveAttribute("data-phase", "refilling", { timeout: 2500 });
-  await expect(stamina).toHaveAttribute("data-phase", "ready", { timeout: 6000 });
-  expect(await world.getAttribute("data-sprint-until")).toBe(until);
-  await page.keyboard.up("Space"); await page.keyboard.press("Space");
-  await expect(stamina).toHaveAttribute("data-phase", "boosting");
-  expect(await world.getAttribute("data-sprint-until")).not.toBe(until);
-  await page.keyboard.down("d"); await page.waitForTimeout(120);
-  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await page.waitForTimeout(120); const stopped = await position(page);
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.waitForTimeout(200);
-  expect((await position(page)).x).toBeCloseTo(stopped.x, 2);
-  await page.keyboard.up("d"); await move(page, "a");
-  await page.reload();
-  await expect(page.locator(".connection")).toHaveText("Connected");
-  await expect(stamina).toHaveAttribute("data-phase", "refilling", { timeout: 5000 });
+test("hold Space preserves partial charge and blur releases sprint", async ({ page }) => {
+  await create(page);const world=page.locator(".world-canvas");await world.focus();
+  await page.keyboard.down("ArrowDown");await page.keyboard.down("Space");
+  await expect.poll(async()=>Number(await world.getAttribute("data-stamina"))).toBeLessThan(.9);
+  await page.keyboard.up("Space");await page.keyboard.up("ArrowDown");
+  await expect(world).toHaveAttribute("data-sprinting","false");
+  const remaining=Number(await world.getAttribute("data-stamina"));await page.waitForTimeout(150);
+  expect(Number(await world.getAttribute("data-stamina"))).toBeGreaterThanOrEqual(remaining-.03);
+  await page.keyboard.down("ArrowDown");await page.keyboard.down("Space");
+  await expect(world).toHaveAttribute("data-sprinting","true");
+  await page.evaluate(()=>window.dispatchEvent(new Event("blur")));await page.waitForTimeout(120);
+  await expect(world).toHaveAttribute("data-sprinting","false");
+  await page.keyboard.up("Space");await page.keyboard.up("ArrowDown");
 });
 for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 650 }, { width: 390, height: 844 }, { width: 320, height: 600 }]) {
   test("map/instructions and stamina fit " + size.width + "x" + size.height, async ({ page }) => {
     await page.setViewportSize(size); await create(page);
     const map = page.getByRole("button", { name: "Toggle map" });
     const instructions = page.locator(".world-topline>span").nth(1);
-    const a = await map.boundingBox(), b = await instructions.boundingBox();
+    const a = await page.locator(".game-menu-toggle").boundingBox(), b = await instructions.boundingBox();
     expect(a && b).toBeTruthy();
     expect(b!.height).toBeLessThan(60);
     expect(a!.x >= b!.x + b!.width - 1 || b!.x >= a!.x + a!.width - 1 ||
@@ -103,7 +96,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1366, height: 650 }, 
     expect(box!.width).toBeGreaterThan(40);
     expect(box!.x).toBeGreaterThanOrEqual(0);
     expect(box!.x + box!.width).toBeLessThanOrEqual(size.width);
-    await map.click(); const card = await page.locator(".map-card").boundingBox();
+    await gameAction(page,()=>page.getByRole("button",{name:"Map",exact:true}).click()); const card = await page.locator(".map-card").boundingBox();
     expect(card!.x).toBeGreaterThanOrEqual(0);
     expect(card!.x + card!.width).toBeLessThanOrEqual(size.width);
     await page.screenshot({ path: "tests/e2e/artifacts/movement-" + size.width + "x" + size.height + ".png", fullPage: true });
