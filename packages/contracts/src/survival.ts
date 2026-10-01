@@ -4,7 +4,10 @@ export interface SurvivalPlayer {
     id: string;
     health: number;
     hunger: number;
-    equipped: SurvivalItem;
+    equipped: SurvivalItem | null;
+    /** Stable acquisition order; empty slots can be selected to put an item away. */
+    slots: (SurvivalItem | null)[];
+    selectedSlot: number;
     apples: number;
     knifeId?: string;
 }

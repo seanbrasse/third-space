@@ -49,7 +49,7 @@ export type SurvivalResult = {
     ok: false;
     reason: string;
 };
-export const SURVIVAL = { maxActiveBackpacks: 2, backpackReplacementMs: 30000, appleCapacity: 5, appleHunger: 25, harvestRange: 1.8, pickupRange: 1.5, attackRange: 1.4, attackDamage: 30, attackCooldownMs: 800, treeRecoveryMs: 45000, hungerPerSecond: 1 / 12, starvationPerSecond: 1, eventLifetimeMs: 3000 } as const;
+export const SURVIVAL = { maxActiveBackpacks: 2, backpackReplacementMs: 30000, slotCapacity: 5, appleCapacity: 5, appleHunger: 25, harvestRange: 1.8, pickupRange: 1.5, attackRange: 1.4, attackDamage: 30, attackCooldownMs: 800, treeRecoveryMs: 45000, hungerPerSecond: 1 / 12, starvationPerSecond: 1, eventLifetimeMs: 3000 } as const;
 const distance = (a: {
     x: number;
     y: number;
@@ -71,9 +71,9 @@ export class SurvivalInventory {
     private commandClaims = new Map<string, Map<string, number>>();
     constructor(private options: SurvivalOptions) { this.trees = options.trees.map(t => ({ ...t, readyAt: 0 })); }
     ensure(id: string) { let p = this.players.get(id); if (!p) {
-        p = { id, health: 100, hunger: 75, equipped: 'flashlight', apples: 0 };
+        p = { id, health: 100, hunger: 75, equipped: 'flashlight', slots: ['flashlight', null, null, null, null], selectedSlot: 0, apples: 0 };
         this.players.set(id, p);
-    } return { ...p }; }
+    } return { ...p, slots: [...p.slots] }; }
     /** Apply after life/zone/world validation. Deduplicates transport replay throughout reconnect grace. */
     acceptCommand(id: string, commandId: string, now: number): boolean {
         if (!this.players.has(id) || !commandId || commandId.length > 160) return false;
@@ -108,19 +108,36 @@ export class SurvivalInventory {
             }
         }
     } this.events = this.events.filter(e => now - e.at < SURVIVAL.eventLifetimeMs); this.replenish(now); return deaths; }
-    equip(id: string, item: SurvivalItem): SurvivalResult { const p = this.players.get(id); if (!p)
-        return { ok: false, reason: 'Player unavailable' }; if (item === 'knife' && !p.knifeId || item === 'apple' && !p.apples)
-        return { ok: false, reason: 'Item unavailable' }; p.equipped = item; return { ok: true, deaths: [] }; }
+    selectSlot(id: string, slot: number): SurvivalResult {
+        const p = this.players.get(id);
+        if (!p || !Number.isInteger(slot) || slot < 0 || slot >= SURVIVAL.slotCapacity)
+            return { ok: false, reason: 'Slot unavailable' };
+        p.selectedSlot = slot; p.equipped = p.slots[slot] ?? null;
+        return { ok: true, deaths: [] };
+    }
+    equip(id: string, item: SurvivalItem): SurvivalResult {
+        const p = this.players.get(id), slot = p?.slots.indexOf(item) ?? -1;
+        if (slot < 0) return { ok: false, reason: 'Item unavailable' };
+        return this.selectSlot(id, slot);
+    }
+    private canStore(p: SurvivalPlayer, item: SurvivalItem) { return p.slots.includes(item) || p.slots.includes(null); }
+    private store(p: SurvivalPlayer, item: SurvivalItem) {
+        if (!p.slots.includes(item)) p.slots[p.slots.indexOf(null)] = item;
+        p.equipped = p.slots[p.selectedSlot] ?? null;
+    }
+    private clearItem(p: SurvivalPlayer, item: SurvivalItem) {
+        const slot = p.slots.indexOf(item); if (slot >= 0) p.slots[slot] = null;
+        p.equipped = p.slots[p.selectedSlot] ?? null;
+    }
     harvest(a: SurvivalActor, treeId: string, now: number): SurvivalResult { const p = this.players.get(a.id), t = this.trees.find(t => t.id === treeId); if (!p || !t || !this.active(a, now) || distance(a, t) > SURVIVAL.harvestRange || !this.options.lineOfSight(a, t))
-        return { ok: false, reason: 'Walk closer to the apple tree' }; if (p.apples >= SURVIVAL.appleCapacity)
+        return { ok: false, reason: 'Walk closer to the apple tree' }; if (!this.canStore(p, 'apple')) return { ok: false, reason: 'Inventory full' }; if (p.apples >= SURVIVAL.appleCapacity)
         return { ok: false, reason: 'Apple pocket full' }; if (t.readyAt > now)
-        return { ok: false, reason: 'Apples are still growing' }; t.readyAt = now + SURVIVAL.treeRecoveryMs; p.apples++; this.event('harvest', a.id, now); return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Apples are still growing' }; t.readyAt = now + SURVIVAL.treeRecoveryMs; p.apples++; this.store(p, 'apple'); this.event('harvest', a.id, now); return { ok: true, deaths: [] }; }
     eat(a: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id); if (!p || !a.connected || a.mode !== 'home' || a.respawnAt || !p.apples)
         return { ok: false, reason: 'No apple to eat' }; if (p.hunger >= 100)
-        return { ok: false, reason: 'Already full' }; p.apples--; p.hunger = Math.min(100, p.hunger + SURVIVAL.appleHunger); if (!p.apples && p.equipped === 'apple')
-        p.equipped = 'flashlight'; this.event('eat', a.id, now); return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Already full' }; p.apples--; p.hunger = Math.min(100, p.hunger + SURVIVAL.appleHunger); if (!p.apples) this.clearItem(p, 'apple'); this.event('eat', a.id, now); return { ok: true, deaths: [] }; }
     pickup(a: SurvivalActor, id: string, now: number): SurvivalResult { const p = this.players.get(a.id), i = this.backpacks.findIndex(b => b.id === id), b = this.backpacks[i]; if (!p || !b || p.knifeId || !this.active(a, now) || distance(a, b) > SURVIVAL.pickupRange || !this.options.lineOfSight(a, b))
-        return { ok: false, reason: 'Backpack unavailable or too far away' }; this.backpacks.splice(i, 1); this.nextSpawnAt = Math.max(this.nextSpawnAt, now + SURVIVAL.backpackReplacementMs); p.knifeId = b.id; this.event('pickup', a.id, now); return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Backpack unavailable or too far away' }; if (!this.canStore(p, 'knife')) return { ok: false, reason: 'Inventory full' }; this.backpacks.splice(i, 1); this.nextSpawnAt = Math.max(this.nextSpawnAt, now + SURVIVAL.backpackReplacementMs); p.knifeId = b.id; this.store(p, 'knife'); this.event('pickup', a.id, now); return { ok: true, deaths: [] }; }
     attack(a: SurvivalActor, b: SurvivalActor, now: number): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!this.pvpEnabled || !p || !target || p.equipped !== 'knife' || !p.knifeId || a.id === b.id || !this.active(a, now) || !this.active(b, now) || a.seatId || b.seatId || this.options.safe(a) || this.options.safe(b) || p.health <= 0 || target.health <= 0)
         return { ok: false, reason: 'Players are safe here' }; if (now - (this.attackAt.get(a.id) ?? -Infinity) < SURVIVAL.attackCooldownMs)
         return { ok: false, reason: 'Knife is recovering' }; if (distance(a, b) > SURVIVAL.attackRange || !this.options.lineOfSight(a, b))
@@ -130,16 +147,16 @@ export class SurvivalInventory {
     grantApples(id: string, amount: number, claimId: string): SurvivalResult { const p = this.players.get(id); if (!p || !Number.isInteger(amount) || amount < 1 || amount > SURVIVAL.appleCapacity || !claimId || claimId.length > 160)
         return { ok: false, reason: 'Invalid reward' }; if (this.rewardClaims.has(claimId))
         return { ok: false, reason: 'Reward already claimed' }; if (this.rewardClaims.size >= 4096)
-        return { ok: false, reason: 'Reward ledger full' }; if (p.apples + amount > SURVIVAL.appleCapacity)
-        return { ok: false, reason: 'Apple pocket full' }; this.rewardClaims.add(claimId); p.apples += amount; return { ok: true, deaths: [] }; }
+        return { ok: false, reason: 'Reward ledger full' }; if (!this.canStore(p, 'apple')) return { ok: false, reason: 'Inventory full' }; if (p.apples + amount > SURVIVAL.appleCapacity)
+        return { ok: false, reason: 'Apple pocket full' }; this.rewardClaims.add(claimId); p.apples += amount; this.store(p, 'apple'); return { ok: true, deaths: [] }; }
     private returnKnife(p: SurvivalPlayer) { if (!p.knifeId)
-        return; const id = p.knifeId; delete p.knifeId; if (this.backpacks.length >= SURVIVAL.maxActiveBackpacks)
+        return; const id = p.knifeId; delete p.knifeId; this.clearItem(p, 'knife'); if (this.backpacks.length >= SURVIVAL.maxActiveBackpacks)
         this.backpacks.shift(); const candidates = this.options.spawnPoints.filter(p => this.options.walkable(p) && !this.options.safe(p) && this.backpacks.every(b => distance(b, p) > 2)); if (!candidates.length)
         return; const index = Math.min(candidates.length - 1, Math.max(0, Math.floor(this.options.random() * candidates.length))); const point = candidates[index]!; this.backpacks.push({ id, x: point.x, y: point.y }); }
     respawn(id: string) { const p = this.players.get(id); if (!p)
-        return; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; /* cooldown deliberately survives respawn */ }
+        return; this.returnKnife(p); p.health = 100; p.hunger = 75; p.apples = 0; p.equipped = 'flashlight'; p.slots = ['flashlight', null, null, null, null]; p.selectedSlot = 0; /* cooldown deliberately survives respawn */ }
     remove(id: string) { const p = this.players.get(id); if (p)
         this.returnKnife(p); this.players.delete(id); this.attackAt.delete(id);
         this.commandClaims.delete(id); }
-    snapshot(): SurvivalSnapshot { return { pvpEnabled: this.pvpEnabled, players: [...this.players.values()].map(p => ({ ...p })), backpacks: this.backpacks.map(b => ({ ...b })), appleTrees: this.trees.map(t => ({ ...t })), events: this.events.map(e => ({ ...e })) }; }
+    snapshot(): SurvivalSnapshot { return { pvpEnabled: this.pvpEnabled, players: [...this.players.values()].map(p => ({ ...p, slots: [...p.slots] })), backpacks: this.backpacks.map(b => ({ ...b })), appleTrees: this.trees.map(t => ({ ...t })), events: this.events.map(e => ({ ...e })) }; }
 }

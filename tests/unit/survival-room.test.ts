@@ -63,7 +63,7 @@ describe('survival through actual room admission, commands and life transitions'
     const payload={type:'survival.harvest',treeId:tree.id,commandId:'same-harvest'};
     send(0,payload);send(0,payload);expect(inventory(ids[0]!).apples).toBe(1);
     send(0,{type:'survival.equip',item:'apple'});send(0,{type:'survival.eat',commandId:'same-eat'});send(0,{type:'survival.eat',commandId:'same-eat'});
-    expect(inventory(ids[0]!)).toMatchObject({apples:0,hunger:100,equipped:'flashlight'});
+    expect(inventory(ids[0]!)).toMatchObject({apples:0,hunger:100,equipped:null,selectedSlot:1});
     vi.setSystemTime(Date.now()+46_000);send(0,payload);expect(inventory(ids[0]!).apples).toBe(0);
   });
   it('fences host PvP policy, range, sanctuary, interior and respawn protection',()=>{
