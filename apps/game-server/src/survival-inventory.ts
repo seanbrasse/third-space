@@ -160,17 +160,17 @@ export class SurvivalInventory {
         return { ok: false, reason: 'Backpack unavailable or too far away' }; if (!this.canStore(p, 'knife')) return { ok: false, reason: 'Inventory full' }; this.backpacks.splice(i, 1); this.nextSpawnAt = Math.max(this.nextSpawnAt, now + SURVIVAL.backpackReplacementMs); p.knifeId = b.id; this.store(p, 'knife'); this.event('pickup', a.id, now); return { ok: true, deaths: [] }; }
     strikeWorldTarget(a:SurvivalActor,target:{x:number;y:number},now:number):SurvivalResult{
         const p=this.players.get(a.id);
-        if(!p||p.equipped!=='knife'||!p.knifeId||!this.active(a,now)||a.seatId||this.options.safe(a)||this.options.safe(target)||p.health<=0)return {ok:false,reason:'Equip your knife outside the safe areas'};
+        if(!p||p.equipped!=='knife'||!p.knifeId||!this.active(a,now)||a.seatId||a.watching||this.options.safe(a)||this.options.safe(target)||p.health<=0)return {ok:false,reason:'Equip your knife outside the safe areas'};
         if(now-(this.attackAt.get(a.id)??-Infinity)<SURVIVAL.attackCooldownMs)return {ok:false,reason:'Knife is recovering'};
         if(distance(a,target)>SURVIVAL.attackRange||!this.options.lineOfSight(a,target))return {ok:false,reason:'Out of reach'};
         this.attackAt.set(a.id,now);this.event('swing',a.id,now);return {ok:true,deaths:[]};
     }
     damageWorld(a:SurvivalActor,amount:number,now:number):SurvivalResult{
         const p=this.players.get(a.id);
-        if(!p||!Number.isFinite(amount)||amount<=0||amount>1000||!this.active(a,now)||a.seatId||this.options.safe(a)||p.health<=0)return {ok:false,reason:'Safe from the threat'};
+        if(!p||!Number.isFinite(amount)||amount<=0||amount>1000||!this.active(a,now)||a.seatId||a.watching||this.options.safe(a)||p.health<=0)return {ok:false,reason:'Safe from the threat'};
         p.health=Math.max(0,p.health-amount);p.damageRevision=(p.damageRevision??0)+1;this.event('hurt',a.id,now);if(!p.health)this.event('death',a.id,now);return {ok:true,deaths:p.health?[]:[a.id]};
     }
-    attack(a: SurvivalActor, b: SurvivalActor, now: number, damage:number=SURVIVAL.attackDamage): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!Number.isFinite(damage)||damage<=0||damage>100||!this.pvpEnabled || !p || !target || a.id === b.id || !this.active(b, now) || b.seatId || this.options.safe(b) || target.health <= 0)
+    attack(a: SurvivalActor, b: SurvivalActor, now: number, damage:number=SURVIVAL.attackDamage): SurvivalResult { const p = this.players.get(a.id), target = this.players.get(b.id); if (!Number.isFinite(damage)||damage<=0||damage>100||!this.pvpEnabled || !p || !target || a.id === b.id || !this.active(b, now) || b.seatId || b.watching || this.options.safe(b) || target.health <= 0)
         return { ok: false, reason: 'Players are safe here' }; const swing=this.strikeWorldTarget(a,b,now);if(!swing.ok)return swing; target.health = Math.max(0, target.health - damage);target.damageRevision=(target.damageRevision??0)+1; this.event('hurt', b.id, now, a.id); if (target.health === 0)
         this.event('death', b.id, now, a.id); return { ok: true, deaths: target.health === 0 ? [b.id] : [] }; }
     /** Server-only reward bridge. Durable quest ledger must own cross-restart claims. Full pocket does not consume claim. */

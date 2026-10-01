@@ -164,7 +164,7 @@ export class LivingWorldStore {
   }
 
   /** Room invokes this only for one verified physical hit, with visible witnesses. */
-  witnessAttack(homeId: string, userId: string, request: WitnessedAttackRequest): LivingWorldMutation {
+  witnessAttack(homeId: string, userId: string, request: WitnessedAttackRequest, persistIncident?: () => void): LivingWorldMutation {
     if (!request || !isLivingWorldNpc(request.targetNpcId) || !Array.isArray(request.witnessNpcIds) || request.witnessNpcIds.length > 32 || request.witnessNpcIds.some(id => !isLivingWorldNpc(id)) || new Set(request.witnessNpcIds).size !== request.witnessNpcIds.length) return invalid();
     return this.execute(homeId, userId, request.commandId, ['attack', request.targetNpcId, [...request.witnessNpcIds].sort()], undefined, now => {
       const personal = this.loadPersonal(homeId, userId);
@@ -175,6 +175,8 @@ export class LivingWorldStore {
         Object.assign(memory, rememberHarm(memory, now, npcId === request.targetNpcId));
       }
       this.savePersonal(homeId, userId, personal);
+      // Trusted room hook joins this transaction; failure rolls back both memories before any physical hit.
+      persistIncident?.();
       return outcome('updated', witnesses.length ? 'The neighbours saw that violence. Trust has fallen.' : 'The neighbour remembers being hurt. Trust has fallen.');
     });
   }

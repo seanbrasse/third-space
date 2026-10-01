@@ -2,6 +2,18 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "stolen-lantern",
+      "status": "draft",
+      "date": null,
+      "dateKind": "release",
+      "title": "The missing lantern",
+      "changes": [
+        "Follow Elsie and Pip's missing-lantern trail into Lantern Hollow, recover a shared lantern and claim a personal reward.",
+        "Encounter roaming goblin bands and forest spirits, and repair trust with villagers you have harmed.",
+        "Use the nearby interaction key to harvest apples and collect backpacks."
+      ]
+    },
+    {
       "id": "public-updates",
       "status": "published",
       "date": "2026-10-01",

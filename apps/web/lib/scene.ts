@@ -1,3 +1,7 @@
+import {LANTERN_CAVE,LANTERN_CAVE_DOOR,LANTERN_CAVE_PEDESTAL_ID} from '../../../packages/config/src/lantern-cave';
+import {lanternCaveFloorCanvas,lanternCaveObjectCanvas} from './lantern-cave-art';
+import {SpiritPresentation} from './spirit-presentation';
+import {nearestSurvivalInteraction} from './survival-interaction';
 import {observeWorldContainer} from './world-container-size';
 import {LivingEffectsPresentation} from './living-effects-presentation';
 import {livingInteriorFloorCanvas,livingInteriorObjectCanvas} from './living-environment-art';
@@ -76,6 +80,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
     private worldLabels=new ScreenLabelLayout();
     private livingEffects:LivingEffectsPresentation|null=null;
+    private spirits:SpiritPresentation|null=null;
+    private cavePedestal:Phaser.GameObjects.Image|null=null;
     private mobPresentation:ForestMobPresentation|null=null;
     private storyPresentation:StoryWorldPresentation|null=null;
     private forestMapPresentation:ForestMapPresentation|null=null;
@@ -185,6 +191,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         });
       }
       this.livingEffects=new LivingEffectsPresentation(this);
+      this.spirits=new SpiritPresentation(this);
       this.target = this.add.graphics().setDepth(1);
       this.marker = this.add.graphics().setDepth(10001);
       this.prompt = this.add
@@ -234,7 +241,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.mobPresentation?.destroy();this.storyPresentation?.destroy();});
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.climatePresentation?.destroy();this.forestMapPresentation?.destroy();});
       this.survivalPresentation=new SurvivalPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
-      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.survivalPresentation?.destroy();this.livingEffects?.destroy();});
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.survivalPresentation?.destroy();this.livingEffects?.destroy();this.spirits?.destroy();});
       this.drawHome();
       this.fit();
     }
@@ -259,6 +266,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.racePresentation = null;
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
+      this.cavePedestal=null;
       this.stalkerSprite=null;this.stalkerId="";this.clownGreeting=null;this.mimicAvatar=null;this.mimicMonster=null;
       this.werewolfSprite=null;this.werewolfId="";this.werewolfFeet=null;this.werewolfLeapTell=null;
       this.pathTorches=[];
@@ -409,12 +417,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     drawInterior(){
       const interior=FOREST_INTERIORS.find(i=>i.id===bridge.snapshot?.worldId);if(!interior)return;
       this.clearMap();
-      this.mapObjects.push(this.add.image(0,0,this.textures.exists(`interior-floor:${interior.id}`)?`interior-floor:${interior.id}`:this.texture(`interior-floor:${interior.id}`,livingInteriorFloorCanvas(interior,TILE))).setOrigin(0).setDepth(0));
+      this.mapObjects.push(this.add.image(0,0,this.textures.exists(`interior-floor:${interior.id}`)?`interior-floor:${interior.id}`:this.texture(`interior-floor:${interior.id}`,interior.id===LANTERN_CAVE.id?lanternCaveFloorCanvas(interior,TILE):livingInteriorFloorCanvas(interior,TILE))).setOrigin(0).setDepth(0));
       for(const item of interior.map.furniture){
-        const f=item.footprint,key=`interior-prop:${interior.id}:${item.id}`;
-        const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,livingInteriorObjectCanvas(item,TILE,interior.style)??forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
+        const f=item.footprint,lanternPresent=bridge.stolen?.quest.custody!=='home'&&bridge.stolen?.quest.custody!=='returned',key=`interior-prop:${interior.id}:${item.id}${item.id===LANTERN_CAVE_PEDESTAL_ID?`:${lanternPresent}`:''}`;
+        const image=this.add.image(f.x*TILE,f.y*TILE,this.textures.exists(key)?key:this.texture(key,lanternCaveObjectCanvas(item,TILE,lanternPresent)??livingInteriorObjectCanvas(item,TILE,interior.style)??forestInteriorObjectCanvas(item,TILE,interior.style))).setOrigin(0).setDepth(item.kind==="rug"?1:(f.y+f.height-.4)*TILE);
         if(item.usePoints.length){image.setInteractive({useHandCursor:true});image.on("pointerdown",()=>{if(!bridge.blocked)this.useFurniture(item);});}
         this.mapObjects.push(image);
+        if(item.id===LANTERN_CAVE_PEDESTAL_ID)this.cavePedestal=image;
       }
       this.mapObjects.push(this.add.text(interior.exit.x*TILE,interior.exit.y*TILE+12,"EXIT · FOREST ↓",{fontFamily:"monospace",fontSize:"9px",color:"#ead8b4",backgroundColor:"#273d32",padding:{x:4,y:2}}).setOrigin(.5).setDepth(1000));
     }
@@ -620,7 +629,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.clickedId = "";
       this.walkTo(selected, selected.action);
     }
-    furnitureAction(item:Furniture){return item.id==="bramblewick-story-board"?"story-board":FOREST_BUILDINGS.find(b=>b.id===item.id)?.interiorId??(bridge.snapshot?.worldId.startsWith("interior:")&&item.kind==="portal"?"exit-interior":item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind);}
+    furnitureAction(item:Furniture){if(item.id===LANTERN_CAVE_DOOR.buildingId)return LANTERN_CAVE.id;return item.id==="bramblewick-story-board"?"story-board":FOREST_BUILDINGS.find(b=>b.id===item.id)?.interiorId??(bridge.snapshot?.worldId.startsWith("interior:")&&item.kind==="portal"?"exit-interior":item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind);}
     interact() {
       if (
         bridge.blocked ||
@@ -642,6 +651,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const clue=storyWorldAnchors(bridge).filter(a=>distance(self,a)<=1.8&&isHomeSegmentWalkable(self,a,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
       if(clue){bridge.send(clue.command);return;}
+      const survival=this.forest?nearestSurvivalInteraction(self,bridge.snapshot?.survival,(bridge.snapshot?.serverTime??0),this.map):undefined;
+      if(survival){bridge.send(survival);return;}
       const occupied = new Set(snapshotSeats(bridge, self.id));
       const candidates = this.map.furniture
         .flatMap<Point & { action: string }>((item) =>
@@ -707,6 +718,12 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if(self)this.npcPresentation?.update(this.forest?snapshot.npcs??[]:[],self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);
       if(self){this.mobPresentation?.update(this.forest?snapshot.mobs:undefined,self,snapshot.serverTime,TILE,bridge.reducedMotion,this.worldLabels);this.storyPresentation?.update(mode==="home"?storyWorldAnchors(bridge):[],self,TILE);}
       this.worldLabels.flush();
+      if(self)this.spirits?.update(this.forest?snapshot.players:[],this.forest?snapshot.spiritPulses??[]:[],self,snapshot.serverTime,TILE);
+      if(this.cavePedestal&&snapshot.worldId===LANTERN_CAVE.id){
+        const present=bridge.stolen?.quest.custody!=='home'&&bridge.stolen?.quest.custody!=='returned',item=LANTERN_CAVE.map.furniture.find(f=>f.id===LANTERN_CAVE_PEDESTAL_ID)!;
+        const key=`interior-prop:${LANTERN_CAVE.id}:${item.id}:${present}`;
+        if(this.cavePedestal.texture.key!==key)this.cavePedestal.setTexture(this.textures.exists(key)?key:this.texture(key,lanternCaveObjectCanvas(item,TILE,present)!));
+      }
       if(self)this.livingEffects?.update(snapshot.players.filter(p=>p.id===self.id||!this.forest||Math.hypot(p.x-24,p.y-24)<9||snapshot.players.some(light=>flashlightContains(light,p))),snapshot.npcs??[],self,snapshot.serverTime,TILE,bridge.reducedMotion);
       if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);

@@ -1,4 +1,5 @@
 import {augmentLivingInterior} from './living-environment';
+import {LANTERN_CAVE} from './lantern-cave';
 import type { Furniture, Point, Rect, WorldMap } from './index';
 import { AUTHORED_FOREST_NPCS, FOREST_WILDLIFE } from './forest-cast';
 
@@ -119,4 +120,4 @@ export function createForestInterior(building:ForestBuilding):ForestInterior|und
     building.id==='hollow-observatory'?{id:'hollow-star-map',point:{x:5.5,y:7.5},text:'Three brass circles frame one blank star. Underneath: “A borrowed face cannot remember a kindness it never received.”'}:undefined;
   return{id:building.interiorId,name:building.name,buildingId:building.id,style:building.style,entrance,exit,returnPoint:{...building.door},flavor:building.description,clue,map:{id:building.interiorId,width,height,spawn:entrance,spawns:Array.from({length:8},(_,i)=>({x:width/2-1.5+i%4,y:height-3.5-Math.floor(i/4)})),furniture,seats:[],solids:[{x:0,y:0,width,height:1.8},{x:0,y:height-1,width,height:1},{x:0,y:0,width:1,height},{x:width-1,y:0,width:1,height},...furniture.flatMap(f=>f.collider?[f.collider]:[])]}};
 }
-export const FOREST_INTERIORS:readonly ForestInterior[]=FOREST_BUILDINGS.flatMap(b=>{const i=createForestInterior(b);return i?[augmentLivingInterior(i)]:[];});
+export const FOREST_INTERIORS:readonly ForestInterior[]=[...FOREST_BUILDINGS.flatMap(b=>{const i=createForestInterior(b);return i?[augmentLivingInterior(i)]:[];}),LANTERN_CAVE];

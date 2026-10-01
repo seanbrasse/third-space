@@ -5,7 +5,7 @@ import type {LivingWorldSnapshot, NPCActionOffer} from '../../../packages/contra
 import type {ForestStorySnapshot} from '../../../packages/contracts/src/forest-story';
 import {LivingWorldStore} from '../../../packages/data/src/living-world-store';
 import {isLivingWorldNpc,potionMultipliers} from '../../../packages/simulation/src/living-world-rules';
-import {npcConversation} from '../../../packages/config/src/npc-conversations';
+import {npcConversation,type NPCConversationView} from '../../../packages/config/src/npc-conversations';
 import {getWorld} from '@third-space/config';
 import {isHomeSegmentWalkable} from '@third-space/simulation';
 import {LivingWorldController,type LivingWorldHuman} from './LivingWorldController';
@@ -22,6 +22,10 @@ interface Options {
   notice:(id:string,message:string,commandId?:string)=>void;
   inventoryRevision:(id:string,revision:number)=>void;
   knockout:(id:string,now:number)=>void;
+  extendConversation?:(id:string,view:NPCConversationView)=>NPCConversationView;
+  extraAction?:(id:string,c:Extract<ClientCommand,{type:'npc.action'}>,npc:ForestNPC)=>boolean;
+  /** Persist only: called inside the reputation transaction before physical damage. */
+  onNpcHit?:(id:string,npcId:string,commandId:string)=>void;
 }
 const range=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y);
 /** Private reliable views and bounded world authority. No UI result can grant a physical outcome. */
@@ -58,7 +62,8 @@ export class LivingWorldRoom {
   }
   private open(id:string,npc:ForestNPC,mode:'conversation'|'help'='conversation',commandId?:string){
     const personal=this.push(id),name=npc.id.slice(4);
-    const view=npcConversation({npcId:name,npcName:npc.name,story:this.o.story(id).story,offers:this.offers(id,npc),relationship:personal.personal.relationships.find(r=>r.npcId===name),trust:personal.personal.trust,rescue:personal.rescue});
+    const base=npcConversation({npcId:name,npcName:npc.name,story:this.o.story(id).story,offers:this.offers(id,npc),relationship:personal.personal.relationships.find(r=>r.npcId===name),trust:personal.personal.trust,rescue:personal.rescue});
+    const view=this.o.extendConversation?.(id,base)??base;
     const p=this.o.players().get(id)!;
     this.deliver(id,'npc.conversation',{view,mode,commandId,epoch:this.o.epoch,lifeRevision:p.respawnCount??0,zoneRevision:p.zoneRevision??0,targetNpcLifeRevision:npc.lifeRevision??0});
   }
@@ -92,11 +97,12 @@ export class LivingWorldRoom {
         const npcs=this.o.npcs()!.snapshot();
         const witnesses=npcs.filter(n=>isLivingWorldNpc(n.id.slice(4))&&n.phase!=='respawning'&&range(n,p)<=8&&isHomeSegmentWalkable(n,p,getWorld('forest').map)&&isHomeSegmentWalkable(n,npc!,getWorld('forest').map)).map(n=>n.id.slice(4)).slice(0,32);
         // Commit the observed intent before damaging; a storage failure never creates unrecorded harm.
-        const result=this.o.store.witnessAttack(this.o.homeId,id,{commandId:`npc-hit:${createHash('sha256').update(command.commandId).digest('hex')}`,targetNpcId:npc!.id.slice(4),witnessNpcIds:witnesses});
+        const result=this.o.store.witnessAttack(this.o.homeId,id,{commandId:`npc-hit:${createHash('sha256').update(command.commandId).digest('hex')}`,targetNpcId:npc!.id.slice(4),witnessNpcIds:witnesses},()=>this.o.onNpcHit?.(id,npc!.id,command.commandId));
         if(!result.replayed){this.controller.observeViolence(actor,npc!.id,now,npcs);this.o.npcs()!.damage(npc!.id,this.damage(p,now),now);}
         this.deliver(id,'living.receipt',{...result.receipt,commandId:command.commandId});this.open(id,npc!,'conversation',command.commandId);return true;
       }
       // An offer is bound to this nearby NPC, this admitted member and this current life.
+      if(this.o.extraAction?.(id,command,npc!)){this.open(id,npc!,'conversation',command.commandId);return true;}
       const offer=this.offers(id,npc!).find(v=>v.actionId===command.actionId);
       const result=this.o.store.act(this.o.homeId,id,{commandId:command.commandId,npcId:npc!.id.slice(4),actionId:command.actionId,expectedInventoryRevision:command.expectedInventoryRevision,potionSlotAvailable:!!offer&&(!offer.potion||this.o.survival.canStoreItem(id,`${offer.potion}-potion`))});
       if(result.receipt.status==='updated'&&!result.replayed&&offer&&(offer.kind==='protect'||offer.kind==='escort')){
@@ -122,14 +128,16 @@ export class LivingWorldRoom {
     try{this.o.store.witnessPlayerAttack(this.o.homeId,event.actorId,{commandId,targetUserId:event.targetUserId,witnessNpcIds:event.witnessNpcIds});this.pendingViolence.delete(commandId);this.push(event.actorId);}catch{/* Retry bounded witnessed events when storage becomes available. */}
   }}
   strike(id:string,mobId:string,revision:number,now:number){const actor=this.humans().find(p=>p.id===id)!;return this.controller.strike(actor,mobId,revision,now,(a,target,at)=>this.o.survival.strikeWorldTarget(a,target,at),this.damage(this.o.players().get(id)!,now));}
-  tick(now:number,phase:'dawn'|'day'|'dusk'|'night'){
-    const npcController=this.o.npcs();if(!npcController)return;
-    // One shared route search per100ms, alternating first choice to prevent starvation.
-    this.alternate=!this.alternate;
-    if(this.alternate)npcController.update(now,{phase,pathSearchBudget:1});
-    const update=this.controller.update(now,this.humans(),npcController.snapshot(),{night:phase==='night',pathSearchBudget:this.alternate?1-npcController.diagnostics().lastPathSearches:1});
+  tick(now:number,phase:'dawn'|'day'|'dusk'|'night',pathSearchBudget=1){
+    const npcController=this.o.npcs();if(!npcController)return 0;
+    const budget=Number.isFinite(pathSearchBudget)?Math.max(0,Math.min(1,Math.floor(pathSearchBudget))):0;
+    // Only advance priority when this subsystem receives a search slot. Goblins
+    // may consume alternating ticks; advancing on zero would always favor one lane.
+    if(budget>0)this.alternate=!this.alternate;
+    if(this.alternate)npcController.update(now,{phase,pathSearchBudget:budget});
+    const update=this.controller.update(now,this.humans(),npcController.snapshot(),{night:phase==='night',pathSearchBudget:this.alternate?budget-npcController.diagnostics().lastPathSearches:budget});
     for(const intent of update.steering)npcController.steer(intent.npcId,intent.goal,now,{...intent,bubble:intent.bubble?.text});
-    if(!this.alternate)npcController.update(now,{phase,pathSearchBudget:1-this.controller.diagnostics().lastPathQueries});
+    if(!this.alternate)npcController.update(now,{phase,pathSearchBudget:budget-this.controller.diagnostics().lastPathQueries});
     for(const hit of update.damage){
       if(hit.targetKind==='npc'){const n=npcController.get(hit.targetId);if(n&&(n.lifeRevision??0)===hit.targetLifeRevision)npcController.damage(n.id,hit.amount,now);}
       else {const p=this.o.players().get(hit.targetId);if(p&&(p.respawnCount??0)===hit.targetLifeRevision){const result=this.o.survival.damageWorld(p,hit.amount,now);if(result.ok)for(const id of result.deaths)this.o.knockout(id,now);}}
@@ -147,6 +155,7 @@ export class LivingWorldRoom {
     if(id&&npc&&this.cache.get(id)?.rescue.discovered&&rescue.phase==='endangered'&&this.helpSent.get(id)!==rescue.attemptId&&this.o.players().get(id)?.connected){
       this.helpSent.set(id,rescue.attemptId!);this.open(id,npc,'help');
     }
+    return npcController.diagnostics().lastPathSearches+this.controller.diagnostics().lastPathQueries;
   }
   protectedNpc(id:string){const phase=this.controller.snapshot().rescue.phase;return id==='npc:orchard-worker-mara'&&(phase==='recovering'||phase==='complete');}
 }

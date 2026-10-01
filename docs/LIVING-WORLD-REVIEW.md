@@ -1,5 +1,6 @@
 # Lantern Road living-world milestone
 
+Scope note: this records the PR33 base milestone. The later cave, spirit and goblin additions are described in [The Stolen Lantern](STOLEN-LANTERN-REVIEW.md).
 This extends the released keeper story without resetting it. Near an NPC, E or the visible touch button opens current guidance and explicit choices. Harvested apples can buy a potion, repair personal relationships, or help Mara recover after an escort. Mara's shared story can advance or suffer a recoverable setback while everyone else keeps exploring or watching.
 
 ## Playable scope

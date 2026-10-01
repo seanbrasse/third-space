@@ -63,6 +63,30 @@ function fixture() {
 }
 
 describe('living-world room boundary with actual SQLite authority', () => {
+  it('gives civilians and roadside bandits turns when goblins consume alternate search slots', () => {
+    const f = fixture(), winners:string[] = [];
+    let civilianSearches = 0, roadSearches = 0;
+    f.npcApi.update.mockImplementation((_now:number, options:{pathSearchBudget:number}) => {
+      civilianSearches = options.pathSearchBudget;
+      if (civilianSearches) winners.push('civilians');
+    });
+    f.npcApi.diagnostics.mockImplementation(() => ({lastPathSearches:civilianSearches}));
+    const diagnostics = f.room.controller.diagnostics();
+    vi.spyOn(f.room.controller,'diagnostics').mockImplementation(() => ({...diagnostics,lastPathQueries:roadSearches}));
+    vi.spyOn(f.room.controller,'update').mockImplementation((_now,_humans,_npcs,options) => {
+      roadSearches = options?.pathSearchBudget ?? 0;
+      if (roadSearches) winners.push('bandits');
+      return {damage:[],steering:[],events:[]};
+    });
+    for (const budget of [0,1,0,1,0,1,0,1]) {
+      vi.setSystemTime(Date.now()+100);
+      expect(f.room.tick(Date.now(),'day',budget)).toBe(budget);
+    }
+    expect(winners).toEqual(['civilians','bandits','civilians','bandits']);
+    expect(f.npcApi.update).toHaveBeenCalledTimes(8);
+    expect(f.room.controller.update).toHaveBeenCalledTimes(8);
+  });
+
   it('rejects range, player life/world/zone and target-life changes before spending anything', () => {
     const f = fixture(); f.apples();
     const offer = f.offers().find(o => o.kind === 'trade')!, player = f.players.get(f.host)!, original = { x: player.x, y: player.y };

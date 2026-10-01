@@ -1,3 +1,4 @@
+import {LANTERN_CAVE_DOOR} from '../src/lantern-cave';
 import {describe,expect,it} from 'vitest';
 import {FOREST_MAP,type Point,type Rect} from '../src/index';
 import {AUTHORED_FOREST_NPCS,FOREST_STORY_HOOKS,FOREST_WILDLIFE,forestNpcDialogue,forestNpcRoute} from '../src/forest-cast';
@@ -34,13 +35,13 @@ describe('authored continuous forest',()=>{
   const routes=[...AUTHORED_FOREST_NPCS.flatMap(n=>Object.entries(n.routine).map(([phase,points])=>({id:`${n.id}:${phase}`,points}))),...FOREST_WILDLIFE.map(a=>({id:a.id,points:a.route}))];
   for(const route of routes)for(let i=0;i<route.points.length;i++)expect(segment(route.points[i]!,route.points[(i+1)%route.points.length]!),`${route.id} leg ${i}`).toBe(true);
  });
- it('gives all eight natural interiors safe entry, exit, clue and late-join placements',()=>{
-  expect(FOREST_INTERIORS).toHaveLength(8);
+ it('gives all nine natural interiors safe entry, exit, clue and late-join placements',()=>{
+  expect(FOREST_INTERIORS).toHaveLength(9);
   for(const i of FOREST_INTERIORS){
    expect(i.map.spawns).toHaveLength(8);expect(walkable(i.returnPoint),i.id).toBe(true);
    for(const p of[i.entrance,i.exit,...i.map.spawns,...(i.clue?[i.clue.point]:[])])expect(walkable(p,i.map.solids),`${i.id} ${JSON.stringify(p)}`).toBe(true);
    expect(segment(i.entrance,i.exit,i.map.solids),i.id).toBe(true);
-   expect(FOREST_BUILDINGS.find(b=>b.id===i.buildingId)?.interiorId).toBe(i.id);
+   expect(i.buildingId===LANTERN_CAVE_DOOR.buildingId?LANTERN_CAVE_DOOR.interiorId:FOREST_BUILDINGS.find(b=>b.id===i.buildingId)?.interiorId).toBe(i.id);
   }
  });
  it('connects each authored character to valid people and story hooks with stateful dialogue',()=>{

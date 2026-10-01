@@ -16,7 +16,7 @@ const hud = execFileSync(process.execPath, ['--import','tsx','--input-type=modul
   const Component=typeof SurvivalHUD==='function'?SurvivalHUD:SurvivalHUD.default;
   process.stdout.write(renderToStaticMarkup(createElement(Component, {
     player:{id:'layout',health:75,hunger:60,apples:2,slots:['flashlight','knife','apple','strength-potion','speed-potion'],selectedSlot:1,equipped:'knife',potions:{strength:1,speed:1}},
-    effects:[{kind:'strength',expiresAt:90000},{kind:'speed',expiresAt:90000}],serverTime:1000,
+    effects:[{kind:'strength',expiresAt:90000},{kind:'speed',expiresAt:90000}],spiritEffects:{wardUntil:0,snareUntil:6000},serverTime:1000,
     threatened:true,finishingTarget:'A very long wandering friend name',onSelect:()=>{},onUse:()=>{},onFinish:()=>{},
   })));
 `], {encoding:'utf8',env:{...process.env,TSX_TSCONFIG_PATH:'./apps/web/tsconfig.json'}});

@@ -41,7 +41,7 @@ const coreRequire = createRequire(serverRequire.resolve('@colyseus/core'));
 const msgpack = coreRequire('msgpackr') as { unpack(bytes: Uint8Array): unknown };
 const snapshotHeaderBytes = encodeFrame('snapshot', undefined).byteLength;
 const deltaHeaderBytes = encodeFrame('snapshot.delta', undefined).byteLength;
-const sourceFingerprint = Object.fromEntries(['apps/game-server/src/PartyRoom.ts', 'apps/game-server/src/ForestNPCController.ts', 'packages/simulation/src/index.ts', 'packages/config/src/index.ts', 'packages/config/src/authored-forest.ts', 'tests/bench/expanded-room-benchmark.ts', 'packages/contracts/src/snapshot-delta.ts', 'apps/game-server/src/living-world-room.ts', 'apps/game-server/src/LivingWorldController.ts', 'apps/game-server/src/KnifeFinisher.ts', 'packages/data/src/living-world-store.ts', 'packages/config/src/living-environment.ts'].map(path => [path, createHash('sha256').update(readFileSync(new URL('../../' + path, import.meta.url))).digest('hex')]));
+const sourceFingerprint = Object.fromEntries(['apps/game-server/src/PartyRoom.ts', 'apps/game-server/src/ForestNPCController.ts', 'packages/simulation/src/index.ts', 'packages/config/src/index.ts', 'packages/config/src/authored-forest.ts', 'tests/bench/expanded-room-benchmark.ts', 'packages/contracts/src/snapshot-delta.ts', 'apps/game-server/src/living-world-room.ts', 'apps/game-server/src/LivingWorldController.ts', 'apps/game-server/src/KnifeFinisher.ts', 'packages/data/src/living-world-store.ts', 'packages/config/src/living-environment.ts', 'apps/game-server/src/GoblinPatrol.ts', 'apps/game-server/src/stolen-lantern-room.ts', 'packages/data/src/stolen-lantern-store.ts', 'packages/config/src/lantern-cave.ts'].map(path => [path, createHash('sha256').update(readFileSync(new URL('../../' + path, import.meta.url))).digest('hex')]));
 const args = process.argv.slice(2).filter(a => a !== '--');
 const value = (flag: string, fallback: string) => { const at = args.indexOf(flag); return at < 0 ? fallback : args[at + 1] ?? fallback; };
 const seconds = Number(value('--seconds', '300'));
@@ -201,7 +201,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
     });
     assert.equal(room.players.size, 8);
     const anchors: Point[] = layout === 'spread'
-      ? [{ x: 14, y: 45 }, ...FOREST_BUILDINGS.slice(0, 7).map(b => ({ x: b.door.x, y: b.door.y + .8 }))]
+      ? [{ x: 14, y: 45 }, ...FOREST_BUILDINGS.slice(0, 5).map(b => ({ x: b.door.x, y: b.door.y + .8 })), {x:64,y:82}, {x:99,y:72}]
       : map.spawns.map(p => ({ x: p.x, y: p.y }));
     for (const anchor of anchors) assert(isHomeWalkable(anchor, map), `Blocked benchmark anchor ${JSON.stringify(anchor)}`);
     const goals = anchors.map(anchor => Array.from({ length: 8 }, (_, i) => ({ x: anchor.x + Math.cos(i * Math.PI / 4) * 2.2, y: anchor.y + Math.sin(i * Math.PI / 4) * 2.2 })).filter(p => isHomeWalkable(p, map)));

@@ -13,10 +13,10 @@ function ItemIcon({ item }: { item: SurvivalItem }) {
     </svg>;
 }
 /** Snapshot-driven: rejected pickups never appear in a slot. */
-export default function SurvivalHUD({ player, disabled = false, onSelect, onUse, onFocusGame, onFinish, finishingTarget, threatened, effects=[], serverTime=0 }: {
+export default function SurvivalHUD({ player, disabled = false, onSelect, onUse, onFocusGame, onFinish, finishingTarget, threatened, effects=[], spiritEffects, serverTime=0 }: {
     player: SurvivalPlayer; disabled?: boolean; onSelect: (slot: number) => void;
     onUse: () => void; onFocusGame?: () => void; onFinish?:()=>void; finishingTarget?:string; threatened?:boolean;
-    effects?:import('../../../packages/contracts/src/living-world').PotionEffect[];serverTime?:number;
+    effects?:import('../../../packages/contracts/src/living-world').PotionEffect[];spiritEffects?:{wardUntil:number;snareUntil:number};serverTime?:number;
 }) {
     const panel = useRef<HTMLElement>(null);
     useLayoutEffect(() => panel.current ? observeSurvivalHUD(panel.current) : undefined, []);
@@ -25,6 +25,7 @@ export default function SurvivalHUD({ player, disabled = false, onSelect, onUse,
     return <section ref={panel} className="survival-hud" aria-label="Inventory" onPointerDown={event => event.stopPropagation()}>
         {threatened&&<p className="finisher-alert" role="alert">Incoming lunge — move out of the marked circle.</p>}
         {!!effects.length&&<p className="potion-effects" aria-label="Active potions">{effects.filter(e=>e.expiresAt>serverTime).map(e=>`${e.kind==='strength'?'Strength':'Speed'} ${Math.ceil((e.expiresAt-serverTime)/1000)}s`).join(' · ')}</p>}
+        {spiritEffects&&Math.max(spiritEffects.wardUntil,spiritEffects.snareUntil)>serverTime&&<p className="potion-effects" aria-label="Spirit effects">{spiritEffects.wardUntil>serverTime?`Lumen’s goblin ward ${Math.ceil((spiritEffects.wardUntil-serverTime)/1000)}s`:`Morrow’s snare ${Math.ceil((spiritEffects.snareUntil-serverTime)/1000)}s · slowed`}</p>}
         <div className="survival-meters">
             <label><span>Health</span><meter min={0} max={100} low={30} optimum={100} value={percent(player.health)} aria-label="Health"/><b>{percent(player.health)}</b></label>
             <label><span>Hunger</span><meter min={0} max={100} low={25} optimum={100} value={percent(player.hunger)} aria-label="Hunger"/><b>{percent(player.hunger)}</b></label>
