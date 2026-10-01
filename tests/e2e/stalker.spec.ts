@@ -18,6 +18,9 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  await walk(24,22);await walk(24,18);await walk(24,10.5);
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-stalker-phase','peek',{timeout:40000});
  await expect(camp.locator('.world-canvas')).toHaveAttribute('data-stalker-id','');
+ await expect(page.locator('.world-canvas')).toHaveAttribute('data-clown-greeting',/\S/);
+ expect(Number(await page.locator('.world-canvas').getAttribute('data-clown-greeting-resolution'))).toBeGreaterThanOrEqual(1);
+
  await page.screenshot({path:'tests/e2e/artifacts/stalker-peek.png',fullPage:true});
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-stalker-phase','chase',{timeout:5000});
  // Escape away from the pursuer briefly; the room-owned entity keeps tracking us.
@@ -25,6 +28,7 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1',{timeout:17000});
  const cues=await page.evaluate(()=>(window as unknown as {gameCueStarts:number[]}).gameCueStarts);expect(cues.some(d=>Math.abs(d-.21)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.3)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.11)<.002)).toBe(true);
  await expect(page.locator('.death-veil')).toHaveClass(/active/);
+ expect(cues.some(d=>Math.abs(d-.32)<.002)).toBe(true);
  await expect(page.locator('.death-veil')).toHaveAttribute('data-creature','clown');
  await page.screenshot({path:test.info().outputPath('clown-takedown.png')});
  await expect.poll(()=>page.locator('.death-veil').evaluate(el=>Number(getComputedStyle(el).opacity)),{timeout:1000}).toBeGreaterThan(.8);

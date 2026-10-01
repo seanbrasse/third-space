@@ -555,7 +555,7 @@ export default function ThirdSpace() {
       );
     });
     connected.onMessage("world.sound",(event:import("@third-space/contracts").WorldSoundEvent)=>{
-      if(bridge.snapshot)audio.current?.playWorld(event,bridge.snapshot,identityRef.current?.id||"",prefsRef.current.effectsVolume);
+      if(bridge.snapshot)audio.current?.playWorld(event,bridge.snapshot,identityRef.current?.id||"",prefsRef.current.effectsVolume,prefsRef.current.reducedMotion||window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     });
     connected.onMessage("chat", (message: Message) => {
       acknowledgeChat(message);
@@ -878,7 +878,7 @@ export default function ThirdSpace() {
   return (
     <main ref={gameFullscreen.ref} className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
       <IdlePresence snapshot={snapshot} send={send}/>
-      <DeathVeil caughtBy={self?.caughtBy} avatar={self?.avatar} caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
+      <DeathVeil victimId={self?.id} caughtBy={self?.caughtBy} avatar={self?.avatar} caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
         <a className="brand" href="/" aria-label="Third Space home">
           <span className="brand-mark">

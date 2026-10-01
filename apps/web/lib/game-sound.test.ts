@@ -83,4 +83,34 @@ describe('quiet positional game sounds', () => {
         expect(sources).toHaveLength(2);
         audio.dispose();
     });
+    it('routes catch accents only to the fresh visible victim and honors mute, epoch and deduplication', async () => {
+        const sources: any[]=[];
+        const node=()=>({connect(to:any){(this as any).to=to;},disconnect(){}});
+        class Context {
+            state='running';currentTime=0;sampleRate=8000;destination={};
+            async resume(){} async close(){}
+            createGain(){return {...node(),gain:{value:1}};}
+            createStereoPanner(){return {...node(),pan:{value:0}};}
+            createBuffer(_:number,length:number,rate:number){const data=new Float32Array(length);return {duration:length/rate,getChannelData:()=>data};}
+            createBufferSource(){const source={...node(),buffer:null,start(){},stop(){}};sources.push(source);return source;}
+        }
+        vi.stubGlobal('AudioContext',Context);vi.stubGlobal('document',{hidden:false,addEventListener(){},removeEventListener(){}});
+        const audio=new SoundboardAudio();await audio.unlock();audio.setMix(1,{},new Set());
+        const snapshot={instanceId:'room',epoch:'epoch',worldRevision:2,serverTime:1100,worldId:'forest',players:[{id:'self',x:0,y:0,connected:true,mode:'home'}]} as unknown as Snapshot;
+        const hit={id:'fresh',kind:'slash' as const,x:1,y:0,victimId:'self',epoch:'epoch',worldRevision:2,createdAt:1000,expiresAt:2000};
+        const play=(id:string,extra={},state=snapshot,reduced=false)=>audio.playWorld({...hit,id,...extra},state,'self',.5,reduced);
+        play('fresh');expect(sources).toHaveLength(2); // positional impact + victim accent
+        play('fresh');expect(sources).toHaveLength(2);
+        play('observer',{victimId:'peer'});expect(sources).toHaveLength(3);
+        play('reduced',{},snapshot,true);expect(sources).toHaveLength(4);
+        vi.stubGlobal('document',{hidden:true,addEventListener(){},removeEventListener(){}});play('hidden');expect(sources).toHaveLength(5);
+        vi.stubGlobal('document',{hidden:false,addEventListener(){},removeEventListener(){}});play('late',{}, {...snapshot,serverTime:1500});expect(sources).toHaveLength(6);
+        play('wrong-epoch',{epoch:'old'});play('wrong-world',{worldRevision:1});play('expired',{expiresAt:900});expect(sources).toHaveLength(6);
+        play('offline',{}, {...snapshot,players:[{...snapshot.players[0]!,connected:false}]});expect(sources).toHaveLength(6);
+        audio.setMix(1,{},new Set(),true);play('muted');expect(sources).toHaveLength(6);
+        audio.setMix(1,{},new Set(),false);play('muted');expect(sources).toHaveLength(6); // no replay after unmute
+        play('unmuted',{},snapshot); // ordinary mix remains available after unmute
+        expect(sources).toHaveLength(8);audio.dispose();
+    });
+
 });
