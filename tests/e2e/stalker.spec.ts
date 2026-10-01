@@ -33,7 +33,7 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-move-target-x','');
  await page.screenshot({path:'tests/e2e/artifacts/stalker-respawn.png',fullPage:true});
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-halo-visible','false',{timeout:7000});
- await page.reload();await page.getByRole('button',{name:name+' ↗',exact:true}).click();await page.getByRole('button',{name:'Use this tab · replaces your other session'}).click();await expect(page.locator('.connection')).toHaveText('Connected');await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1');
+ await page.reload();await expect(page.locator('.connection')).toHaveText('Connected');await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1');
  expect(errors).toEqual([]);
  }finally{await c.close();}
 });

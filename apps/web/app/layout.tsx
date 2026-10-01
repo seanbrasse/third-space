@@ -12,7 +12,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      {/* Grammar-checking extensions add body attributes before hydration. Keep descendant checks active. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
