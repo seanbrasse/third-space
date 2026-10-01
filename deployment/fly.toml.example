@@ -35,5 +35,7 @@ kill_timeout = 30
 
 [[vm]]
   cpu_kind = "shared"
-  cpus = 1
+  # Published 2-shared-CPU / 512 MiB preset quoted at $3.89/mo in iad;
+  # with a 1 GB volume the starting resource base is $4.04/mo.
+  cpus = 2
   memory = "512mb"
