@@ -4,9 +4,9 @@ Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://t
 
 ## Exact release
 
-- Frontend source commit: `ee7bbf9f963411e5b8f8fa77c301c17afbf8b736`, including verified main `418906dec73c5f19acfc3ab6bcfd3c122eae7b37` (PR #12 forest ambience/wayfinding), PR #10 YouTube playback changes, and six scoped CSS lines for shared-watching button gaps.
-- Vercel production deployment: `dpl_E7cximdq21LcGMNAq5KtUD2bDeJm`, https://third-space-hlb9qd6ue-seanbrasse-gmailcoms-projects.vercel.app. The stable production alias is public; the individual deployment URL and previews remain protected.
-- Backend image: `registry.fly.io/third-space-seanbrasse:release-9f6480b`, digest `sha256:a657ac1bfd3fee857f9a9afd3838477a9461fdd45f1897d91653b543a99d6c58`. Backend sources are unchanged between the verified PR #10 source and PR #12; the latter changes only frontend forest code/tests. Unverified racing-lobby/door followups are excluded.
+- Frontend source commit: `25af1250446d497c771fa9c0375f4698b03a8235`, including verified main `418906dec73c5f19acfc3ab6bcfd3c122eae7b37` (PR #12 forest ambience/wayfinding), PR #10 YouTube playback changes, scoped shared-watching button gaps, and theme-aware mobile entry labels/tabs with larger phone text.
+- Vercel production deployment: `dpl_9RZQdL9vayDrk2gg2KvwHTEGWjfJ`, https://third-space-1m0qavke6-seanbrasse-gmailcoms-projects.vercel.app. The stable production alias is public; the individual deployment URL and previews remain protected.
+- Backend image: `registry.fly.io/third-space-seanbrasse:release-9f6480b`, digest `sha256:a657ac1bfd3fee857f9a9afd3838477a9461fdd45f1897d91653b543a99d6c58`. Backend sources are unchanged between the verified PR #10 source and PR #12; the latter changes only frontend forest code/tests. Later PR #13 racing-lobby/door followups are excluded from this scoped CSS release.
 - Hosting configuration fixes resolve the Dockerfile relative to `deployment/fly.toml`, while the build context remains the repository root. Local build only, `--ha=false`, no remote builder.
 
 ## Approved resources and cost
@@ -26,6 +26,8 @@ Published resource base: $3.89/month compute + $0.15/month volume = **$4.04/mont
 - Direct HTTPS MP4 playback and shared play/pause/seek passed with two browsers. Shared queue add/remove/next passed. Button pairs have measured **10 px gaps on desktop and 390 px mobile**, and screenshots were visually inspected.
 - Restarted only the new Fly machine: synthetic owner identity, home access and board note survived; a new secure room admission succeeded after restart. No local SQLite file or synthetic fixture database was uploaded.
 - Emulated mobile browser: tapping moves the player, sustained touch on the directional arrow moves the player, settings and reload passed. A precise tap-position check remains an identified issue below; the broader movement check does not erase it.
+
+- Mobile join-screen labels, customization helper text and tabs now use matching light/dark surfaces; phone text is 11–12 px. Fresh production browser checks at 320 px, 390 px and 1440 px in both themes measured minimum text contrast 5.32:1 in light mode and 5.99:1 in dark mode, with no horizontal overflow or page errors. Screenshots inspected; input entry and mode switching worked. Vercel production build passed.
 
 ## Limits and followup
 
