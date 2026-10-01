@@ -19,13 +19,15 @@ type YouTubeWindow = Window & {
     };
     onYouTubeIframeAPIReady?: () => void;
 };
-export default function YouTubeWatching({ videoId, playbackId, getSnapshot, selfId, volume, expanded, onEnded, onError }: {
+export default function YouTubeWatching({ videoId, playbackId, getSnapshot, selfId, volume, expanded, playing, onPlayback, onEnded, onError }: {
     videoId: string;
     playbackId:string;
     getSnapshot: () => Snapshot | null;
     selfId: string;
     volume: number;
     expanded:boolean;
+    playing:boolean;
+    onPlayback:(action:"play"|"pause")=>void;
     onEnded:(playbackId:string)=>void;
     onError: (message: string) => void;
 }) {
@@ -98,5 +100,5 @@ export default function YouTubeWatching({ videoId, playbackId, getSnapshot, self
       const observer=new ResizeObserver(resize);observer.observe(parent);resize();return()=>observer.disconnect();
     },[]);
     return <div className="youtube-watching"><Script src="https://www.youtube.com/iframe_api" strategy="afterInteractive" onReady={() => { if ((window as YouTubeWindow).YT?.Player)
-        setReady(true); }} onError={() => {setLoading(false);onError("YouTube could not load. Check your connection or browser content blocker.");}}/><div ref={root} className="youtube-player"/>{loading && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading YouTube…</div>}{blocked && <button onClick={() => { autoplayBlocked.current=false; player.current?.playVideo(); setBlocked(false); }}>Tap to enable YouTube playback</button>}</div>;
+        setReady(true); }} onError={() => {setLoading(false);onError("YouTube could not load. Check your connection or browser content blocker.");}}/><div ref={root} className="youtube-player"/>{loading && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading YouTube…</div>}{blocked && <button onClick={() => { autoplayBlocked.current=false; onPlayback("play"); player.current?.playVideo(); setBlocked(false); }}>Tap to enable YouTube playback</button>}{expanded&&!blocked&&<button className="youtube-shared-toggle" aria-label={playing?"Pause video for everyone":"Play video for everyone"} onClick={()=>onPlayback(playing?"pause":"play")}><span>{playing?"Ⅱ Pause together":"▶ Play together"}</span></button>}</div>;
 }

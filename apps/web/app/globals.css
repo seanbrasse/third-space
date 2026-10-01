@@ -2397,6 +2397,12 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .shared-watching .youtube-player,.shared-watching .youtube-player iframe{width:480px;height:270px;min-width:480px;min-height:270px;transform-origin:0 0;border:0}
 .shared-watching.surface .youtube-player{pointer-events:none}.tv-open-controls{position:absolute;inset:0;color:#fff4d5;background:transparent;font-size:18px;display:flex;align-items:start;justify-content:end;padding:3px}.tv-open-controls:hover{background:#0002}
 .video-queue{padding:0;list-style:none}.video-queue li{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:5px 0}.video-queue span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.video-queue button{flex:none}
+/* Keep each video-control group separate, including when buttons wrap on mobile. */
+.watching-controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px 10px}
+.watching-controls>:is(p,label,form,.watching-actions,.video-queue,small){flex:0 0 100%;min-width:0}
+.watching-controls p,.watching-controls button{margin:0}
+.watching-controls form{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:0}
+.watching-controls form>label{flex:0 0 100%;min-width:0}
 .shared-watching:fullscreen .youtube-watching{height:calc(100dvh - 280px);min-height:200px}.shared-watching:fullscreen .watching-controls{max-height:230px;overflow:auto}
 /* Header controls reserve their own space, including on short/narrow screens. */
 .world-topline{flex-wrap:wrap;gap:8px 12px;align-items:center}
@@ -2416,3 +2422,11 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 }
 
 .race-lobby{position:absolute;z-index:35;inset:20% auto auto 50%;transform:translateX(-50%);width:min(440px,90%);max-height:65%;overflow:auto;background:var(--panel,#24372c);border:1px solid var(--line,#839579);border-radius:14px;padding:20px;box-shadow:0 8px 36px #0008}.race-lobby button{margin:6px}.race-lobby small{display:block}.race-lobby ul{padding-left:20px}
+
+/* Provider overlays cannot alter only the local decoder. This visible control uses room commands. */
+.shared-watching .youtube-player{pointer-events:none}
+.youtube-shared-toggle{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:flex-end;padding:12px;background:transparent;color:#fff;border:0;z-index:2}
+.youtube-shared-toggle span{padding:8px 12px;border-radius:6px;background:#152b22e8;border:1px solid #b5c5a0;font-size:12px}
+.youtube-shared-toggle:focus-visible{outline:2px solid #e8dab0;outline-offset:-3px}
+.youtube-shared-toggle:hover span{background:#385040}
+.youtube-watching>button:not(.youtube-shared-toggle){position:absolute;z-index:3;left:10px;bottom:10px}

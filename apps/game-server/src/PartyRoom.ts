@@ -227,7 +227,7 @@ export class PartyRoom extends Room {
       if(this.worldId==="forest"&&this.mapFor(player).seats.some(seat=>seat.id===this.spawnSeats.get(auth.userId)&&distance(seat,spawn)<.01))player.seatId=this.spawnSeats.get(auth.userId);
     }
     player.connected = true;
-    player.flashlightOn ??= true; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
+    player.flashlightOn ??= false; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
     this.players.set(auth.userId, player);
     this.roles.set(auth.userId, auth.role);
     this.clientsByUser.set(auth.userId, client);
@@ -272,7 +272,7 @@ export class PartyRoom extends Room {
     const player = this.players.get(id);
     if (player) {
       player.connected = true;
-    player.flashlightOn ??= true; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
+    player.flashlightOn ??= false; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
       if (player.mode === "race") this.safeRaceRespawn(player);
     }
     this.clientsByUser.set(id, client);
@@ -804,6 +804,7 @@ export class PartyRoom extends Room {
           this.recordDnf(p, "returned");
         const spawn = this.findHomeSpawn(id);
         p.mode = "home";
+        p.flashlightBattery=1;p.flashlightOn=false;
         p.x = spawn.x;
         p.y = spawn.y;
         p.vx = p.vy = 0;
@@ -903,7 +904,7 @@ export class PartyRoom extends Room {
     for (const [id, p] of this.players) {
       if(p.respawnAt){
         if(now<p.respawnAt){p.vx=p.vy=0;continue;}
-        Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000});delete p.respawnAt;this.intents.delete(id);
+        Object.assign(p,this.findHomeSpawn(id),{vx:0,vy:0,haloUntil:now+5000,flashlightBattery:1,flashlightOn:false});delete p.respawnAt;this.intents.delete(id);
       }
       if(p.caughtAt&&now-p.caughtAt>2500)delete p.caughtAt;
       const intent = this.intents.get(id);
@@ -920,6 +921,10 @@ export class PartyRoom extends Room {
           const door=next.zone?{x:10,y:17.5}:ASYLUM_DOOR;
           if(this.worldId==="forest"&&!this.worldProposal&&next.connected&&!next.respawnAt&&distance(next,door)<.65&&Math.hypot(next.vx,next.vy)>.05)this.moveArea(next,!next.zone);
         }
+
+        const current=this.players.get(id)!;
+        const charger=this.mapFor(current).seats.find(seat=>seat.id==="charger-seat");
+        if(current.connected&&charger&&distance(current,charger)<=.8&&isHomeSegmentWalkable(current,charger,this.mapFor(current)))current.flashlightBattery=1;
 
       } else if (
         this.race.phase === "running" &&

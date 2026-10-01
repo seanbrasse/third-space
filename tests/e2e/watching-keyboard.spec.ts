@@ -47,6 +47,8 @@ test("Watch Together permits game movement while focused playback controls keep 
   await page.getByRole("button", { name: /Watch together/ }).click();
   const panel = page.locator(".shared-watching.expanded"); await expect(panel).toBeVisible();
   await page.getByRole("button", { name: "Toggle map" }).click();
+  await expect(panel).toHaveCount(0);
+  await page.getByRole("button", { name: /Watch together/ }).click();
   for (const key of ["ArrowRight","ArrowLeft","d","a"]) {
     await world.focus(); expect(await move(page,key)).toBeGreaterThan(.3);
     await expect(panel).toBeVisible(); await expect(page.locator(".map-card")).toBeVisible();
@@ -87,6 +89,8 @@ test("Watch Together permits game movement while focused playback controls keep 
   await page.getByRole("button",{name:"Settings",exact:true}).click();
   expect(await move(page,"d")).toBeLessThan(.02);
   await page.keyboard.press("Escape"); await world.focus(); expect(await move(page,"d")).toBeGreaterThan(.3);
-  await expect(panel).toBeVisible(); expect(errors).toEqual([]);
+  await expect(panel).toHaveCount(0); expect(errors).toEqual([]);
+  await page.getByRole("button", { name: /Watch together/ }).click();
+  await expect(panel).toBeVisible();
   await page.screenshot({path:"tests/e2e/artifacts/watching-keyboard.png",fullPage:true});
 });
