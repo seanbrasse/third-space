@@ -1,3 +1,17 @@
+# PR29 final verified release — sole deployment owner
+
+Both frontend/backend LIVE **27176acd0a193f67ce734d22d0a8f446fa4a452e** at https://third-space-topaz.vercel.app. READYfrontenddpl_6YiGK3XwBCMVny28pe4A9i1hca9g exact commit metadata, publicstablealias verified. Existing Flymachine2874440daddd98 started/ready, updated2026-10-01T07:49:39Z, full OCI revision exact; imagerelease-27176ac digest6c84965cba606f163cb862e1a44386973589bdc4527a5d1be78635a4910c232c. Same512MiB/two shared CPUs/1GB encrypted volume; no new resources/credentials. Reviewedddca87e29121460ca7d60a2e49708de5963e2e00/tree379a18ffc1bf2bc49f811222ef9b6f9e73595195 equality andPR27 ancestry verified.
+
+Freshindependent462tests/70files PASS89.62sec in one full run; types/build PASS. Suppliedlead count463combined differs from freshobserved462; actual deployed proof uses462. Actual512MiB/no-swap/readiness/noOOM entrypoint PASS238.1MiB startup sample. Four hosted cases have passing results: baseline3 harvest/eat,desktop1440/mobile390 inventory/1–5 keys/chat typing/fullscreen/PIN/WSS/light/sharedPvP policy/reload/layout/noerrors; NPC8-client case PASS40.4sec then unobscuredartifact PASS36.5sec. All8 humans observe3separate NPCsMoss/Wren/Fern athealth100, excludedfrom human/voice/inventory collections. Ninth denied, sharedchat, legitimate walking/E NPC interaction yields identicaldialogue id/text/until for8, finite removal. NPCdialogue and desktop/mobile screenshots inspected. ScopedVercel errors0. Initial roster-arrow selector and optional artifact navigation harness issues corrected; no appsource edits, failures preserved.
+
+Currentworld80x64 and3defaultNPCs.144x112 authored data fixture-only. NaturalNPC catch/30sec respawn and naturalMimic event not claimed hosted; authority/socket/scene evidence separate. Physicalphone/Safari/speaker/livewolf/snapshotrestore and high WANcapacity limits remain. Inventoryroom-local, SQLitehomes retained. VoicePR28at00b9175525a73a6c795d1b40b8f3a5428f34c8bb draft/conflicting/notready; neverindependentlymerge orpromote, nativevoiceunconfigured. Astra owns next integration; task3 sole platform release owner.
+
+Proof deploy-repo/.data/pr29-release-proof.json; finalNPC .data/pr29-npc-acceptance-final-clear.log/.data/pr29-npc-results-final-clear; baseline .data/pr29-live-acceptance.log/.data/pr29-live-results. Currentfeaturematrix59exact-source paths checked. Ownsmoke removed/builder stopped; all previews3010/2577,3011/2578 andvoice3012/2579 untouched; source/userbrowser preserved. Fresh publicload getsPR29; already-open user tabs need refresh to load currentJS. No deployment blocker. User asleep routine notifications held; concrete milestone recorded forparent/Astra.
+
+---
+
+## Historical provisioning record
+
 # Third Space live deployment
 
 Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://third-space-seanbrasse.fly.dev/health. Provisioned September 30, 2026, New York time, after Sean's explicit payment/deployment approval.
