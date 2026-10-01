@@ -15,3 +15,5 @@ coverage/
 Third_Space_Local_Build.zip
 
 .pnpm-store/
+
+.next-recovery/

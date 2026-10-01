@@ -127,7 +127,45 @@ export default function ThirdSpace() {
     lastInstance = useRef(""),
     leaving = useRef(false),
     inviteToken = useRef(""),
-    snapshotUiAt = useRef(0);
+    snapshotUiAt = useRef(0),
+    mounted = useRef(false),
+    recovering = useRef(false),
+    connectGeneration = useRef(0),
+    savedSession = useRef("");
+  function remember(targetHome: Home, connected: Room) {
+    const userId=identityRef.current?.id;if(!userId||leaving.current||!mounted.current)return;
+    const value=JSON.stringify({homeId:targetHome.id,userId,token:connected.reconnectionToken});
+    if(value===savedSession.current)return;
+    try{sessionStorage.setItem("third-space.session",value);savedSession.current=value;}catch{}
+  }
+  function forgetSession(){try{sessionStorage.removeItem("third-space.session");}catch{}savedSession.current="";}
+  async function recover(targetHome: Home, token?: string) {
+    if(recovering.current)return;
+    recovering.current=true;leaving.current=false;setHome(targetHome);
+    if(!token){try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");if(previous?.homeId===targetHome.id&&previous.userId===identityRef.current?.id)token=previous.token;}catch{}}
+    try{
+      for(let attempt=0;attempt<6&&mounted.current&&!leaving.current;attempt++){
+        try{
+          setConnection("Reconnecting…");
+          if(token){try{await connect(targetHome,false,token);return;}catch{}}
+          await connect(targetHome);return;
+        }catch(e){
+          if(!mounted.current||leaving.current)return;
+          const message=(e as Error).message;
+          if(/ACCESS_DENIED|UNAUTHENTICATED|access denied|access.*ended|403/i.test(message)){
+            forgetSession();setHome(null);setSnapshot(null);setConnection("Ready to enter");setError("Your access to this room has ended.");return;
+          }
+          if(/SESSION_ACTIVE|active session/.test(message)){
+            if(token&&attempt<3){await new Promise(resolve=>setTimeout(resolve,300));continue;}
+            setReplaceHome(targetHome);setConnection("Session active in another tab");notify("Your room is open in another tab. You can explicitly move it here.");return;
+          }
+          setConnection("Reconnecting…");
+          await new Promise(resolve=>setTimeout(resolve,Math.min(4000,500*2**attempt)));
+        }
+      }
+      if(mounted.current&&!leaving.current){setConnection("Disconnected");notify("Your room is saved. Check your connection, then tap Rejoin.");}
+    }finally{recovering.current=false;}
+  }
   const notify = useCallback((text: string) => {
     setToast(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -176,7 +214,12 @@ export default function ThirdSpace() {
   identityRef.current = identity;
   chatOpenRef.current = chatOpen;
   useEffect(() => {
+    mounted.current=true;leaving.current=false;
+    let disposed=false;
     audio.current = new SoundboardAudio();
+    const suspend=()=>{leaving.current=true;connectGeneration.current++;if(room.current){room.current.reconnection.enabled=false;room.current.connection.close(1001);}};
+    const online=()=>{const current=homeRef.current;if(current&&!leaving.current&&!room.current)void recover(current);};
+    window.addEventListener("pagehide",suspend);window.addEventListener("online",online);
     const fragment = new URLSearchParams(location.hash.slice(1));
     if (fragment.has("invite")) {
       inviteToken.current = fragment.get("invite") || "";
@@ -207,7 +250,8 @@ export default function ThirdSpace() {
       }),
       api<{ configured: boolean; reason: string }>("/media/status"),
     ])
-      .then(([profile, rooms, media]) => {
+      .then(async ([profile, rooms, media]) => {
+        if(disposed)return;
         setIdentity(profile.profile);
         if (profile.profile) {
           setName(profile.profile.name);
@@ -219,14 +263,22 @@ export default function ThirdSpace() {
             "Native voice needs a configured, verified media service.",
         );
         setConnection("Ready to enter");
+        if(!inviteToken.current&&profile.profile){
+          try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");
+            const target=rooms.homes.find(h=>h.id===previous?.homeId);
+            if(target&&previous.userId===profile.profile.id){identityRef.current=profile.profile;await recover(target,typeof previous.token==="string"?previous.token:undefined);}
+            else if(previous)forgetSession();
+          }catch{}
+        }
       })
       .catch((e) => {
+        if(disposed)return;
         setError(e.message);
         setConnection("Server unavailable");
       });
     return () => {
-      leaving.current = true;
-      void room.current?.leave();
+      disposed=true;mounted.current=false;suspend();
+      window.removeEventListener("pagehide",suspend);window.removeEventListener("online",online);
       audio.current?.dispose();
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
@@ -351,26 +403,26 @@ export default function ThirdSpace() {
         .catch((e) => notify(e.message));
     }
   }, [modal, home, notify]);
-  async function connect(targetHome: Home, replaceExisting = false) {
+  async function connect(targetHome: Home, replaceExisting = false, resumeToken?: string) {
+    const generation=++connectGeneration.current;
     void audio.current?.unlock().catch(()=>{});
     setConnection("Joining your private home…");
     setError("");
     leaving.current = false;
-    const { ticket } = await api<{ ticket: string }>(
-      `/homes/${targetHome.id}/ticket`,
-      "POST",
-      {},
-    );
+    const ticket = resumeToken ? undefined : (await api<{ticket:string}>(`/homes/${targetHome.id}/ticket`,"POST",{})).ticket;
     const endpoint =
       process.env.NEXT_PUBLIC_GAME_SERVER_URL ||
       `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:2567`;
     const client = new Client(endpoint);
-    const connected = await client.joinOrCreate("party", {
+    const connected = resumeToken ? await client.reconnect(resumeToken) : await client.joinOrCreate("party", {
       ticket,
       homeId: targetHome.id,
       replaceExisting,
     });
+    if(generation!==connectGeneration.current||leaving.current||!mounted.current){void connected.leave();throw new Error("Connection cancelled.");}
+    connected.reconnection.minUptime=0;connected.reconnection.maxRetries=6;connected.reconnection.maxDelay=2000;
     room.current = connected;
+    remember(targetHome,connected);
     setHome(targetHome);
     setConnection("Connected");
     lastInstance.current = "";
@@ -381,6 +433,8 @@ export default function ThirdSpace() {
       bridge.selfId = data.selfId;
     });
     connected.onMessage("snapshot", (data: Snapshot) => {
+      if(room.current!==connected||leaving.current)return;
+      remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
         setDraft("");
         setPending([]);
@@ -477,30 +531,33 @@ export default function ThirdSpace() {
       },
     );
     connected.onDrop(() => {
+      if(room.current!==connected||leaving.current)return;
       setConnection("Reconnecting…");
       bridge.blocked = true;
       bridge.touch = { axisX: 0, axisY: 0, jump: false };
     });
     connected.onReconnect(() => {
+      if(room.current!==connected||leaving.current)return;
       setConnection("Connected");
       bridge.liveBubbleIds.clear();
       notify("You’re back.");
     });
     connected.onLeave((code: number) => {
-      room.current = null;
-      audio.current?.setWorld(null,"",0);
-      setWatchExpanded(false);
-      setConnection(
-        code === 4001 ? "Session replaced in another tab" : "Disconnected",
-      );
-      if (!leaving.current)
-        notify("Connection ended. Rejoin to recover your place.");
+      if(room.current!==connected)return;
+      room.current=null;audio.current?.setWorld(null,"",0);
+      if(leaving.current||!mounted.current)return;
+      if(code===4011){
+        forgetSession();setConnection("Session replaced in another tab");
+        notify("Your session moved to another tab.");return;
+      }
+      setConnection("Reconnecting…");void recover(targetHome,connected.reconnectionToken);
     });
     connected.onError((_code: number, message?: string) => {
-      setConnection("Connection error");
-      notify(message || "Game connection failed.");
+      if(room.current!==connected||leaving.current)return;
+      setConnection("Reconnecting…");notify(message||"Connection interrupted. Recovering your room…");
     });
   }
+
   async function enter(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -559,9 +616,9 @@ export default function ThirdSpace() {
   async function leave() {
     audio.current?.setWorld(null,"",0);
     setWatchExpanded(false);
-    leaving.current = true;
+    leaving.current = true;connectGeneration.current++;forgetSession();
     await room.current?.leave();
-    room.current = null;
+    forgetSession();room.current = null;
     setHome(null);
     setSnapshot(null);
     setModal(null);
@@ -926,11 +983,12 @@ export default function ThirdSpace() {
                 {connection}
               </span>
               <ConnectionHealth room={room.current} connection={connection}/>
+              {replaceHome && <button className="secondary" onClick={()=>{void connect(replaceHome,true).catch(e=>notify(e.message));}}>Use this tab · replaces your other session</button>}
               {connection === "Disconnected" && (
                 <button
                   className="secondary"
                   onClick={() => {
-                    void connect(home).catch((e) => notify(e.message));
+                    void recover(home);
                   }}
                 >
                   Rejoin
@@ -973,6 +1031,7 @@ export default function ThirdSpace() {
                 </span>
               </div>
               <World bridge={bridge} />
+              {snapshot && connection!=="Connected" && <div className="world-busy reconnecting-cover" role="status"><span className="loading-spinner" aria-hidden="true"/>{connection==="Disconnected"?"Your room is saved. Rejoin when ready.":connection}</div>}
               {!snapshot && (
                 <div className="connecting-cover">
                   <span className="loading-spinner" aria-hidden="true"/> Waiting for the room state…

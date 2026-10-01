@@ -66,8 +66,6 @@ test("friends object, switch together, roast, sleep rendering and return to the 
         await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-id", "living-room", { timeout: 12000 });
         await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
         await second.reload();
-        await second.getByRole("button", { name: /^Worlds \d+ ↗$/ }).click();
-        await second.getByRole("button", { name: "Use this tab · replaces your other session" }).click();
         await expect(second.locator(".connection")).toHaveText("Connected");
         await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
         expect(errors).toEqual([]);
