@@ -5,7 +5,7 @@ kill_signal = "SIGTERM"
 kill_timeout = 30
 
 [build]
-  dockerfile = "deployment/Dockerfile.game-server"
+  dockerfile = "Dockerfile.game-server"
 
 [env]
   NODE_ENV = "production"

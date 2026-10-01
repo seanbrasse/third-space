@@ -1,12 +1,11 @@
-# App name is reserved in Sean's personal organization; paid resources await approval.
-# There are no deployed machines, volumes or IPs yet.
+# Approved single-machine deployment in Sean's personal organization.
 app = "third-space-seanbrasse"
 primary_region = "iad"
 kill_signal = "SIGTERM"
 kill_timeout = 30
 
 [build]
-  dockerfile = "deployment/Dockerfile.game-server"
+  dockerfile = "Dockerfile.game-server"
 
 [env]
   NODE_ENV = "production"
