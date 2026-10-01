@@ -2447,4 +2447,20 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 .youtube-shared-toggle span{padding:8px 12px;border-radius:6px;background:#152b22e8;border:1px solid #b5c5a0;font-size:12px}
 .youtube-shared-toggle:focus-visible{outline:2px solid #e8dab0;outline-offset:-3px}
 .youtube-shared-toggle:hover span{background:#385040}
+
+/* Keep dark-mode controls readable across settings, watching and room menus. */
+.dark-theme :is(.segmented,.secondary,.modal-close,.emote-grid button,.identity-pill){background:#1e2c24;color:var(--ink);border-color:#819478}
+.dark-theme .segmented{border:1px solid #819478}
+.dark-theme .segmented button{color:var(--ink);border:1px solid transparent}
+.dark-theme .segmented button.active{background:#435842;color:var(--ink);border-color:#bac7ad}
+.dark-theme :is(.people-button,.icon-button,.social-buttons button,.watching-controls button){background:#1e2c24;color:var(--ink);border:1px solid #819478}
+.dark-theme .primary{background:#4d6953;color:#fffef5}
+.dark-theme :is(.secondary,.modal-close,.emote-grid button,.segmented button,.people-button,.icon-button,.social-buttons button,.watching-controls button,.primary):hover:not(:disabled){background:#435842;color:var(--ink);border-color:#bac7ad}
+.dark-theme :is(.segmented button,.secondary,.modal-close,.emote-grid button,.watching-controls button,.world-menu-toggle,.primary,.icon-button,.people-button,.social-buttons button):disabled{opacity:1;background:#27342c;color:#bac7ad;border:1px dashed #819478}
+.dark-theme :is(.check,.modal>p,.modal .eyebrow,.modal small,.native-off small,.voice-reach,.room-note,.room-note button,.mute-controls button){color:#bac7ad}
+.dark-theme .service-notice{background:#1e2c24;color:#bac7ad;border-color:#819478}
+.dark-theme .emote-grid button span{color:#d1bfd8}
+.dark-theme :is(button,a,input,select,textarea):focus-visible{outline:3px solid #d2beea;outline-offset:3px}
+.dark-theme .youtube-shared-toggle:is(:hover,:active,:focus-visible){background:transparent}
+.dark-theme .tv-open-controls:hover{background:#0002}
 .youtube-watching>button:not(.youtube-shared-toggle){position:absolute;z-index:3;left:10px;bottom:10px}

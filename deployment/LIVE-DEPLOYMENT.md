@@ -4,9 +4,9 @@ Friends URL: **https://third-space-topaz.vercel.app**. Backend health: https://t
 
 ## Exact release
 
-- Frontend source commit: `25af1250446d497c771fa9c0375f4698b03a8235`, including verified main `418906dec73c5f19acfc3ab6bcfd3c122eae7b37` (PR #12 forest ambience/wayfinding), PR #10 YouTube playback changes, scoped shared-watching button gaps, and theme-aware mobile entry labels/tabs with larger phone text.
-- Vercel production deployment: `dpl_9RZQdL9vayDrk2gg2KvwHTEGWjfJ`, https://third-space-1m0qavke6-seanbrasse-gmailcoms-projects.vercel.app. The stable production alias is public; the individual deployment URL and previews remain protected.
-- Backend image: `registry.fly.io/third-space-seanbrasse:release-9f6480b`, digest `sha256:a657ac1bfd3fee857f9a9afd3838477a9461fdd45f1897d91653b543a99d6c58`. Backend sources are unchanged between the verified PR #10 source and PR #12; the latter changes only frontend forest code/tests. Later PR #13 racing-lobby/door followups are excluded from this scoped CSS release.
+- Frontend source commit: `5c3006de683cb5438b412f566f9f5673d32d077d`, including lead main `68f5f12087292c89be04edeb8dfdeb2a655a8584` (PR #13 projector/race/map, #14 asylum audio, #15 shared over-video playback and flashlight charging), merged hosting PR #11, scoped watching gaps and mobile entry contrast.
+- Vercel production deployment: `dpl_2cCXiB8Wn2sjq1N8uSxarW9ZXSyG`, https://third-space-2nidlad6l-seanbrasse-gmailcoms-projects.vercel.app. The stable production alias is public; the individual deployment URL and previews remain protected.
+- Backend image: `registry.fly.io/third-space-seanbrasse:release-5c3006d`, digest `sha256:89e736bc94ba710dd80d5d2314a148993c575f77f4315ca97e308f21123454df`. The running image carries the full frontend commit in its OCI revision label. The existing machine updated at 03:27:18 UTC and frontend promotion completed at 03:27:43 UTC on October 1. Later session/idle/mobile/encounter fixes are pending the lead’s next candidate.
 - Hosting configuration fixes resolve the Dockerfile relative to `deployment/fly.toml`, while the build context remains the repository root. Local build only, `--ha=false`, no remote builder.
 
 ## Approved resources and cost
@@ -29,6 +29,10 @@ Published resource base: $3.89/month compute + $0.15/month volume = **$4.04/mont
 
 - Mobile join-screen labels, customization helper text and tabs now use matching light/dark surfaces; phone text is 11–12 px. Fresh production browser checks at 320 px, 390 px and 1440 px in both themes measured minimum text contrast 5.32:1 in light mode and 5.99:1 in dark mode, with no horizontal overflow or page errors. Screenshots inspected; input entry and mode switching worked. Vercel production build passed.
 
+## Latest checkpoint verification
+
+PR #15 reconciliation passed 226 unit/integration tests, workspace typechecking, production Next build and amd64 container build. The actual production entrypoint boots under 512 MiB with no swap, no OOM; smoke sample 235.7 MiB is not a capacity benchmark. Hosted charging test passes fresh OFF/full charge, walk-up dock charging and refresh. Two actual Chrome contexts passed PIN join, walking asylum admission, 16:9 projector geometry/title, shared over-video Play/Pause and 30 real YouTube samples per client: about 29.44 seconds advancement, zero sampled pauses/media/page errors, maximum sampled client difference about 0.177 seconds. Public JavaScript contains the projector/shared-play action; frontend metadata and backend image revision match exactly. Pre-rollout snapshot requested on the same existing disk.
+
 ## Limits and followup
 
 Native voice and Google login are not configured. This is one SQLite authority; process restart resets transient room state. Do not add replicas without shared persistence/presence design. Daily backups and initial snapshot creation are verified; snapshot restoration is not yet tested. Actual physical phones and larger WAN concurrency remain user testing; local 512 MiB load measurements do not guarantee shared-CPU performance at 64 players.
@@ -36,3 +40,11 @@ Native voice and Google login are not configured. This is one SQLite authority; 
 **Observed mobile tap offset:** with a 390×844 touch context after scrolling to the world, requesting map point (27,28) produced a Phaser move target around (27,28.87). Movement reached that target, about 0.8–0.87 tiles below the intended point. This is reproducible and distinct from connectivity. DOM projection: canvas top 55 px, zoom 0.5028409, scrollY 416, touchY 296.36 px; target discrepancy equals about 14 screen pixels. A stale Phaser canvas/input bound after layout/scroll is an inference to investigate. Directional touch controls pass. The scene owner should refresh/reconcile actual canvas bounds before converting a fresh touch to world coordinates and retain a real-touch regression. This lane has not edited the scene owner’s source to resolve it.
 
 All browser fixtures/logs/screenshots remain local and excluded from uploads. No session cookies, PIN grants, credential values or database contents are included in this record. Local deployment-only build VM is stopped; active local preview and other applications/projects were left untouched.
+
+## Prepared dark-control followup (not yet live)
+
+The settings screenshot shows pale labels and cream segmented controls in dark mode. A scoped CSS candidate fixes settings/room button backgrounds, text, borders, selected/disabled/hover/focus states and notices; keeps disabled semantics and leaves light-theme computed styles unchanged. Actual settings checks at 390/1440 px measure minimum 6.06:1 text contrast, readable disabled outlines and a 3 px keyboard focus indicator.
+
+A distinct CSS cascade bug paints the full-size YouTube overlay solid green on hover through the generic dark button rule. Decoder playback continues underneath, so successful timing samples alone do not prove a visible picture. The followup keeps this overlay transparent while preserving its shared-control label. Physical iOS autoplay/gesture behavior is not verified; the supplied phone screenshot still shows the old small box-TV frame, suggesting an already-open tab with an old bundle. Ask for reload before treating it as the latest-build layout.
+
+An existing long-lived tab may retain a sequence above 10000 after the backend process restart creates an authority with sequence 0; scene code retains its counter with Math.max. This is a source-backed resync hypothesis for the reported range error, not a diagnosis from that user’s tab. Fresh-session movement passes; the lead owns the protocol correction and must retain server validation.
