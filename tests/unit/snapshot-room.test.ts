@@ -11,6 +11,7 @@ type Handler = (client: Client, payload: unknown) => void;
 type Stream = {encoder: SnapshotDeltaEncoder<RoomSnapshot>; forceFull: boolean; resyncAt: number};
 interface Authority {
   voice: RoomVoiceService;
+  simulate(dt: number): void;
   snapshotStreams: Map<Client, Stream>;
   sendSnapshots(): void;
   changeWorld(id: 'living-room' | 'forest'): void;
@@ -418,5 +419,29 @@ describe('snapshot transport through the actual eight-human PartyRoom', () => {
     expect(lastFrame(clients[1]!)).toMatchObject({kind: 'delta', seq: 3});
     clients.slice(0, 2).forEach((client, i) => {states[i] = reconstruct(client, states[i]); expect(states[i]!.snapshot).toStrictEqual(expected[i]!());});
     expect(states[1]!.snapshot.players.map(p => p.id)).toContain(ids[0]);
+  });
+
+  it.each(FOREST_INTERIORS.map(interior => [interior.id, interior] as const))('finishes a quick exit from %s after the entry cooldown, even when movement has stopped', (_id, interior) => {
+    place(0, interior.returnPoint.x, interior.returnPoint.y);
+    const start = Date.now();
+    command(0, {type: 'interior.enter', interiorId: interior.id});
+    expect(player(0).zone).toBe(interior.id);
+    let seq = player(0).lastInputSeq + 1;
+    for (let step = 0; step < 65; step++) {
+      const p = player(0), dx = interior.exit.x-p.x, dy = interior.exit.y-p.y, distance = Math.hypot(dx, dy);
+      if (distance < .25) break;
+      send(clients[0]!, 'command', {type: 'input', worldRevision: room.worldRevision, zoneRevision: p.zoneRevision,
+        input: {seq: seq++, axisX: dx/distance, axisY: dy/distance, jump: false}});
+      skip(17); authority().simulate(1/60);
+    }
+    expect(Math.hypot(player(0).x-interior.exit.x, player(0).y-interior.exit.y)).toBeLessThan(.3);
+    expect(Date.now()-start).toBeLessThan(1500);
+    send(clients[0]!, 'command', {type: 'input.stop'});
+    skip(17); authority().simulate(1/60);
+    expect(player(0).zone).toBe(interior.id);
+    expect(Math.hypot(player(0).vx,player(0).vy)).toBe(0);
+    skip(1501-(Date.now()-start)); authority().simulate(1/60);
+    expect(player(0).zone).toBeUndefined();
+    expect(Math.hypot(player(0).x-interior.returnPoint.x,player(0).y-interior.returnPoint.y)).toBeLessThan(2);
   });
 });

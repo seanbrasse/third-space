@@ -1188,8 +1188,10 @@ export class PartyRoom extends Room {
         if (!p.seatId) {
           const next=stepHome(p,input,dt,this.mapFor(p),now-dt*1000);this.players.set(id,next);
           const door=next.zone?{x:10,y:17.5}:ASYLUM_DOOR;
-          if(this.worldId==="forest"&&!this.worldProposal&&next.connected&&!next.respawnAt&&Math.hypot(next.vx,next.vy)>.05){
-            if((!next.zone||next.zone==="asylum")&&distance(next,door)<.65)this.moveArea(next,!next.zone);
+          if(this.worldId==="forest"&&!this.worldProposal&&next.connected&&!next.respawnAt){
+            if(Math.hypot(next.vx,next.vy)>.05&&(!next.zone||next.zone==="asylum")&&distance(next,door)<.65)this.moveArea(next,!next.zone);
+            // A quick exit walk can reach the door during the entry cooldown.
+            // Complete that transition when it expires even after input stops.
             const interior=FOREST_INTERIORS.find(i=>i.id===next.zone);if(interior&&distance(next,interior.exit)<.65)this.moveInterior(next,"outside");
           }
         }
