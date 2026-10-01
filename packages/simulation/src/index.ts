@@ -87,6 +87,7 @@ export function canUseFurniture(player: Point, furniture: Furniture): boolean {
 }
 
 export interface NavigationMap {
+  id?: string;
   width: number;
   height: number;
   solids: readonly Rect[];
@@ -407,7 +408,8 @@ export function stepHome(
   }
   const sprintStep = stepSprint(next, !!input.sprint, magnitude > 0, now, safeTime(dt));
   Object.assign(next, sprintStep.player);
-  const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier * (next.respawnAt ? 1 : potionMultipliers(next.potionEffects ?? [], now).speed);
+  const snared=map.id==='forest'&&!next.zone&&!next.respawnAt&&(next.spiritEffects?.snareUntil??0)>now&&(next.spiritEffects?.wardUntil??0)<=now;
+  const speed = GAME_CONFIG.homeSpeed * sprintStep.multiplier * (next.respawnAt ? 1 : potionMultipliers(next.potionEffects ?? [], now).speed) * (snared ? .65 : 1);
   next.vx = axisX * speed;
   next.vy = axisY * speed;
   if (next.seatId) {

@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import type { PlayerState } from '@third-space/contracts';
 import type { ForestMob, ForestMobSnapshot } from '../../../packages/contracts/src/forest-mobs';
+import {lanternGoblinCanvas} from './lantern-cave-art';
 import { forestMobCanvas } from './forest-mob-art';
 import { forestNPCBubblePoint } from './forest-npc-layout';
 import type { ScreenLabelLayout } from './screen-label-layout';
@@ -19,8 +20,9 @@ export class ForestMobPresentation {
       const visible = local.mode === 'home' && !local.zone && sx > -tile * 2 && sy > -tile * 2 && sx < camera.width + tile * 2 && sy < camera.height + tile * 2 && (mob.phase !== 'defeated' || now - (mob.defeatedAt ?? 0) < 1800);
       let view = this.views.get(mob.id); if (!visible && !view) continue;
       const frame = reducedMotion || !mob.moving ? 0 : Math.floor(now / 230) % 2;
-      const key = `forest-mob-v1:${mob.kind}:${mob.facing}:${frame}:${mob.phase === 'windup' ? 1 : 0}`;
-      if (visible && !this.scene.textures.exists(key)) { this.scene.textures.addCanvas(key, forestMobCanvas(mob.kind, mob.facing, frame, mob.phase === 'windup')); this.textureKeys.add(key); }
+      const patrol=mob.id.startsWith('mob:stolen-lantern:');
+      const key = `forest-mob-v1:${patrol?'lantern-goblin':mob.kind}:${mob.facing}:${frame}:${mob.phase === 'windup' ? 1 : 0}`;
+      if (visible && !this.scene.textures.exists(key)) { this.scene.textures.addCanvas(key, patrol?lanternGoblinCanvas(mob.facing,frame,mob.phase==='windup'):forestMobCanvas(mob.kind, mob.facing, frame, mob.phase === 'windup')); this.textureKeys.add(key); }
       if (!view) {
         const sprite = this.scene.add.image(x, y, key).setOrigin(.5, 1).setInteractive({ useHandCursor: true });
         sprite.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => { event.stopPropagation(); const current = this.current.get(mob.id); if (current && current.health > 0) this.attack(current.id, current.lifeRevision); });
@@ -35,7 +37,7 @@ export class ForestMobPresentation {
       if (!reducedMotion && mob.hurtAt && now - mob.hurtAt < 120) view.sprite.setTint(0xf2d4b4); else view.sprite.clearTint();
       const density = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
       if (view.label.style.resolution !== density || view.label.frame.source.resolution !== density) { view.label.frame.source.resolution = density; view.label.setResolution(density); }
-      view.label.setScale(1 / zoom).setText(mob.phase === 'idle' ? `${mob.name}\nStrike with knife to challenge` : `${mob.name} · ${mob.health}/${mob.maxHealth}`);
+      view.label.setScale(1 / zoom).setText(mob.phase === 'idle' ? `${mob.name}\n${patrol?'Hostile patrol · keep your distance':'Strike with knife to challenge'}` : `${mob.name} · ${mob.health}/${mob.maxHealth}`);
       const point = forestNPCBubblePoint(sx, sy - tile * size * 1.48 * zoom, view.label.width, view.label.height, camera.width, camera.height);
       view.label.setPosition(camera.width / 2 + (point.x - camera.width / 2) / zoom, camera.height / 2 + (point.y - camera.height / 2) / zoom);
       if (mob.health > 0) labels?.add({ id: `mob-label:${mob.id}`, rect: { x: point.x - view.label.width / 2, y: point.y - view.label.height, width: view.label.width, height: view.label.height }, priority: mob.phase === 'idle' ? 'idle-mob' : 'engaged-mob', distance: Math.hypot(mob.x - local.x, mob.y - local.y), setVisible: visible => view.label.setVisible(visible) });

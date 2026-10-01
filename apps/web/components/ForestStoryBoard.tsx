@@ -1,4 +1,5 @@
 'use client';
+import {NPC_CONVERSATION_NEIGHBOURS} from '../../../packages/config/src/npc-conversations';
 import {useEffect,useId,useLayoutEffect,useRef,useState} from 'react';
 import type {ForestStorySnapshot,StoryLead,StoryObjective} from '../../../packages/contracts/src/forest-story';
 import {canDiscussBorrowedFace,discoveredLeadConnections,discoveredStoryPeople,STORY_BOARD_TABS,storyBoardCounts,storyBoardNextTab,storyObjectiveProgress,type StoryBoardTab} from '../lib/forest-story-board-model';
@@ -8,6 +9,7 @@ export interface ForestStoryBoardProps {
   open:boolean;
   initialTab?:StoryBoardTab;
   snapshot:ForestStorySnapshot|null;
+  stolen?:import('../../../packages/contracts/src/stolen-lantern').StolenLanternSnapshot|null;
   living?:import('../../../packages/contracts/src/living-world').LivingWorldSnapshot|null;
   onClose:()=>void;
   /** Root should use restoreGameFocus so another newly opened panel keeps focus. */
@@ -44,7 +46,7 @@ function LeadCard({lead,titles}:{lead:StoryLead;titles:ReadonlyMap<string,string
 
 /** Discovered-only view: no imports of the authored mystery or future quest graph.
  * Mount persistently inside .world-shell so native dialog also works in fullscreen. */
-export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,actionsAvailable=true,unavailableReason,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice,initialTab='leads',living}:ForestStoryBoardProps){
+export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onClaimReward,actionsAvailable=true,unavailableReason,pendingRewardId,onAccuse,canAccuse=false,pendingAccusationId,notice,initialTab='leads',living,stolen}:ForestStoryBoardProps){
   const dialog=useRef<HTMLDialogElement>(null),close=useRef<HTMLButtonElement>(null),wasOpen=useRef(false),restore=useRef(onFocusGame);
   restore.current=onFocusGame;
   const [tab,setTab]=useState<StoryBoardTab>('leads');
@@ -68,6 +70,7 @@ export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onCl
   const people=snapshot?discoveredStoryPeople(snapshot.story):[];
   const counts=snapshot?storyBoardCounts(snapshot):{leads:0,evidence:0,people:0,recap:0};
   if(living?.rescue.discovered)counts.leads++;
+  if(stolen&&stolen.quest.stage!=='quiet')counts.leads++;
   const titles=new Map(snapshot?.story.leads.map(l=>[l.id,l.title])??[]);
   const active=snapshot?.story.leads.filter(l=>l.status==='active')??[],resolved=snapshot?.story.leads.filter(l=>l.status==='complete')??[];
   const rewards=snapshot?.personal.rewards??[];
@@ -94,6 +97,7 @@ export default function ForestStoryBoard({open,snapshot,onClose,onFocusGame,onCl
         </button>)}</div>
         <div className="story-board-scroll" role="tabpanel" id={`${id}-panel-${tab}`} aria-labelledby={`${id}-tab-${tab}`} tabIndex={0}>
           {tab==='leads'&&<>
+            {stolen&&stolen.quest.stage!=='quiet'&&<article className="story-lead"><header><h3>{stolen.quest.title}</h3><small>{stolen.quest.stage==='complete'?'Resolved':'Shared lead'}</small></header><p>{stolen.quest.objective}</p><p><strong>Where:</strong> {stolen.quest.location}</p>{stolen.quest.stage==='return-lantern'&&<p>Your home recovered the lantern together. Return it to Elsie; it is a shared quest item.</p>}{stolen.personal.reward==='pending'&&<p>Elsie has two thank-you apples for you. Make room, then speak to her beside the pond.</p>}{stolen.personal.incidents.filter(i=>!i.resolvedAt).map(i=><p key={i.npcId}>{NPC_CONVERSATION_NEIGHBOURS[i.npcId]?.name??i.npcId}: {i.reason} Bring two apples and choose Make restitution.</p>)}</article>}
             {snapshot.personal.catchUp.length>0&&<aside className="story-catch-up"><h3>Since your last visit</h3><ul>{snapshot.personal.catchUp.slice(-3).map(note=><li key={note.id}>{note.text}</li>)}</ul>
               {snapshot.personal.catchUp.length>3&&<button type="button" onClick={()=>{setTab('recap');tabs.current.recap?.focus();}}>Read the shared recap</button>}
             </aside>}

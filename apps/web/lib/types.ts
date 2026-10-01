@@ -30,6 +30,7 @@ export type Home = {
 };
 export type WorldBridge = {
   exitRequest?:number;
+  stolen?:import('../../../packages/contracts/src/stolen-lantern').StolenLanternSnapshot|null;
   story?:import('../../../packages/contracts/src/forest-story').ForestStorySnapshot|null;
   snapshot: Snapshot | null;
   selfId: string;

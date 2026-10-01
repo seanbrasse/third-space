@@ -1,6 +1,7 @@
 "use client";
 import {applySnapshotFrame,type SnapshotState} from '../../../packages/contracts/src/snapshot-delta';
 import GameMenu from "./GameMenu";
+import type {StolenLanternSnapshot} from '../../../packages/contracts/src/stolen-lantern';
 import {NPCConversationSession} from '../lib/npc-conversation-session';
 import NpcInteractionPanel from './NpcInteractionPanel';
 import {nearestInteractableNPC} from '../lib/nearby-npc';
@@ -115,6 +116,7 @@ function id() {
 }
 export default function ThirdSpace() {
   const [living,setLiving]=useState<LivingWorldSnapshot|null>(null),[conversation,setConversation]=useState<ConversationEnvelope|null>(null),[npcNotice,setNpcNotice]=useState(''),[npcPending,setNpcPending]=useState<{commandId:string;actionId:string}|null>(null),[storyTab,setStoryTab]=useState<NPCJournalTab>('leads');
+  const [stolen,setStolen]=useState<StolenLanternSnapshot|null>(null);
   const npcConversationSession=useRef(new NPCConversationSession());
   const npcPendingRef=useRef<typeof npcPending>(null),livingRef=useRef<LivingWorldSnapshot|null>(null);
   npcPendingRef.current=npcPending;livingRef.current=living;
@@ -234,7 +236,7 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || (command.type.startsWith("npc.") || command.type === "living.use") || command.type === "interior.enter" || command.type === "mob.attack")) {
+    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type.startsWith("story.") || (command.type.startsWith("npc.") || command.type === "living.use" || command.type === "lantern.recover") || command.type === "interior.enter" || command.type === "mob.attack")) {
       const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
       if(!snapshot || !player || !bridgeRef.current?.transportConnected)return false;
       command={...command,commandId:typeof command.commandId==="string"?command.commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};
@@ -582,7 +584,7 @@ export default function ThirdSpace() {
     bridge.transportConnected = true;
     remember(targetHome,connected);
     setHome(targetHome);
-    npcConversationSession.current.close();setConversation(null);setNpcPending(null);setLiving(null);livingRef.current=null;
+    npcConversationSession.current.close();setConversation(null);setNpcPending(null);setLiving(null);livingRef.current=null;setStolen(null);bridge.stolen=null;
     setConnection("Connected");
     const userId = identityRef.current?.id;
     // Count only successful intentional entries. Reconnect, refresh recovery,
@@ -603,6 +605,7 @@ export default function ThirdSpace() {
       bridge.selfId = data.selfId;admittedEpoch=data.epoch;deltaState=undefined;
     });
     connected.onMessage("story.snapshot",(data:ForestStorySnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.story=data;setStory(data);});
+    connected.onMessage('lantern.snapshot',(data:StolenLanternSnapshot)=>{if(room.current!==connected||leaving.current)return;bridge.stolen=data;setStolen(data);});
     connected.onMessage('living.snapshot',(data:LivingWorldSnapshot)=>{if(room.current!==connected||leaving.current)return;livingRef.current=data;setLiving(data);});
     connected.onMessage('npc.conversation',(data:ConversationEnvelope)=>{if(room.current!==connected||leaving.current)return;const p=bridge.snapshot?.players.find(p=>p.id===bridge.selfId);if(bridge.snapshot&&(data.epoch!==bridge.snapshot.epoch||data.lifeRevision!==(p?.respawnCount??0)||data.zoneRevision!==(p?.zoneRevision??0)))return;if(!npcConversationSession.current.accept(data,!bridge.blocked&&!npcPendingRef.current&&!isEditingTarget(document.activeElement)))return;setConversation(data);if(npcPendingRef.current&&data.commandId===npcPendingRef.current.commandId)setNpcPending(null);});
     connected.onMessage('living.receipt',(data:LivingWorldReceipt)=>{if(room.current!==connected||leaving.current)return;if(npcPendingRef.current&&data.commandId===npcPendingRef.current.commandId){setNpcPending(null);setNpcNotice(data.message);}else notify(data.message);});
@@ -1301,7 +1304,7 @@ export default function ThirdSpace() {
               </div>
               <World bridge={bridge}>
                 {self?.zone?.startsWith('interior:')&&<button className="interior-exit-control" disabled={!bridge.transportConnected||!!self.respawnAt} onClick={()=>{bridge.exitRequest=(bridge.exitRequest??0)+1;restoreGameFocus([document.activeElement]);}}>↙ Walk to exit</button>}
-                <ForestStoryBoard open={storyOpen} initialTab={storyTab} living={living} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
+                <ForestStoryBoard open={storyOpen} initialTab={storyTab} living={living} stolen={stolen} snapshot={story} notice={pendingStoryAction?(pendingStoryAction.type==='story.reward'?'Collecting your reward…':'Discussing this face with Orin…'):storyNotice||toast}
                   onClose={()=>{setStoryOpen(false);if(story)send({type:"story.seen",seenRevision:story.story.revision});}} onFocusGame={()=>restoreGameFocus([document.activeElement])}
                   actionsAvailable={storyActionsAvailable} unavailableReason={storyUnavailableReason}
                   onClaimReward={rewardId=>actOnStory({type:'story.reward',rewardId})} pendingRewardId={pendingStoryAction?.type==='story.reward'?pendingStoryAction.targetId:null}
@@ -1309,7 +1312,7 @@ export default function ThirdSpace() {
                 {!modal&&!storyOpen&&nearbyNpc&&!conversation&&bridge.transportConnected&&<button type="button" className="nearby-npc-prompt" onClick={()=>{send({type:'npc.interact',npcId:nearbyNpc.id});restoreGameFocus([document.activeElement]);}}><kbd>E</kbd> Talk to {nearbyNpc.name}</button>}
                 <NpcInteractionPanel open={!!conversation&&!modal&&!storyOpen} conversation={conversation?.view??null} npc={conversationNpc} inRange={conversationInRange} playerAlive={!!self&&!self.respawnAt} connected={bridge.transportConnected&&!!room.current?.connection?.isOpen}
                   mode={conversation?.mode} pendingActionId={npcPending?.actionId} notice={npcNotice} serverTime={snapshot?.serverTime} onAction={actOnNpc} onClose={closeConversation} onOpenJournal={tab=>{npcConversationSession.current.close();setConversation(null);openStoryBoard(tab);}} onFocusGame={()=>restoreGameFocus([document.activeElement])}/>
-                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} effects={self?.potionEffects} serverTime={snapshot?.serverTime} threatened={snapshot?.survival?.finishers?.some(t=>t.targetId===self?.id)} finishingTarget={finishingTarget?.name} onFinish={()=>{if(finishingTarget)send({type:"survival.finish",targetId:finishingTarget.id,targetLifeRevision:finishingTarget.respawnCount??0});}} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
+                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} effects={self?.potionEffects} spiritEffects={!self?.zone?self?.spiritEffects:undefined} serverTime={snapshot?.serverTime} threatened={snapshot?.survival?.finishers?.some(t=>t.targetId===self?.id)} finishingTarget={finishingTarget?.name} onFinish={()=>{if(finishingTarget)send({type:"survival.finish",targetId:finishingTarget.id,targetLifeRevision:finishingTarget.respawnCount??0});}} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
                   const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
                   if(!player||!inventory?.equipped)return;
                   if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});

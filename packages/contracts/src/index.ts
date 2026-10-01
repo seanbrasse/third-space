@@ -53,6 +53,7 @@ export type VoiceMode = z.infer<typeof VoiceModeSchema>;
 export type Facing = "up" | "down" | "left" | "right";
 
 export interface PlayerState {
+  spiritEffects?: {wardUntil:number;snareUntil:number};
   /** Server-issued absolute expiries; reconnect and respawn never renew effects. */
   potionEffects?: import('./living-world').PotionEffect[];
   id: string;
@@ -140,6 +141,7 @@ const ChatTextSchema = z
   );
 
 export const CommandSchema = z.discriminatedUnion("type", [
+  z.object({type:z.literal("lantern.recover"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({ type: z.literal("presence.activity") }).strict(),
   z.object({ type: z.literal("presence.stay") }).strict(),
   z.object({ type: z.literal("presence.watching"), playbackId: IdSchema }).strict(),
@@ -252,6 +254,7 @@ export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;
 export interface ForestMimicState {kind:"mimic";id:string;x:number;y:number;originX:number;originY:number;coverId:string;targetId:string;disguisePlayerId:string;disguise:AvatarConfig;disguiseKind?:"player"|"npc";disguiseArt?:ForestNPCArt;phase:"approach"|"linger"|"morph"|"chase"|"retreat";startedAt:number;phaseUntil:number;transformed:boolean;morphStartedAt?:number;chaseStartedAt?:number;}
 export interface ForestStalker {greeting?:{id:string;text:string;shownAt:number;until:number};leap?:{phase:"windup"|"air";startedAt:number;until:number;fromX:number;fromY:number;toX:number;toY:number};kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
+  spiritPulses?: {id:string;x:number;y:number;radius:number;until:number}[];
   climate?: WorldClimateSnapshot;
   mobs?: ForestMobSnapshot;
   survival?: SurvivalSnapshot;
