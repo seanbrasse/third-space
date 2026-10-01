@@ -31,6 +31,7 @@ export default function NativeVoicePanel({ room, connected, snapshot, personVolu
 
   useEffect(() => {
     if (!room || !connected) return;
+    settingsRef.current = { ...VOICE_OFF }; setSettings({ ...VOICE_OFF }); setUI(INITIAL); setState(null);
     let disposed = false;
     const voice = new NativeVoice(() => new Promise<VoiceToken>((resolve, reject) => {
       const id = crypto.randomUUID();
@@ -49,6 +50,7 @@ export default function NativeVoicePanel({ room, connected, snapshot, personVolu
     const devices = () => { void voice.refreshDevices(); };
     navigator.mediaDevices?.addEventListener("devicechange", devices);
     void voice.refreshDevices();
+    room.send("command", { type: "voice.status", ...VOICE_OFF });
     room.send("voice.refresh");
     return () => {
       disposed = true; token(); status(); clearInterval(timer);
@@ -57,7 +59,7 @@ export default function NativeVoicePanel({ room, connected, snapshot, personVolu
       if (pending.current) { clearTimeout(pending.current.timer); pending.current.reject(new Error("Room connection ended.")); pending.current = null; }
     };
   }, [room, connected]);
-  useEffect(() => { controller.current?.setMix(master, personVolumes, new Set(mutedIds)); }, [master, personVolumes, mutedIds]);
+  useEffect(() => { controller.current?.setMix(master, personVolumes, new Set(mutedIds)); }, [master, personVolumes, mutedIds, room, connected]);
   useEffect(() => {
     if (!connected) { setUI(INITIAL); setState(null); setSettings({ ...VOICE_OFF }); settingsRef.current = { ...VOICE_OFF }; }
   }, [connected]);
