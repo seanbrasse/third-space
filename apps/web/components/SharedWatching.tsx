@@ -31,7 +31,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
             if (!canvas || !shell)
                 return;
             const d = (event as CustomEvent).detail, b = canvas.getBoundingClientRect(), s = shell.getBoundingClientRect();
-            const x = d.x + 6, y = d.y + 6, w = Math.max(1, d.width - 12), h = Math.max(1, d.height - 12);
+            const x = d.x, y = d.y, w = Math.max(1, d.width), h = Math.max(1, d.height);
             el.style.transform = `translate3d(${b.left - s.left + x}px,${b.top - s.top + y}px,0)`;
             el.style.width = w + "px";
             el.style.height = h + "px";
@@ -76,7 +76,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
     if (!snapshot || self?.mode !== "home" || getWorld(snapshot.worldId).mediaEnabled===false)
         return null;
     return <section ref={screen} className={`shared-watching ${expanded ? "expanded" : "surface"}`} style={expanded ? undefined : { left: 0, top: 0, visibility: near ? "visible" : "hidden" }} aria-label="Shared screen">
-    {expanded && <header><div><small>WATCHING TOGETHER</small><strong>{snapshot.worldId === "asylum" ? "The asylum box TV" : "The campsite TV"}</strong></div><button onClick={() => onExpand(false)} aria-label="Close shared screen">×</button></header>}
+    {expanded && <header><div><small>WATCHING TOGETHER</small><strong>{snapshot.worldId === "asylum" ? "The asylum projector" : "The campsite TV"}</strong></div><button onClick={() => onExpand(false)} aria-label="Close shared screen">×</button></header>}
     {source?.kind === "youtube" ? <YouTubeWatching key={snapshot.media.playbackId??source.videoId} videoId={source.videoId} playbackId={snapshot.media.playbackId??source.videoId} getSnapshot={getSnapshot} selfId={selfId} volume={volume} expanded={expanded} onEnded={(playbackId)=>control("ended",{playbackId})} onError={setError}/> : snapshot.media.url ? <video key={snapshot.media.playbackId??snapshot.media.url} ref={video} src={snapshot.media.url} onLoadStart={()=>setBuffering(true)} onWaiting={()=>setBuffering(true)} onCanPlay={()=>setBuffering(false)} onPlaying={()=>setBuffering(false)} onEnded={()=>control("ended",{playbackId:snapshot.media.playbackId})} playsInline preload="metadata" onClick={() => { void video.current?.play().catch(() => { }); setError(""); if (!expanded)
         onExpand(true); }} onError={() => {setBuffering(false);setError("This link could not play. Try a YouTube video or another video file.");}}/> : <button className={`screen-placeholder ${snapshot.worldId==="asylum"?"creepy-static":""}`} onClick={() => onExpand(true)}><span>▣</span>{expanded ? "Paste a link to start movie night" : snapshot.worldId==="asylum"?"STATIC · CLICK TO WATCH":"MOVIE NIGHT"}</button>}
     {buffering && source?.kind === "file" && <div className="media-loading" role="status"><span className="loading-spinner" aria-hidden="true"/>Loading video…</div>}

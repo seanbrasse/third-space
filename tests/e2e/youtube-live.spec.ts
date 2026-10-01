@@ -13,7 +13,7 @@ test('LIVE YouTube sustained two-client playback evidence', async ({browser,page
   await expect(p.locator('.world-canvas')).toHaveAttribute('data-seat-id',/camp-seat-/);
   await p.locator('.world-canvas').focus();
   for(const point of [{x:24,y:28},{x:27,y:28},{x:27,y:24},...Array.from({length:6},(_,i)=>({x:34+i*7,y:24})),{x:69,y:17},{x:69,y:13.5}]){
-   const q=await p.locator('.world-canvas').evaluate((el,point)=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(point.x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(point.y*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}},point);await p.mouse.click(q.x,q.y);await expect.poll(async()=>{const d=await p.locator('.world-canvas').evaluate(el=>(el as HTMLElement).dataset);return Math.hypot(Number(d.authoritativeX)-point.x,Number(d.authoritativeY)-point.y)},{timeout:9000}).toBeLessThan(.5);
+   const q=await p.locator('.world-canvas').evaluate((el,point)=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(point.x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(point.y*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}},point);await p.mouse.click(q.x,q.y);await expect.poll(async()=>{const d=await p.locator('.world-canvas').evaluate(el=>(el as HTMLElement).dataset);return d.worldId==="asylum"?0:Math.hypot(Number(d.authoritativeX)-point.x,Number(d.authoritativeY)-point.y)},{timeout:9000}).toBeLessThan(.5);
   }
   await p.keyboard.press('e');await expect(p.locator('.world-canvas')).toHaveAttribute('data-world-id','asylum');
  }

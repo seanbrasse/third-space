@@ -206,7 +206,7 @@ export default function ThirdSpace() {
   const bridge = bridgeRef.current;
   if (!room.current) bridge.snapshot = snapshot;
   bridge.selfId = identity?.id || "";
-  bridge.blocked = modal !== null || watchExpanded || connection !== "Connected";
+  bridge.blocked = modal !== null || connection !== "Connected";
   bridge.bubbles = prefs.bubbles;
   bridge.mutedText = new Set(prefs.textMuted);
   bridge.reducedMotion = prefs.reducedMotion;
@@ -326,7 +326,7 @@ export default function ThirdSpace() {
     const onKey = (event: KeyboardEvent) => {
       const element = event.target as HTMLElement;
       const typing = isEditingTarget(element);
-      if (gameHotkey(event, bridge.blocked || !!modal || watchExpanded || connection !== "Connected") === "flashlight") {
+      if (gameHotkey(event, bridge.blocked || !!modal || connection !== "Connected") === "flashlight") {
         const self = bridge.snapshot?.players.find(player => player.id === bridge.selfId);
         if (self?.connected && self.mode === "home" && !self.respawnAt) {
           event.preventDefault();
@@ -339,7 +339,7 @@ export default function ThirdSpace() {
         else if (typing) element.blur();
         return;
       }
-      if (prefs.panel && shouldOpenChat(event, !!modal || watchExpanded || connection !== "Connected")) {
+      if (prefs.panel && shouldOpenChat(event, !!modal || connection !== "Connected")) {
         event.preventDefault();
         setChatOpen(true);
         setTimeout(() => chatInput.current?.focus(), 0);
@@ -351,7 +351,7 @@ export default function ThirdSpace() {
       bridge.blocked = true;
       send({type:"input.stop"});
     };
-    const focus = () => { bridge.blocked = !!modal || watchExpanded || connection !== "Connected"; };
+    const focus = () => { bridge.blocked = !!modal || connection !== "Connected"; };
     window.addEventListener("focus", focus);
     window.addEventListener("blur", reset);
     window.addEventListener("orientationchange", reset);
@@ -368,7 +368,7 @@ export default function ThirdSpace() {
       window.removeEventListener("orientationchange", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [home, modal, watchExpanded, connection, prefs.panel, bridge, send]);
+  }, [home, modal, connection, prefs.panel, bridge, send]);
   useEffect(() => {
     if (modal === "board" && home) {
       void api<{ notes: Note[] }>(`/homes/${home.id}/board`)
@@ -1082,15 +1082,16 @@ export default function ThirdSpace() {
                     ? "← → MOVE · SPACE JUMP"
                     : "CLICK TO WALK · WASD / ARROWS · SPACE BOOST · F FLASHLIGHT"}
                 </span>
-                <WorldMap snapshot={snapshot} selfId={identity?.id??""}/>
               </div>
               <World bridge={bridge} />
+              <WorldMap snapshot={snapshot} selfId={identity?.id??""}/>
               {snapshot && connection!=="Connected" && <div className="world-busy reconnecting-cover" role="status"><span className="loading-spinner" aria-hidden="true"/>{connection==="Disconnected"?"Your room is saved. Rejoin when ready.":connection}</div>}
               {!snapshot && (
                 <div className="connecting-cover">
                   <span className="loading-spinner" aria-hidden="true"/> Waiting for the room state…
                 </div>
               )}
+              {race && snapshot?.race?.phase === "waiting" && <section className="race-lobby" aria-label="Race waiting lobby"><h2>Waiting for friends</h2><p>Join the same lobby, then ready up. The race starts when everyone here is ready.</p><ul>{snapshot.players.map(p=><li key={p.id}>{p.name} · {!p.connected?"reconnecting":snapshot.race?.readyIds.includes(p.id)?"ready":"waiting"}</li>)}</ul><button onClick={()=>send({type:"race.ready",ready:!ready})}>{ready?"Not ready yet":"Ready to race"}</button><button onClick={()=>send({type:"race.return"})}>Back to camp</button><small>While waiting, voice is shared with everyone outside at camp when native voice is configured.</small></section>}
               {race && snapshot?.race?.phase === "countdown" && (
                 <div className="countdown">
                   <span>READY, SET…</span>
@@ -1260,7 +1261,7 @@ export default function ThirdSpace() {
                           onFocus={() => (bridge.blocked = true)}
                           onBlur={() =>
                             (bridge.blocked =
-                              modal !== null || watchExpanded || connection !== "Connected")
+                              modal !== null || connection !== "Connected")
                           }
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
@@ -1405,7 +1406,7 @@ export default function ThirdSpace() {
             >
               ×
             </button>
-            {modal === "race-entry" && <><span className="eyebrow">A LITTLE FRIENDLY COMPETITION</span><h2>Join the race?</h2><p>Step inside the cabin to start Garden Dash. Your friends can stay at camp.</p><div className="watching-actions"><button onClick={()=>{send({type:"race.enter"});setModal(null);}}>Join race</button><button onClick={()=>setModal(null)}>Cancel</button></div></>}
+            {modal === "race-entry" && <><span className="eyebrow">A LITTLE FRIENDLY COMPETITION</span><h2>Join the race?</h2><p>Join the shared Garden Dash waiting lobby. Ready up there, or wait for friends to join. Your friends can stay at camp.</p><div className="watching-actions"><button onClick={()=>{send({type:"race.enter"});setModal(null);}}>Join race</button><button onClick={()=>setModal(null)}>Cancel</button></div></>}
             {modal === "board" && (
               <>
                 <span className="eyebrow">LITTLE THOUGHTS, SHARED</span>

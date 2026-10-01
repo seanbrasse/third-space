@@ -1,14 +1,17 @@
 type KeyEvent = Pick<KeyboardEvent, "key" | "code" | "repeat" | "altKey" | "ctrlKey" | "metaKey" | "target">;
 type Target = { isContentEditable?: boolean; closest?: (selector: string) => unknown } | null;
 const EDITING = 'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
-const COMPOSITE = 'dialog,iframe,[aria-modal="true"],[role="radiogroup"],[role="radio"],[role="dialog"],[role="menu"],[role="menubar"],[role="listbox"],[role="combobox"],[role="slider"],[role="spinbutton"],[role="tablist"],[role="tree"],[role="grid"],[data-game-input="off"]';
+// Watching is nonmodal; only its focused playback controls own game keys.
+const COMPOSITE = 'dialog,iframe,video,audio,[aria-modal="true"],[role="radiogroup"],[role="radio"],[role="dialog"],[role="menu"],[role="menubar"],[role="listbox"],[role="combobox"],[role="slider"],[role="spinbutton"],[role="tablist"],[role="tree"],[role="grid"],[data-game-input="off"]';
 const ACTIVATION = 'button,a[href],summary,[role="button"],[role="link"],[role="checkbox"],[role="switch"],[role="radio"],[role="tab"],[role="menuitem"]';
 export function isEditingTarget(target: EventTarget | null): boolean {
   const element = target as Target;
   return !!(element?.isContentEditable || element?.closest?.(EDITING));
 }
 export function isGameInputBlocked(target: EventTarget | null): boolean {
-  return isEditingTarget(target) || !!(target as Target)?.closest?.(COMPOSITE);
+  const element = target as Target;
+  return isEditingTarget(target) || !!element?.closest?.(COMPOSITE) ||
+    !!(element?.closest?.(".shared-watching") && element.closest?.(ACTIVATION));
 }
 export function ownsActivation(target: EventTarget | null): boolean {
   return isGameInputBlocked(target) || !!(target as Target)?.closest?.(ACTIVATION);

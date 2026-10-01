@@ -181,10 +181,11 @@ describe("race physics and scoring boundaries", () => {
     expect(retry.avatar).toEqual(finish.avatar);
   });
   it("completes the entire authored course with a server-scored golden jumping trace", () => {
-    let state = resetRacePlayer(player());
+    let state: PlayerState = { ...resetRacePlayer(player()), racePickupIds: RACE_MAP.pickups.map(p => p.id) };
     const obstacles = [
       ...RACE_MAP.hazards,
       ...RACE_MAP.platforms.filter((solid) => solid.y < 16),
+      ...RACE_MAP.gaps.map(gap => ({ ...gap, y: 16, height: 2 })),
     ].sort((a, b) => a.x - b.x);
     let jumped = false;
     let resets = 0;
@@ -198,7 +199,7 @@ describe("race physics and scoring boundaries", () => {
         state.grounded &&
           !jumped &&
           nextObstacle &&
-          nextObstacle.x - state.x < 1.8,
+          nextObstacle.x - state.x < (nextObstacle.y >= 15.3 && nextObstacle.y < 16 ? 1.4 : 1.8),
       );
       const prior = state;
       state = stepRace(state, input(1, 0, jump, seq), 1 / 60);

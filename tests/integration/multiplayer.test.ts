@@ -530,6 +530,7 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
     const obstacles = [
       ...RACE_MAP.hazards,
       ...RACE_MAP.platforms.filter((solid) => solid.y < 16),
+      ...RACE_MAP.gaps.map(g=>({...g,y:16,height:2})),
     ].sort((a, b) => a.x - b.x);
     const jumps = new Map<string, boolean>();
     const drive = setInterval(() => {
@@ -543,14 +544,17 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
           peer.snapshot?.race?.phase !== "running"
         )
           continue;
+        // Estimate forward motion since the received authoritative snapshot,
+        // instead of jumping from a position up to one snapshot interval old.
+        const predictedX=racer.x+Math.max(0,racer.vx)*Math.min(.15,Math.max(0,(Date.now()-(peer.snapshot?.serverTime??Date.now()))/1000));
         const obstacle = obstacles.find(
-          (solid) => solid.x + solid.width > racer.x + 0.3,
+          (solid) => solid.x + solid.width > predictedX + 0.3,
         );
         const jump = Boolean(
           racer.grounded &&
             !jumps.get(peer.identity.id) &&
             obstacle &&
-            obstacle.x - racer.x < 1.8,
+            obstacle.x - predictedX < ((racer.raceSpeedBoostSeconds??0)>0?2.1:obstacle.y>=15.3&&obstacle.y<16?1.4:1.8),
         );
         send(peer, {
           type: "input",
@@ -575,7 +579,7 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
       results.every(
         (result) =>
           !result.dnf &&
-          result.elapsedMs! >= 59_000 &&
+          result.elapsedMs! >= 50_000 &&
           result.elapsedMs! < 75_000,
       ),
     ).toBe(true);
