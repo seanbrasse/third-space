@@ -1,5 +1,6 @@
 # Living world artwork and geometry
 
+Scope note: this records the PR33 base milestone. The later cave, spirit and goblin additions are described in [The Stolen Lantern](STOLEN-LANTERN-REVIEW.md).
 All artwork in this module is original Third Space artwork. There are no downloaded images, stock packs, external URLs, added dependencies, or third-party license requirements. The existing campsite/asylum canvas pipeline informed the material palette and top/front/side shading. Art is generated once into ordinary cached Canvas textures.
 
 ## Runtime integration

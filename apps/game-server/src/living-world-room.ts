@@ -24,6 +24,7 @@ interface Options {
   knockout:(id:string,now:number)=>void;
   extendConversation?:(id:string,view:NPCConversationView)=>NPCConversationView;
   extraAction?:(id:string,c:Extract<ClientCommand,{type:'npc.action'}>,npc:ForestNPC)=>boolean;
+  /** Persist only: called inside the reputation transaction before physical damage. */
   onNpcHit?:(id:string,npcId:string,commandId:string)=>void;
 }
 const range=(a:{x:number;y:number},b:{x:number;y:number})=>Math.hypot(a.x-b.x,a.y-b.y);

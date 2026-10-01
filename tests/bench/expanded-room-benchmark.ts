@@ -201,7 +201,7 @@ async function runScenario(layout: 'spread' | 'cluster') {
     });
     assert.equal(room.players.size, 8);
     const anchors: Point[] = layout === 'spread'
-      ? [{ x: 14, y: 45 }, ...FOREST_BUILDINGS.slice(0, 7).map(b => ({ x: b.door.x, y: b.door.y + .8 }))]
+      ? [{ x: 14, y: 45 }, ...FOREST_BUILDINGS.slice(0, 5).map(b => ({ x: b.door.x, y: b.door.y + .8 })), {x:64,y:82}, {x:99,y:72}]
       : map.spawns.map(p => ({ x: p.x, y: p.y }));
     for (const anchor of anchors) assert(isHomeWalkable(anchor, map), `Blocked benchmark anchor ${JSON.stringify(anchor)}`);
     const goals = anchors.map(anchor => Array.from({ length: 8 }, (_, i) => ({ x: anchor.x + Math.cos(i * Math.PI / 4) * 2.2, y: anchor.y + Math.sin(i * Math.PI / 4) * 2.2 })).filter(p => isHomeWalkable(p, map)));
