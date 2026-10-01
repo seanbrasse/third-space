@@ -1,3 +1,5 @@
+import { GameKeyboard, isGameInputBlocked } from "./game-keyboard";
+import {asylumFloorCanvas,asylumObjectCanvas} from "./asylum-art";
 import * as Phaser from "phaser";
 import type { WorldBridge, Player } from "./types";
 import {
@@ -9,6 +11,7 @@ import {
 } from "@third-space/config";
 import {
   stepHome,
+  requestSprint,
   stepRace,
   findHomePath,
   isHomeSegmentWalkable,
@@ -18,6 +21,7 @@ import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
 import { homeFloorCanvas } from "./home-art";
 import { cameraFollowX, decayCorrection } from "./presentation";
+import { werewolfSpriteCanvas } from "./werewolf-art";
 import { forestFloorCanvas, forestObjectCanvas, flashlightContains, clownSpriteCanvas } from "./forest-art";
 const AVATAR_SCALE = 1.65,
   AVATAR_HEAD = 32 * AVATAR_SCALE + 7;
@@ -42,6 +46,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
     private nodes = new Map<string, Node>();
     private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
+    private movement = new GameKeyboard();
+    private sprintPacketPending = false;
+    private sprintPress = 0;
+    private snapshotReceivedAt = 0;
+    private currentInstance = "";
     private hoveredId = "";
     private clickedId = "";
     private seq = 0;
@@ -51,21 +60,25 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private currentRevision = -1;
     private stalkerSprite: Phaser.GameObjects.Image | null = null;
     private stalkerId="";
+    private werewolfSprite: Phaser.GameObjects.Image | null = null;
+    private werewolfId="";
     private fireArt: Phaser.GameObjects.Graphics | null = null;
     private roastArt: Phaser.GameObjects.Graphics | null = null;
     private lightImage: Phaser.GameObjects.Image | null = null;
     private lightCanvas: HTMLCanvasElement | null = null;
     private lastLightAt = 0;
     private get map() { return getWorld(bridge.snapshot?.worldId || "living-room").map; }
+    private get dark(){return getWorld(bridge.snapshot?.worldId).dark&&this.currentMode!=="race";}
     private get forest() { return bridge.snapshot?.worldId === "forest" && this.currentMode !== "race"; }
     private mapObjects: Phaser.GameObjects.GameObject[] = [];
     private prediction: Player | null = null;
     private authoritativeTime = 0;
-    private inputHistory: { input: PlayerInput; dt: number }[] = [];
+    private inputHistory: { input: PlayerInput; dt: number; at: number; sprintTap: boolean }[] = [];
     private correction = { x: 0, y: 0 };
     private path: Point[] = [];
     private destination: Point | null = null;
     private pendingInteraction = "";
+    private racePromptArmed=true;
     private target!: Phaser.GameObjects.Graphics;
     private marker!: Phaser.GameObjects.Graphics;
     private prompt!: Phaser.GameObjects.Text;
@@ -93,6 +106,30 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           "W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,E,ESC",
           false,
         ) as typeof this.keys;
+        const keyboard=this.input.keyboard;
+        keyboard.addCapture("UP,DOWN,LEFT,RIGHT,SPACE");
+        // Let Phaser process the key before its own browser-default cancellation.
+        // Cancelling earlier makes Phaser ignore the event entirely.
+        const capturePolicy = (event: KeyboardEvent) => {
+          const blocked = bridge.blocked || document.hidden || !bridge.snapshot?.players.some(p => p.id === bridge.selfId && p.connected && !p.respawnAt);
+          if (event.type === "keyup") this.movement.keyup(event);
+          const owned = event.type === "keydown" && this.movement.keydown(event, blocked);
+          if(keyboard.manager)keyboard.manager.preventDefault = owned;
+        };
+        const resetKeys = () => { this.movement.reset(); this.sprintPacketPending = false; if(keyboard.manager)keyboard.resetKeys(); };
+        const focusPolicy = (event: FocusEvent) => { if (isGameInputBlocked(event.target)) resetKeys(); };
+        window.addEventListener("keydown", capturePolicy, true);
+        window.addEventListener("keyup", capturePolicy, true);
+        window.addEventListener("blur", resetKeys);
+        document.addEventListener("visibilitychange", resetKeys);
+        document.addEventListener("focusin", focusPolicy);
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+          window.removeEventListener("keydown", capturePolicy, true);
+          window.removeEventListener("keyup", capturePolicy, true);
+          window.removeEventListener("blur", resetKeys);
+          document.removeEventListener("visibilitychange", resetKeys);
+          document.removeEventListener("focusin", focusPolicy);
+        });
         this.input.keyboard.on("keydown-E", () => this.interact());
         this.input.keyboard.on("keydown-ESC", () => {
           this.cancelWalk();
@@ -147,6 +184,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
       this.stalkerSprite=null;this.stalkerId="";
+      this.werewolfSprite=null;this.werewolfId="";
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
       this.hoveredFurniture = null;
       this.prompt.setVisible(false);
@@ -242,12 +280,12 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     }
     drawForest() {
         this.clearMap();
-        this.mapObjects.push(this.add.image(0, 0, this.textures.exists("forest-floor-v1") ? "forest-floor-v1" : this.texture("forest-floor-v1", forestFloorCanvas(TILE))).setOrigin(0).setDepth(0));
+        this.mapObjects.push(this.add.image(0, 0, this.textures.exists(this.forest?"forest-floor-v2":"asylum-floor-v1") ? (this.forest?"forest-floor-v2":"asylum-floor-v1") : this.texture(this.forest?"forest-floor-v2":"asylum-floor-v1", this.forest?forestFloorCanvas(TILE):asylumFloorCanvas(TILE))).setOrigin(0).setDepth(0));
         for (const item of this.map.furniture) {
             if (item.kind === "campfire")
                 continue;
-            const f = item.footprint, key = `forest-object:${item.kind}:${f.width}:${f.height}`;
-            const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, forestObjectCanvas(item, TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);
+            const f = item.footprint, key = `${this.forest?"forest":"asylum"}-object:${item.kind}:${f.width}:${f.height}`;
+            const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, this.forest?forestObjectCanvas(item, TILE):asylumObjectCanvas(item,TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);
             this.mapObjects.push(image);
             if (item.usePoints.length) {
                 image.setInteractive({ useHandCursor: true });
@@ -255,10 +293,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                     this.useFurniture(item); });
             }
         }
-        this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(1.55).setVisible(false);
+        this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<4;i++)this.texture("forest-clown-"+i,clownSpriteCanvas(i));
         this.mapObjects.push(this.stalkerSprite);
-        this.fireArt = this.add.graphics().setDepth(24.5 * TILE);
+        this.werewolfSprite=this.add.image(0,0,this.texture("forest-werewolf-0",werewolfSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
+        for(let i=1;i<6;i++)this.texture("forest-werewolf-"+i,werewolfSpriteCanvas(i));
+        this.mapObjects.push(this.werewolfSprite);
+        this.fireArt = this.add.graphics().setDepth((this.forest?24.5:10.5) * TILE);
         this.mapObjects.push(this.fireArt);
         this.roastArt = this.add.graphics().setDepth(1100);
         this.mapObjects.push(this.roastArt);
@@ -269,9 +310,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.mapObjects.push(this.lightImage);
     }
     lightForest(time: number, self: Player, players: Player[]) {
+        const source=getWorld(bridge.snapshot?.worldId).fire!, fxTile=source.x,fyTile=source.y;
         const fire = this.fireArt!, r = this.roastArt!, c = this.lightCanvas!, g = c.getContext("2d")!;
         fire.clear();
         const flicker = bridge.reducedMotion ? 1 : 1 + Math.sin(time / 137) * .08 + Math.sin(time / 71) * .04;
+        if(this.forest){
         fire.fillStyle(0x493e32);
         fire.fillEllipse(24 * TILE, 24.3 * TILE, 56, 25);
         fire.lineStyle(7, 0x765136);
@@ -283,6 +326,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         fire.fillTriangle(23.65 * TILE, 24.4 * TILE, 24.05 * TILE, 24.4 * TILE - 30 * flicker, 24.35 * TILE, 24.4 * TILE);
         fire.fillStyle(0xffe0a0);
         fire.fillTriangle(23.82 * TILE, 24.4 * TILE, 24 * TILE, 24.4 * TILE - 18 * flicker, 24.18 * TILE, 24.4 * TILE);
+        }else{fire.fillStyle(0x352f27);fire.fillEllipse(10*TILE,10*TILE,18,8);fire.fillStyle(0xe0d6ae);fire.fillRect(10*TILE-3,10*TILE-16,6,15);fire.fillStyle(0xffc673);fire.fillEllipse(10*TILE,10*TILE-20,5*flicker,10*flicker);}
         r.clear();
         for (const p of players)
             if (p.roastingAt) {
@@ -328,22 +372,24 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             g.fillRect(px - rad, py - rad, rad * 2, rad * 2);
             g.restore();
         };
-        const fireDistance = Math.hypot(self.x - 24, self.y - 24);
-        glow(24, 24, 9.6 * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
+        const fireDistance = Math.hypot(self.x - fxTile, self.y - fyTile);
+        glow(fxTile, fyTile, (this.forest?9.6:4.5) * flicker, Math.max(0, Math.min(1, (18 - fireDistance) / 10)));
         glow(self.x, self.y, 1.3, .28);
-        const stalker=bridge.snapshot?.stalker;if(stalker)glow(stalker.x,stalker.y,1.05,.28);
+        const stalker=bridge.snapshot?.stalker;if(stalker)glow(stalker.x,stalker.y,.8,.07);
+        if(!this.forest){const ceiling=bridge.reducedMotion?.18:.12+Math.sin(time/113)*.05+Math.sin(time/37)*.035;glow(6,5,4,ceiling);glow(15,14,4,ceiling);glow(16.4,8.5,1.2,.14);}
         for (const p of players)
             if (p.flashlightOn && Math.hypot(p.x - self.x, p.y - self.y) < 12)
                 glow(p.x, p.y, 7, .92, p.facing);
         // Warm compositing colours avatars, ground and trees in the same light field.
         g.globalCompositeOperation = "source-over";
-        const fx = (24 * TILE - view.x) * sx, fy = (24 * TILE - view.y) * sy, rr = 9.2 * TILE * sx;
+        const fx = (fxTile * TILE - view.x) * sx, fy = (fyTile * TILE - view.y) * sy, rr = (this.forest?9.2:4.2) * TILE * sx;
         const warm = g.createRadialGradient(fx, fy, 0, fx, fy, rr);
         warm.addColorStop(0, "rgba(255,145,58,.25)");
         warm.addColorStop(.45, "rgba(234,113,43,.12)");
         warm.addColorStop(1, "rgba(240,130,60,0)");
         g.fillStyle = warm;
         g.fillRect(fx - rr, fy - rr, rr * 2, rr * 2);
+        if(stalker){const x=(stalker.x*TILE-view.x)*sx,y=(stalker.y*TILE-view.y)*sy,rad=.85*TILE*sx;const red=g.createRadialGradient(x,y,0,x,y,rad);red.addColorStop(0,"rgba(110,4,15,.10)");red.addColorStop(1,"rgba(100,0,10,0)");g.fillStyle=red;g.fillRect(x-rad,y-rad,rad*2,rad*2);}
         (this.textures.get("forest-darkness") as Phaser.Textures.CanvasTexture).refresh();
         this.lightImage!.setPosition(view.x, view.y).setDisplaySize(view.width, view.height);
     }
@@ -444,7 +490,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         ? item.seats
             .filter((s) => !occupied.has(s.id))
             .map((s) => ({ ...s, action: `seat:${s.id}` }))
-        : item.usePoints.map((p) => ({ ...p, action: item.kind }));
+        : item.usePoints.map((p) => ({ ...p, action: item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind }));
       options.sort(
         (a, b) => distance(clicked || self, a) - distance(clicked || self, b),
       );
@@ -456,9 +502,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     interact() {
       if (
         bridge.blocked ||
-        ["INPUT", "TEXTAREA", "SELECT"].includes(
-          (document.activeElement as HTMLElement)?.tagName,
-        )
+        isGameInputBlocked(document.activeElement)
       )
         return;
       const self = bridge.snapshot?.players.find((p) => p.id === bridge.selfId);
@@ -479,7 +523,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             ? item.seats
                 .filter((s) => !occupied.has(s.id))
                 .map((s) => ({ ...s, action: `seat:${s.id}` }))
-            : item.usePoints.map((p) => ({ ...p, action: item.kind })),
+            : item.usePoints.map((p) => ({ ...p, action: item.id==="abandoned-cabin"?"race-house":item.id==="asylum-entrance"?"enter-asylum":item.id==="asylum-exit"?"exit-asylum":item.kind })),
         )
         .filter((point) => isHomeSegmentWalkable(self, point, this.map))
         .sort((a, b) => distance(self, a) - distance(self, b));
@@ -517,28 +561,29 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!snapshot) return;
       const self = snapshot.players.find((p) => p.id === bridge.selfId);
       const mode = self?.mode || "home";
-      if (mode !== this.currentMode || snapshot.worldId!==this.currentWorld || snapshot.worldRevision!==this.currentRevision) {
+      if (mode !== this.currentMode || snapshot.worldId!==this.currentWorld || snapshot.worldRevision!==this.currentRevision || snapshot.instanceId!==this.currentInstance) {
+        this.currentInstance=snapshot.instanceId;this.movement.reset();this.sprintPacketPending=false;
         this.currentWorld=snapshot.worldId;this.currentRevision=snapshot.worldRevision;
         this.currentMode = mode;
         this.cancelWalk();
         this.inputHistory = [];
         this.correction = { x: 0, y: 0 };
         this.prediction = null;
-        mode === "race" ? this.drawRace() : this.forest ? this.drawForest() : this.drawHome();
+        mode === "race" ? this.drawRace() : this.dark ? this.drawForest() : this.drawHome();
         this.fit();
       }
-      const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(
-        (document.activeElement as HTMLElement)?.tagName,
-      );
+      const typing = isGameInputBlocked(document.activeElement);
       const active =
         !bridge.blocked &&
         !typing &&
         document.visibilityState === "visible" &&
         !!self?.connected && !self.respawnAt;
-      if (!active) this.cancelWalk();
+      if (!active) { this.cancelWalk(); this.movement.reset(); this.sprintPacketPending = false; }
       if (self && snapshot.serverTime !== this.authoritativeTime) {
         this.authoritativeTime = snapshot.serverTime;
+        this.snapshotReceivedAt = time;
         this.seq = Math.max(this.seq, self.lastInputSeq);
+        this.sprintPress = Math.max(this.sprintPress, self.lastSprintPress ?? 0);
         if((self.respawnCount??0)!==(this.prediction?.respawnCount??0)){
           this.cancelWalk();this.inputHistory=[];this.correction={x:0,y:0};this.prediction=null;
         }
@@ -555,8 +600,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         for (const h of this.inputHistory) {
           if (mode === "race" && snapshot.race?.phase === "running")
             this.prediction = stepRace(this.prediction, h.input, h.dt);
-          else if (mode === "home")
-            this.prediction = stepHome(this.prediction, h.input, h.dt, this.map);
+          else if (mode === "home") {
+            if (h.sprintTap) this.prediction = requestSprint(this.prediction, h.at);
+            this.prediction = stepHome(this.prediction, h.input, h.dt, this.map, h.at);
+          }
         }
         this.correction =
           previous && distance(previous, this.prediction) < 3 && !self.seatId
@@ -566,16 +613,19 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
               }
             : { x: 0, y: 0 };
       }
-      let axisX = active
-        ? Number(this.keys.D?.isDown || this.keys.RIGHT?.isDown) -
-            Number(this.keys.A?.isDown || this.keys.LEFT?.isDown) ||
-          bridge.touch.axisX
-        : 0;
-      let axisY = active
-        ? Number(this.keys.S?.isDown || this.keys.DOWN?.isDown) -
-            Number(this.keys.W?.isDown || this.keys.UP?.isDown) ||
-          bridge.touch.axisY
-        : 0;
+      const controls = this.movement.read();
+      const sprintTap = active && this.movement.takeSprintTap();
+      if (sprintTap && mode === "home") { this.sprintPacketPending = true; this.sprintPress++; }
+      if(mode==="home"&&this.forest&&this.prediction){
+        const d=distance(this.prediction,{x:15,y:14.5});
+        if(d>2)this.racePromptArmed=true;
+        else if(active&&d<1&&this.racePromptArmed){this.racePromptArmed=false;this.cancelWalk();bridge.interact("race-house");}
+      }
+      const predictedNow = snapshot.serverTime + Math.max(0, time - this.snapshotReceivedAt);
+      if (sprintTap && mode === "home" && this.prediction)
+        this.prediction = requestSprint(this.prediction, predictedNow);
+      let axisX = active ? controls.axisX || bridge.touch.axisX : 0;
+      let axisY = active ? controls.axisY || bridge.touch.axisY : 0;
       if (axisX || axisY) this.cancelWalk();
       if (active && this.prediction && this.path.length) {
         while (
@@ -596,9 +646,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           if (action) bridge.interact(action);
         }
       }
-      const jump = active && (!!this.keys.SPACE?.isDown || bridge.touch.jump);
+      const jump = active && (controls.jump || bridge.touch.jump);
+      const sprint = active && mode === "home" && (controls.sprint || this.sprintPacketPending);
       if (this.prediction) {
-        const input = { seq: this.seq, axisX, axisY, jump };
+        const input = { seq: this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
         if (mode === "race" && snapshot.race?.phase === "running")
           this.prediction = stepRace(
             this.prediction,
@@ -611,6 +662,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             input,
             Math.min(delta / 1000, 0.04),
             this.map,
+            predictedNow,
           );
       }
       this.correction.x = decayCorrection(
@@ -769,10 +821,23 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             (RACE_MAP.height * TILE) / 2,
           );
       }
-      if(this.forest && localNode && self){
+      if(this.dark && localNode && self){
         const camera=this.cameras.main,vw=this.scale.width/camera.zoom,vh=this.scale.height/camera.zoom;
-        camera.centerOn(cameraFollowX(localNode.sprite.x,this.map.width*TILE,vw),cameraFollowX(localNode.sprite.y,this.map.height*TILE,vh));
+        if(this.forest)camera.centerOn(cameraFollowX(localNode.sprite.x,this.map.width*TILE,vw),cameraFollowX(localNode.sprite.y,this.map.height*TILE,vh));
         this.lightForest(time,{...self,x:localNode.sprite.x/TILE,y:localNode.sprite.y/TILE},snapshot.players);
+      }
+      const wolf=this.forest?snapshot.werewolf:null;
+      if(this.werewolfSprite){
+        const sprite=this.werewolfSprite;sprite.setVisible(!!wolf);
+        if(wolf){
+          if(this.werewolfId!==wolf.id){this.werewolfId=wolf.id;sprite.setPosition(wolf.x*TILE,wolf.y*TILE);}
+          const t=snapshot.serverTime-wolf.startedAt,target=snapshot.players.find(p=>p.id===wolf.targetId);
+          sprite.x+=(wolf.x*TILE-sprite.x)*(1-Math.exp(-delta/60));
+          sprite.y+=(wolf.y*TILE-sprite.y)*(1-Math.exp(-delta/60));
+          sprite.setTexture("forest-werewolf-"+(wolf.phase!=="chase"||bridge.reducedMotion?0:Math.floor(t/75)%6));
+          if(target)sprite.setFlipX(target.x<wolf.x);
+          sprite.setDepth(sprite.y).setAlpha(wolf.phase==="retreat"?Math.max(0,(wolf.phaseUntil-snapshot.serverTime)/900):.95);
+        }
       }
       const stalker=this.forest?snapshot.stalker:null;
       if(this.stalkerSprite){
@@ -814,6 +879,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       const camera = this.cameras.main;
       Object.assign(parent.dataset, {
         localId: bridge.selfId,
+        mode,
         avatarScale: String(AVATAR_SCALE),
         avatarHeight: String(32 * AVATAR_SCALE),
         roomTheme: this.forest ? "midnight-pines" : "walnut-velvet",
@@ -821,7 +887,11 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         worldRevision: String(snapshot.worldRevision),
         renderFrame: String(this.game.loop.frame),
         avatarTextureCount: String(this.textureIds.size),
+        sprintUntil: String(self?.sprintUntil ?? 0),
+        sprintReadyAt: String(self?.sprintReadyAt ?? 0),
         flashlightOn: String(self?.flashlightOn),
+        flashlightBattery:String(self?.flashlightBattery),
+        zoneRevision:String(self?.zoneRevision??0),
         roastingAt: String(self?.roastingAt??0),
         respawnCount: String(self?.respawnCount??0),
         caughtAt: String(self?.caughtAt??0),
@@ -829,6 +899,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         haloUntil: String(self?.haloUntil??0),
         haloVisible: String((self?.haloUntil??0)>snapshot.serverTime),
         stalkerId: snapshot.stalker?.id??"",
+        werewolfId: snapshot.werewolf?.id??"",
+        werewolfPhase: snapshot.werewolf?.phase??"",
         stalkerPhase: snapshot.stalker?.phase??"",
         selfAvatar: JSON.stringify(self?.avatar || {}),
         seatId: self?.seatId || "",
@@ -858,8 +930,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (time - this.lastInput > 33 && self) {
         const dt = Math.min((time - this.lastInput) / 1000, 0.05);
         this.lastInput = time;
-        const input = { seq: ++this.seq, axisX, axisY, jump };
-        this.inputHistory.push({ input, dt });
+        const input = { seq: ++this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
+        this.inputHistory.push({ input, dt, at: predictedNow, sprintTap: this.sprintPacketPending });
+        this.sprintPacketPending = false;
         if (this.inputHistory.length > 100) this.inputHistory.shift();
         bridge.send({ type: "input", input, lifeRevision:self.respawnCount??0 });
         bridge.touch.jump = false;

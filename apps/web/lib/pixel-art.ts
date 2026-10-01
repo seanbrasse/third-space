@@ -73,7 +73,7 @@ export function drawAvatarCanvas(
   // Broad head and expressive face borrow only the proportions of handheld RPGs.
   pixel(7, 3, 10, 2, ink);
   pixel(5, 5, 14, 9, ink);
-  pixel(7, 14, 10, 2, ink);
+  pixel(7, 14, 10, 1, shade(skin,-12));
   pixel(7, 5, 10, 9, skin);
   pixel(6, 9, 1, 4, shade(skin, -20));
   pixel(17, 9, 1, 4, shade(skin, -20));
@@ -85,32 +85,34 @@ export function drawAvatarCanvas(
       pixel(14, 10, 2, 3, ink);
       pixel(9, 10, 1, 1, "#fff4df");
       pixel(14, 10, 1, 1, "#fff4df");
-      pixel(11, 14, 3, 1, shade(skin, -60));
+      pixel(11, 13, 2, 1, shade(skin, -25));
     } else {
       pixel(facing === "left" ? 7 : 15, 10, 2, 3, ink);
       pixel(facing === "left" ? 5 : 18, 12, 2, 2, skin);
-      pixel(10, 14, 4, 1, shade(skin, -40));
+      pixel(11, 13, 2, 1, shade(skin, -25));
     }
   }
   if (avatar.hair !== "none") {
     pixel(7, 2, 10, 2, shade(hair, -24));
-    pixel(5, 4, 14, 5, hair);
+    pixel(6, 3, 12, 4, hair);
+    pixel(5,5,2,3,shade(hair,-18));pixel(17,5,2,3,shade(hair,-24));
+    pixel(9,2,8,2,hair);pixel(13,4,1,2,shade(hair,-18));
     pixel(6, 4, 5, 1, shade(hair, 28));
     pixel(6, 5, 2, 2, shade(hair, 18));
-    pixel(5, 7, 3, 6, shade(hair, -20));
-    pixel(16, 7, 3, 6, shade(hair, -24));
+    pixel(5, 7, 2, 3, shade(hair, -20));
+    pixel(17, 7, 2, 3, shade(hair, -24));
     if (facing === "up") {
       pixel(7, 8, 10, 7, hair);
       pixel(8, 10, 2, 4, shade(hair, 14));
       pixel(15, 9, 2, 5, shade(hair, -18));
     } else {
-      pixel(7, 8, 3, 2, hair);
-      pixel(11, 8, 2, 1, hair);
-      pixel(15, 8, 2, 2, hair);
+      pixel(7, 6, 5, 2, hair);
+      pixel(8, 8, 2, 1, hair);
+      pixel(14, 6, 3, 2, hair);
     }
     if (avatar.hair === "long") {
-      pixel(4, 9, 3, 10, shade(hair, -22));
-      pixel(17, 9, 3, 10, hair);
+      pixel(4, 7, 3, 12, shade(hair, -22));pixel(5,8,1,9,shade(hair,15));
+      pixel(17, 7, 3, 12, hair);
       pixel(18, 10, 1, 7, shade(hair, 20));
     }
     if (avatar.hair === "curly") {
@@ -120,8 +122,8 @@ export function drawAvatarCanvas(
         [11, 2],
         [15, 1],
         [18, 5],
-        [4, 9],
-        [18, 9],
+        [5, 7],
+        [17, 7],
       ]) {
         pixel(x, y, 3, 3, shade(hair, -15));
         pixel(x, y, 2, 1, shade(hair, 25));

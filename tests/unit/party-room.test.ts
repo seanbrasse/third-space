@@ -569,7 +569,7 @@ describe("shared reusable social worlds",()=>{
     const clients=harness.fill();let resolve!:(c:AuthorityClient)=>void;const wait=new Promise<AuthorityClient>(r=>resolve=r);
     vi.spyOn(harness.room,"allowReconnection").mockReturnValue(wait as ReturnType<PartyRoom["allowReconnection"]>);
     const dropped=clients[1]!,drop=harness.room.onDrop(dropped.authority());propose(clients[0]!);harness.advance(481);
-    const p=harness.room.players.get(dropped.auth.userId)!;expect(p.connected).toBe(false);expect(p.y).toBeGreaterThan(27);
+    const p=harness.room.players.get(dropped.auth.userId)!;expect(p.connected).toBe(false);expect(Math.hypot(p.x-24,p.y-24)).toBeCloseTo(3.2);
     harness.room.onReconnect(dropped.authority());resolve(dropped.authority());await drop;expect(dropped.snapshot().worldId).toBe("forest");expect(harness.room.players.size).toBe(8);
   });
   it("stale/concurrent proposals cannot fork worlds and a revoked proposer cancels the transition",()=>{
@@ -583,10 +583,10 @@ describe("shared reusable social worlds",()=>{
     const c=clients[0]!;harness.send(c,{type:"input",input:{seq:10,axisX:1,axisY:0,jump:false},worldRevision:1});harness.advance(2);expect(harness.room.players.get(c.auth.userId)!.roastingAt).toBeUndefined();
     const far=clients[1]!,p=harness.room.players.get(far.auth.userId)!;p.x=2;p.y=2;delete p.roastingAt;harness.send(far,{type:"roast",enabled:true});expect(p.roastingAt).toBeUndefined();
   });
-  it("shared video controls require host authority and revision, deduplicate retries, and survive world switches",()=>{
+  it("shared video controls require room authority and revision, deduplicate retries, and survive world switches",()=>{
     const clients=harness.fill(),host=clients[0]!,guest=clients[1]!;
     const source={type:"media.control",action:"source",url:"https://example.com/movie.mp4",revision:0,commandId:"video"};
-    harness.send(guest,source);expect(harness.room.media.url).toBe("");harness.send(host,source);expect(harness.room.media.revision).toBe(1);harness.send(host,source);expect(harness.room.media.revision).toBe(1);
+    harness.send(guest,source);expect(harness.room.media.url).toBe(source.url);harness.send(guest,source);expect(harness.room.media.revision).toBe(1);
     harness.send(host,{type:"media.control",action:"play",revision:0,commandId:"stale"});expect(harness.room.media.playing).toBe(false);
     harness.send(host,{type:"media.control",action:"play",revision:1,commandId:"play"});harness.advance(120);
     harness.send(host,{type:"media.control",action:"pause",revision:2,commandId:"pause"});expect(harness.room.media.position).toBeCloseTo(2,1);
@@ -621,7 +621,7 @@ describe("shared reusable social worlds",()=>{
     expect(harness.room.intents.has(p.id)).toBe(false);
     const x=p.x;harness.send(c,{type:"input",input:{seq:1,axisX:1,axisY:0,jump:false},worldRevision:1,lifeRevision:0});harness.advance(3);expect(harness.room.players.get(p.id)!.x).toBe(x);
     harness.send(c,{type:"input",input:{seq:1,axisX:1,axisY:0,jump:false},worldRevision:1,lifeRevision:1});harness.advance(3);expect(harness.room.players.get(p.id)!.x).toBeGreaterThan(x);
-    propose(c,"living-room","return-after-catch");harness.advance(481);expect(c.snapshot().stalker).toBeNull();expect(c.snapshot().players.find(p=>p.id===c.auth.userId)?.haloUntil).toBeUndefined();
+    propose(c,"living-room","return-after-catch");harness.advance(481);expect(c.snapshot().stalker).toBeNull();expect(c.snapshot().worldId).toBe("forest");expect((c.snapshot().players.find(p=>p.id===c.auth.userId)?.haloUntil??0)).toBeLessThan(Date.now());
   });
 
   it("drops a pursuit when its explorer disconnects and reconnects the same live avatar",async()=>{
@@ -646,9 +646,24 @@ describe("shared reusable social worlds",()=>{
     for(let i=0;i<1000&&!harness.room.players.get(c.auth.userId)!.respawnAt;i+=3)harness.advance(3);
     const slash=c.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash");expect(slash).toHaveLength(1);expect(slash[0]!.victimId).toBe(c.auth.userId);
     expect(clients[1]!.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash")).toHaveLength(1);
-    expect(clients[2]!.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash")).toHaveLength(0);
+    for(const event of clients[2]!.received<WorldSoundEvent>("world.sound").filter(e=>e.kind==="slash")){const listener=harness.room.players.get(clients[2]!.auth.userId)!;expect(Math.hypot(listener.x-event.x,listener.y-event.y)).toBeLessThanOrEqual(18);}
     const p=harness.room.players.get(c.auth.userId)!;expect(Date.now()-p.caughtAt!).toBeLessThan(50);expect(p.respawnAt).toBeGreaterThan(Date.now());expect(Math.hypot(p.x-24,p.y-24)).toBeGreaterThan(9);
     harness.advance(60);expect(harness.room.players.get(c.auth.userId)!.haloUntil).toBeGreaterThan(Date.now());
   });
 
 });
+
+describe("shared media queue",()=>{
+ it("lets members enqueue/remove, atomically advance and ignore duplicate end reports",()=>{const [a,b]=harness.fill();harness.send(a!,{type:"media.control",action:"source",url:"https://example.com/one.mp4",revision:0,commandId:"source"});harness.send(b!,{type:"media.control",action:"queue.add",url:"https://youtu.be/M7lc1UVf-VE?t=83",revision:1,commandId:"add"});expect(harness.room.media.queue).toHaveLength(1);harness.send(a!,{type:"media.control",action:"queue.add",url:"https://example.com/three.mp4",revision:2,commandId:"add2"});const removed=harness.room.media.queue![1]!.id;harness.send(b!,{type:"media.control",action:"queue.remove",itemId:removed,revision:3,commandId:"remove"});expect(harness.room.media.queue).toHaveLength(1);harness.send(b!,{type:"media.control",action:"play",revision:4,commandId:"play"});harness.send(a!,{type:"media.control",action:"ended",playbackId:harness.room.media.playbackId,revision:5,commandId:"end"});expect(harness.room.media.url).toContain("youtube.com");expect(harness.room.media.position).toBe(83);expect(harness.room.media.playing).toBe(true);expect(harness.room.media.queue).toHaveLength(0);harness.send(b!,{type:"media.control",action:"ended",revision:5,commandId:"other-end"});expect(harness.room.media.revision).toBe(6);expect(harness.room.media.playing).toBe(true);});
+});
+
+
+describe("campsite-only runtime",()=>{
+ it("reserves eight unique seat spawns and keeps reservations across reconnect",()=>{harness.room.worldId="forest";const clients=harness.fill();const seats=getWorld("forest").map.seats;expect(new Set(clients.map(c=>harness.room.players.get(c.auth.userId)!.seatId)).size).toBe(8);for(const c of clients){const p=harness.room.players.get(c.auth.userId)!;expect(seats.find(s=>s.id===p.seatId)).toMatchObject({x:p.x,y:p.y});}const a=clients[0]!,before={...harness.room.players.get(a.auth.userId)!};const replacement=harness.authenticate(a.auth.userId);harness.room.onJoin(replacement.authority(),{replaceExisting:true});expect(harness.room.players.get(a.auth.userId)).toMatchObject({x:before.x,y:before.y,seatId:before.seatId});});
+ it("rejects retired destinations without changing saved room data",()=>{harness.room.worldId="forest";const c=harness.join(harness.identities[0]!);harness.send(c,{type:"world.propose",worldId:"living-room",revision:0,commandId:"retired"});expect(harness.room.worldId).toBe("forest");expect(harness.room.worldProposal).toBeNull();expect(c.received<ServerNotice>("notice").map(n=>n.code)).toEqual(["WORLD_UNAVAILABLE"]);expect(harness.store.getHome(harness.homeId)).toBeTruthy();});
+ it("starts racing only after explicit confirmation at the cabin and returns safely without repeated entry",()=>{harness.room.worldId="forest";const c=harness.join(harness.identities[0]!);harness.advance(1);let p=harness.room.players.get(c.auth.userId)!;delete p.seatId;Object.assign(p,{x:15,y:14.5});harness.advance(1);expect(harness.room.race.phase).toBe("lobby");harness.send(c,{type:"race.enter"});expect(harness.room.race.phase).toBe("countdown");expect(harness.room.players.get(c.auth.userId)!.mode).toBe("race");const raceId=harness.room.race.id;harness.send(c,{type:"race.enter"});expect(harness.room.race.id).toBe(raceId);harness.send(c,{type:"race.return"});harness.advance(2);expect(harness.room.players.get(c.auth.userId)!.mode).toBe("home");expect(harness.room.race.phase).toBe("lobby");});
+});
+
+it("indoor seat spawns preserve all eight player identities and hide the TV outdoors",()=>{harness.room.worldId="forest";const clients=harness.fill();for(const c of clients){const p=harness.room.players.get(c.auth.userId)!;Object.assign(p,{x:69,y:13.5});harness.send(c,{type:"area.enter",area:"asylum"});expect(p.id).toBe(c.auth.userId);expect(p.zone).toBe("asylum");expect(p.seatId).toMatch(/^asylum-cushion-/);expect(c.snapshot().players.some(v=>v.id===c.auth.userId)).toBe(true);}expect(new Set([...harness.room.players.values()].map(p=>p.seatId)).size).toBe(8);expect(getWorld("forest").mediaEnabled).toBe(false);expect(getWorld("forest").map.furniture.some(f=>f.kind==="tv")).toBe(false);});
+
+it("confirmed cabin friends share the same countdown without resetting it; running late joins stay outside",()=>{harness.room.worldId="forest";const [a,b,c]=harness.fill();for(const client of [a,b,c]){Object.assign(harness.room.players.get(client!.auth.userId)!,{x:15,y:14.5});}harness.send(a!,{type:"race.enter"});const start=harness.room.race.startAt,id=harness.room.race.id;harness.advance(60);harness.send(b!,{type:"race.enter"});expect(harness.room.race.startAt).toBe(start);expect(harness.room.race.id).toBe(id);expect(harness.room.players.get(b!.auth.userId)!.mode).toBe("race");harness.advance(130);harness.send(c!,{type:"race.enter"});expect(harness.room.players.get(c!.auth.userId)!.mode).toBe("home");expect(c!.received<ServerNotice>("notice").at(-1)?.code).toBe("RACE_ACTIVE");});

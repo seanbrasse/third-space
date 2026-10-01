@@ -62,6 +62,13 @@ async function join(id: string, replaceExisting = false) {
   });
   peers.push(peer);
   await until(() => !!peer.snapshot, "Missing authoritative snapshot");
+  // Camp seats are intentionally spaced beyond paired-emote range. Approach
+  // the owner through real input before exercising invitation policy.
+  if(id===friendId){
+    let seq=1;
+    const timer=setInterval(()=>{const self=peer.snapshot?.players.find(p=>p.id===id),owner=peer.snapshot?.players.find(p=>p.id===ownerId);if(self&&owner){const d=Math.hypot(owner.x-self.x,owner.y-self.y);room.send("command",{type:"input",input:{seq:seq++,axisX:(owner.x-self.x)/d,axisY:(owner.y-self.y)/d,jump:false}});}},40);
+    try{await until(()=>{const a=peer.snapshot?.players.find(p=>p.id===ownerId),b=peer.snapshot?.players.find(p=>p.id===id);return !!a&&!!b&&Math.hypot(a.x-b.x,a.y-b.y)<1.8;},"Friend could not approach owner");}finally{clearInterval(timer);room.send("command",{type:"input",input:{seq:seq++,axisX:0,axisY:0,jump:false}});}
+  }
   return peer;
 }
 
