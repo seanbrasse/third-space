@@ -6,3 +6,12 @@ describe('tab-local room PIN', () => {
     it('ignores invalid/missing revision and tolerates unavailable storage', () => { const s = memory(); rememberSessionPin(s, 'a', 'room', undefined, '123456'); expect(readSessionPin(s, 'a', 'room', undefined)).toBe(''); rememberSessionPin(s, 'a', 'room', 1, 'bad'); expect(readSessionPin(s, 'a', 'room', 1)).toBe(''); expect(readSessionPin(null, 'a', 'room', 1)).toBe(''); });
     it('survives a reader refresh and rejects corrupt records', () => { const s = memory(); rememberSessionPin(s, 'a', 'room', 1, '654321'); expect(readSessionPin(s, 'a', 'room', 1)).toBe('654321'); s.setItem('third-space.room-pin.a.room', '{"revision":1,"pin":"bad"}'); expect(readSessionPin(s, 'a', 'room', 1)).toBe(''); });
 });
+
+import { readSessionPinCandidate, forgetSessionPin } from './session-pin';
+it('preserves a candidate for secure re-verification after settings revisions and supports clearing a rejected candidate',()=>{
+ const storage=memory();rememberSessionPin(storage,'profile','saved-home',1,'123456');
+ expect(readSessionPinCandidate(storage,'profile','saved-home')).toEqual({pin:'123456',revision:1});
+ rememberSessionPin(storage,'profile','saved-home',2,'123456');
+ expect(readSessionPin(storage,'profile','saved-home',2)).toBe('123456');
+ forgetSessionPin(storage,'profile','saved-home');expect(readSessionPinCandidate(storage,'profile','saved-home')).toBeNull();
+});

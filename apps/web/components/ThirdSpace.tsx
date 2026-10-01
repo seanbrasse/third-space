@@ -1,8 +1,11 @@
 "use client";
+import ChatTimestamp from "./ChatTimestamp";
 import LiveSessions from "./LiveSessions";
 import SessionInfo from "./SessionInfo";
 import { rememberSessionPin, sessionPinStorage } from "../lib/session-pin";
+import { parseRoomInvite } from "../lib/room-invite";
 import WorldMap from "./WorldMap";
+import { usePanelGameFocus } from "../lib/use-panel-game-focus";
 import IdlePresence, { useIdleActivity } from "./IdlePresence";
 import StaminaBar from "./StaminaBar";
 import { canTouchBoost, queueTouchBoost } from "../lib/touch-boost";
@@ -139,6 +142,7 @@ export default function ThirdSpace() {
     noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     lastInstance = useRef(""),
     leaving = useRef(false),
+    pendingJoinInvite = useRef(false),
     inviteToken = useRef(""),
     snapshotUiAt = useRef(0),
     mounted = useRef(false),
@@ -146,6 +150,8 @@ export default function ThirdSpace() {
     connectGeneration = useRef(0),
     savedSession = useRef("");
   const visitsRef = useRef<HomeVisit[]>([]), suggestedNameAssigned = useRef(false);
+  usePanelGameFocus(!!modal, ".modal-backdrop");
+  usePanelGameFocus(chatOpen && prefs.panel, ".chat-panel", ".chat-panel .chat-heading");
   function changeAvatar(selected: Avatar) {
     setAvatar(selected);
     saveCustomization(browserStorage(), identityRef.current?.id ?? null, selected);
@@ -256,11 +262,18 @@ export default function ThirdSpace() {
     const online=()=>{const current=homeRef.current;if(current&&!leaving.current&&!room.current)void recover(current);};
     window.addEventListener("pagehide",suspend);window.addEventListener("online",online);
     const fragment = new URLSearchParams(location.hash.slice(1));
-    if (fragment.has("invite")) {
-      inviteToken.current = fragment.get("invite") || "";
-      setJoinId(fragment.get("home") || "");
+    const receivedInvite = parseRoomInvite(location.hash);
+    if (fragment.has("pin") || fragment.has("invite")) {
+      pendingJoinInvite.current = true;
+      history.replaceState(null, "", location.pathname + location.search);
+      if (!receivedInvite) setError("This invite link is incomplete or invalid. Ask your friend for a new link.");
+    }
+    if (receivedInvite) {
+      pendingJoinInvite.current = true;
+      inviteToken.current = receivedInvite.inviteToken || "";
+      setJoinId(receivedInvite.home);
+      setPin(receivedInvite.pin || "");
       setEntryMode("join");
-      history.replaceState(null, "", location.pathname);
     }
     try {
       const saved = localStorage.getItem("third-space.preferences");
@@ -305,7 +318,7 @@ export default function ThirdSpace() {
             "Native voice needs a configured, verified media service.",
         );
         setConnection("Ready to enter");
-        if(!inviteToken.current&&profile.profile){
+        if(!pendingJoinInvite.current&&!inviteToken.current&&profile.profile){
           try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");
             const target=rooms.homes.find(h=>h.id===previous?.homeId);
             if(target&&previous.userId===profile.profile.id){identityRef.current=profile.profile;await recover(target,typeof previous.token==="string"?previous.token:undefined);}
@@ -351,6 +364,7 @@ export default function ThirdSpace() {
       }
       if (event.key === "Escape") {
         if (modal) setModal(null);
+        else if (typing && element.closest(".chat-panel")) setChatOpen(false);
         else if (typing) element.blur();
         return;
       }
@@ -399,7 +413,6 @@ export default function ThirdSpace() {
   }, [modal, home, notify]);
   useEffect(() => {
     if (!modal) return;
-    const previous = document.activeElement as HTMLElement | null;
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     dialog?.focus();
     const trap = (event: KeyboardEvent) => {
@@ -432,7 +445,6 @@ export default function ThirdSpace() {
     document.addEventListener("keydown", trap);
     return () => {
       document.removeEventListener("keydown", trap);
-      previous?.focus();
     };
   }, [modal]);
   useEffect(() => {
@@ -838,7 +850,7 @@ export default function ThirdSpace() {
   return (
     <main className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
       <IdlePresence snapshot={snapshot} send={send}/>
-      <DeathVeil caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
+      <DeathVeil caughtBy={self?.caughtBy} avatar={self?.avatar} caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
         <a className="brand" href="/" aria-label="Third Space home">
           <span className="brand-mark">
@@ -963,7 +975,7 @@ export default function ThirdSpace() {
                       required
                       value={joinId}
                       onChange={(e) => setJoinId(e.target.value)}
-                      placeholder="Paste the home ID from your friend"
+                      placeholder="Short word from your friend (older IDs also work)"
                     />
                   </label>
                   </>
@@ -1248,7 +1260,10 @@ export default function ThirdSpace() {
                         )}
                         {messages.map((m) => (
                           <p key={m.id}>
-                            <b>{m.senderName}</b>
+                            <span className="chat-message-header">
+                              <b>{m.senderName}</b>
+                              <ChatTimestamp createdAt={m.createdAt}/>
+                            </span>
                             <span>{m.text}</span>
                           </p>
                         ))}
@@ -1406,11 +1421,11 @@ export default function ThirdSpace() {
               <button
                 onClick={() => {
                   void navigator.clipboard
-                    .writeText(home.id)
+                    .writeText(home.joinAlias || home.id)
                     .then(() =>
                       notify("Home ID copied. Share the PIN separately."),
                     )
-                    .catch(() => notify(`Home ID: ${home.id}`));
+                    .catch(() => notify(`Home ID: ${home.joinAlias || home.id}`));
                 }}
               >
                 Copy home ID ↗
@@ -2069,7 +2084,7 @@ export default function ThirdSpace() {
                 <span className="eyebrow">KEEP YOUR PLACE PRIVATE</span>
                 <h2>Home controls.</h2>
                 <p>
-                  Room ID: <code>{home.id}</code>
+                  Room ID: <code>{home.joinAlias || home.id}</code>
                 </p>
                 <label>
                   Rotate the PIN

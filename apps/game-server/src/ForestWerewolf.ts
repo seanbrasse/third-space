@@ -1,10 +1,11 @@
 import type { WorldDefinition } from '@third-space/config';
 import type { PlayerState, WorldSoundEvent } from '@third-space/contracts';
 import { ForestEncounter, type EncounterBehavior } from './ForestStalker';
+import { ENCOUNTER_TUNING } from './encounter-tuning';
 
-/** Three times the clown check interval; 26% faster than its peak stride. */
+/** Three times the clown check interval; base stride slightly below the clown, with a telegraphed leap. */
 export const WEREWOLF_DEFAULTS: Readonly<EncounterBehavior> = {
-    kind: 'werewolf', intervalMs: 90000, speedMultiplier: 1.7,
+    kind: 'werewolf', intervalMs: 90000, speedMultiplier: ENCOUNTER_TUNING.wolfStride,
     minTargetDistance: 12, maxTargetDistance: 14, hiddenMargin: 2,
 };
 /** Live room-owned cues, never reconstructed from snapshots or reconnects. */

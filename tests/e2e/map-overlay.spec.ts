@@ -41,14 +41,15 @@ test("open map remains nonmodal during arrows/WASD, typing and native toggle/clo
   expect((await position(page)).x - moving.x).toBeGreaterThan(.3);
   await expect(card).toBeVisible();
   await page.keyboard.press("Space"); await expect(card).toHaveCount(0);
-  await page.keyboard.press("Enter"); await expect(card).toBeVisible();
+  await expect(page.locator(".world-canvas")).toBeFocused();
+  await toggle.focus(); await page.keyboard.press("Enter"); await expect(card).toBeVisible();
   await expect(toggle).toBeFocused();
   await page.keyboard.press("Tab");
   const close = page.getByRole("button", { name: "Close map" });
   await expect(close).toBeFocused();
   await page.keyboard.press("Enter"); await expect(card).toHaveCount(0);
-  await expect(toggle).toBeFocused();
-  await toggle.click(); await close.click(); await expect(toggle).toBeFocused();
+  await expect(page.locator(".world-canvas")).toBeFocused();
+  await toggle.click(); await close.click(); await expect(page.locator(".world-canvas")).toBeFocused();
   await toggle.click(); await page.locator(".world-canvas").focus(); await page.keyboard.press("Enter");
   const chat = page.getByLabel("Message friends");
   await expect(chat).toBeFocused(); const before = await position(page);

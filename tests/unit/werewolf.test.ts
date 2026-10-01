@@ -12,9 +12,9 @@ const fixture = (w = world) => { const wolf = new ForestWerewolf(w, () => .5), p
 const spawn = (wolf: ForestWerewolf, p = player()) => { wolf.update(151000, [p]); expect(wolf.state?.kind).toBe('werewolf'); };
 
 describe('authoritative rare werewolf', () => {
-    it('uses three times the actual clown interval and faster than its peak stride', () => {
+    it('uses three times the actual clown interval and a slower base stride than the clown', () => {
         expect(WEREWOLF_DEFAULTS.intervalMs).toBe(world.stalker!.intervalMs * 3);
-        expect(WEREWOLF_DEFAULTS.speedMultiplier).toBeGreaterThan(1.35);
+        expect(WEREWOLF_DEFAULTS.speedMultiplier).toBe(1.2);
         const { wolf, p } = fixture(); wolf.update(90999, [p]); expect(wolf.state).toBeNull(); spawn(wolf, p);
     });
     it('spawns beyond every active player snapshot visibility boundary, including protected observers', () => {
@@ -53,7 +53,7 @@ describe('authoritative rare werewolf', () => {
     });
     it('gallops at the tuned speed, obeys swept collision, and catches once', () => {
         const { wolf, p } = fixture(); spawn(wolf, p); wolf.update(154000, [p]); const before = { ...wolf.state! };
-        wolf.update(154100, [p]); expect(distance(before, wolf.state!)).toBeCloseTo(GAME_CONFIG.homeSpeed * 1.7 * .1);
+        wolf.update(154100, [p]); expect(distance(before, wolf.state!)).toBeCloseTo(GAME_CONFIG.homeSpeed * WEREWOLF_DEFAULTS.speedMultiplier * .1);
         let catches = 0;
         for (let now = 154200; now <= 170000; now += 100) { const previous = wolf.state && { ...wolf.state }; if (wolf.update(now, [p])) catches++;
             if (previous && wolf.state?.phase === 'chase') expect(isHomeSegmentWalkable(previous, wolf.state, world.map)).toBe(true); }

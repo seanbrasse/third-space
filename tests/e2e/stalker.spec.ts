@@ -25,6 +25,8 @@ test('one local-area clown peeks, chases, catches and respawns with a fading hal
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-respawn-count','1',{timeout:17000});
  const cues=await page.evaluate(()=>(window as unknown as {gameCueStarts:number[]}).gameCueStarts);expect(cues.some(d=>Math.abs(d-.21)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.3)<.002)).toBe(true);expect(cues.some(d=>Math.abs(d-.11)<.002)).toBe(true);
  await expect(page.locator('.death-veil')).toHaveClass(/active/);
+ await expect(page.locator('.death-veil')).toHaveAttribute('data-creature','clown');
+ await page.screenshot({path:test.info().outputPath('clown-takedown.png')});
  await expect.poll(()=>page.locator('.death-veil').evaluate(el=>Number(getComputedStyle(el).opacity)),{timeout:1000}).toBeGreaterThan(.8);
  await expect(page.locator('.world-canvas')).toHaveAttribute('data-halo-visible','true');
  await expect(page.locator('.death-veil')).not.toHaveClass(/active/,{timeout:3000});

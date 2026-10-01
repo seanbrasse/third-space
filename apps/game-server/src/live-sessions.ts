@@ -2,6 +2,7 @@ import type { LocalStore } from '@third-space/data';
 import { GAME_CONFIG } from '@third-space/config';
 export type LiveSession = {
     homeId: string;
+    joinAlias?: string;
     name: string;
     world: string;
     players: number;
@@ -22,7 +23,7 @@ export function listLiveSessions(rooms: Iterable<{
         if (!home?.pinEnabled || !players)
             continue;
         const capacity = Math.min(home.capacity, GAME_CONFIG.partyCapacity);
-        sessions.push({ homeId: home.id, name: home.name, world: 'Midnight Pines', players, capacity, full: room.players.size >= capacity });
+        sessions.push({ homeId: home.id, ...(home.joinAlias ? {joinAlias:home.joinAlias}:{}), name: home.name, world: 'Midnight Pines', players, capacity, full: room.players.size >= capacity });
     }
     return sessions.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
 }

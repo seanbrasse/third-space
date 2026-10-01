@@ -26,6 +26,7 @@ export type Home = {
   discordUrl?: string;
   settingsRevision?: number;
   pinEnabled?: boolean;
+  joinAlias?: string;
 };
 export type WorldBridge = {
   snapshot: Snapshot | null;

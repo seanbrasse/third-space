@@ -172,6 +172,17 @@ function setup(){
  return {clients,authority,wolf};
 }
 describe('werewolf PartyRoom integration',()=>{
+ it('broadcasts reliable clown acquisition once and never replays it to a reconnecting player',()=>{
+  const {clients,authority}=setup(); authority.werewolf=null;
+  const w={...wolfWorld,map:{...wolfWorld.map,furniture:[{...wolfWorld.map.furniture[0]!,footprint:{x:34,y:43,width:2,height:3}}]}};
+  const clown=new ForestEncounter(w,()=>.9); clown.reset(Date.now()-40000); authority.encounter=clown;
+  harness.advance(3);
+  for(const c of clients.slice(0,2)){const cues=c.received<WorldSoundEvent>('world.sound').filter(e=>e.kind==='giggle');expect(cues).toHaveLength(1);expect(cues[0]?.id).toContain(':clown:');}
+  expect(clients[2]!.received<WorldSoundEvent>('world.sound')).toEqual([]);
+  harness.advance(3);expect(clients[0]!.received<WorldSoundEvent>('world.sound').filter(e=>e.kind==='giggle')).toHaveLength(1);
+  const id=clients[0]!.auth.userId;clients[0]!.leave();const replacement=harness.join(id);harness.snapshots();
+  expect(replacement.received<WorldSoundEvent>('world.sound')).toEqual([]);
+ });
  it('broadcasts one identical spawn howl, no visible spawn state, no racer cue and no reconnect replay',()=>{
   const {clients,wolf}=setup();harness.advance(3);
   expect(wolf.state).not.toBeNull();

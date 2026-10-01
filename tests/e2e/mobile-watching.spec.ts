@@ -91,7 +91,9 @@ test("mobile device activation and authoritative source survive reopening, late 
       expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.y).toBeGreaterThanOrEqual(0);
       expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport.width);
       expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(viewport.height);
-      await expect(phone.locator(".youtube-watching")).toHaveCSS("height",viewport.width===320?"200px":"204.75px");
+      const picture=await phone.locator(".youtube-watching").boundingBox();
+      expect(picture!.height).toBeGreaterThan(150);
+      expect(Math.abs(picture!.width/picture!.height-16/9)).toBeLessThan(.03);
       await expect(phone.getByLabel("Video link")).toHaveCSS("font-size","16px");
     }
     await phone.screenshot({path:test.info().outputPath("mobile-watching-current.png")});

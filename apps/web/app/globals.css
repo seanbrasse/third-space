@@ -2488,3 +2488,17 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
 @media(max-width:650px){
  .shared-watching.expanded:not(:fullscreen){right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:calc(100vw - 16px);max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px - env(safe-area-inset-bottom))}
 }
+
+
+/* Chat is readable interface text, independent from the pixel-art canvas. */
+.chat-messages p { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.chat-messages b { font-size: 12px; }
+.chat-message-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.chat-message-header b { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.chat-timestamp { flex: 0 0 auto; font-size: 11px; color: #56654d; font-variant-numeric: tabular-nums; }
+.dark-theme .chat-messages b { color: #c4d3b7; }
+.dark-theme .chat-timestamp { color: #b8c5ac; }
+
+/* Inset frame preserves the exact camera projection and never intercepts input. */
+.shared-watching.surface::after{content:"";position:absolute;inset:0;z-index:6;pointer-events:none;border:3px solid #d3caa8;box-shadow:inset 0 0 0 2px #3b4239;box-sizing:border-box}
+.dark-theme .shared-watching.surface::after{border-color:#bdb899;box-shadow:inset 0 0 0 2px #1b2923}

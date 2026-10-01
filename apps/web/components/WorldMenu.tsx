@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { usePanelGameFocus } from "../lib/use-panel-game-focus";
 import { WORLDS } from "@third-space/config";
 import type { Snapshot } from "../lib/types";
 export default function WorldMenu({ snapshot, send }: {
@@ -8,6 +9,8 @@ export default function WorldMenu({ snapshot, send }: {
 }) {
     const [open, setOpen] = useState(false), [now, setNow] = useState(Date.now());
     const toggle=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null);
+    usePanelGameFocus(open,".world-destinations",".world-menu-toggle");
+    useEffect(()=>{if(!open)return;const escape=(event:KeyboardEvent)=>{const active=document.activeElement;if(event.key==="Escape"&&!event.defaultPrevented&&(panel.current?.contains(active)||toggle.current===active)){event.preventDefault();setOpen(false);}};document.addEventListener("keydown",escape);return()=>document.removeEventListener("keydown",escape);},[open]);
     useEffect(()=>{if(!open)return;const dismiss=(event:PointerEvent)=>{const target=event.target as Node|null;if(target&&!panel.current?.contains(target)&&!toggle.current?.contains(target))setOpen(false);};document.addEventListener("pointerdown",dismiss,true);return()=>document.removeEventListener("pointerdown",dismiss,true);},[open]);
     const anchor = useRef({ server: snapshot?.serverTime ?? Date.now(), client: Date.now() });
     useEffect(() => { if (snapshot)
