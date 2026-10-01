@@ -17,6 +17,7 @@ export const LIVING_WORLD_RULES = Object.freeze({
   health: 60, speed: 1.9, fleeSpeed: 1.65, civilianFleeSpeed: 1.1, escortSpeed: 1.35,
   damage: 10, attackRadius: 1.05, windupMs: 900, recoveryMs: 1500,
   firstTellMs: 2000, attackCooldownMs: 800, pathRefreshMs: 800,
+  postCasualtyMs: 6000,
   maxPathQueries: 1, maxPathPoints: 96, retryMs: 45000,
   dangerTimeoutMs: 180000, escortTimeoutMs: 240000,
   escortFollowRange: 6, arrivalRange: 1.7, witnessRange: 8, fearRange: 7,
@@ -77,6 +78,8 @@ export class LivingWorldController {
   private lastAt: number | null = null;
   private nextCheckAt: number | null = null;
   private retryAt = 0;
+  private postCasualtyUntil: number | null = null;
+  private casualtyRetreatStarted = false;
   private startedAt: number | null = null;
   private attempt = 0;
   private attemptId = '';
@@ -121,10 +124,11 @@ export class LivingWorldController {
   private attemptReady() { return this.mobs.length === 2 && this.pending.size <= LIVING_WORLD_RULES.maxPendingEvents - 4; }
 
   snapshot(): { mobs: ForestMob[]; encounters: ForestCombatEncounter[]; rescue: LivingWorldRescueSnapshot } {
-    const visible = this.phase === 'dormant' || this.phase === 'endangered';
+    const visible = this.phase === 'dormant' || this.phase === 'endangered' || (this.phase === 'cooldown' && this.postCasualtyUntil !== null);
+    const pursuingAfterCasualty = this.phase === 'cooldown' && this.postCasualtyUntil !== null && (this.lastAt ?? 0) < this.postCasualtyUntil;
     return {
       mobs: visible ? this.mobs.map(m => cloneMob(m.state)) : [],
-      encounters: visible && this.mobs.length ? [{ id: this.definition.incidentId, title: 'Lantern Road', phase: this.phase === 'endangered' ? 'active' : 'idle', participantScale: 1 }] : [],
+      encounters: visible && this.mobs.length ? [{ id: this.definition.incidentId, title: 'Lantern Road', phase: this.phase === 'endangered' || pursuingAfterCasualty ? 'active' : this.phase === 'cooldown' ? 'resetting' : 'idle', participantScale: 1, ...(this.phase === 'cooldown' ? { resetAt: this.retryAt } : {}) }] : [],
       rescue: { phase: this.phase, incidentId: this.definition.incidentId, npcId: this.definition.npcId,
         ...(this.attemptId ? { attemptId: this.attemptId } : {}), helperIds: [...this.helpers].sort(),
         ...(this.helpTargetId ? { helpTargetId: this.helpTargetId } : {}), destination: { ...this.definition.destination },
@@ -140,7 +144,7 @@ export class LivingWorldController {
   syncStory(stage: 'quiet' | 'endangered' | 'escorting' | 'recovering' | 'complete') {
     if (stage === 'complete') this.phase = 'complete';
     else if (stage === 'recovering' && this.phase !== 'complete') this.phase = 'recovering';
-    else if (stage === 'escorting' && (this.phase === 'dormant' || this.phase === 'cooldown')) {
+    else if (stage === 'escorting' && (this.phase === 'dormant' || (this.phase === 'cooldown' && this.postCasualtyUntil === null))) {
       this.phase = 'escorting'; this.startedAt = this.lastAt; this.attemptId ||= `${this.sessionId}:restored`; this.routeIndex = 0;
     }
     if (this.phase === 'recovering' || this.phase === 'complete') { this.helpTargetId = undefined; for (const m of this.mobs) { m.path = []; delete m.state.windup; } }
@@ -152,6 +156,7 @@ export class LivingWorldController {
       actorId, participantIds: [...this.helpers].sort(), npcId: this.definition.npcId, occurredAt: now });
   }
   private begin(now: number, actorId: string) {
+    this.postCasualtyUntil = null; this.casualtyRetreatStarted = false;
     this.phase = 'endangered'; this.startedAt = now; this.routeIndex = 0;
     this.attemptId = `${this.sessionId}:${++this.attempt}`; this.helpers.clear(); this.declined.clear();
     this.incidentWitnessId = actorId; this.helpTargetId = actorId; this.helpAt.set(actorId, now + LIVING_WORLD_RULES.helpCooldownMs);
@@ -159,6 +164,7 @@ export class LivingWorldController {
     this.emit('discovered', now, actorId);
   }
   private reset(now: number) {
+    this.postCasualtyUntil = null; this.casualtyRetreatStarted = false;
     this.phase = 'dormant'; this.incidentWitnessId = undefined; this.helpTargetId = undefined; this.helpers.clear(); this.declined.clear();
     this.nextCheckAt = now + LIVING_WORLD_RULES.activationWarmupMs;
     for (const mob of this.mobs) {
@@ -168,10 +174,17 @@ export class LivingWorldController {
       mob.path = []; mob.targetId = undefined; mob.readyAt = now; mob.nextPathAt = now;
     }
   }
-  private setback(now: number) {
+  private setback(now: number, casualty = false) {
     this.emit('setback', now); this.phase = 'cooldown'; this.retryAt = now + LIVING_WORLD_RULES.retryMs;
+    this.postCasualtyUntil = casualty ? now + LIVING_WORLD_RULES.postCasualtyMs : null;
+    this.casualtyRetreatStarted = false;
     this.helpTargetId = undefined;
-    for (const mob of this.mobs) { mob.path = []; mob.state.moving = false; delete mob.state.windup; }
+    for (const mob of this.mobs) {
+      // Preserve real positions and health, but never carry a civilian's committed strike onto a human.
+      mob.path = []; mob.nextPathAt = now; mob.state.moving = false; mob.targetId = undefined; mob.targetLifeRevision = undefined; delete mob.state.windup;
+      mob.readyAt = Math.max(mob.readyAt, now);
+      if (mob.state.health > 0) mob.state.phase = 'recovering';
+    }
   }
   private nearNpc(actor: LivingWorldHuman, now: number, npc = this.latestNpc) {
     return this.validTime(now) && this.active(actor, now) && this.alive(npc) && npc.id === this.definition.npcId && distance(actor, npc) <= LIVING_WORLD_RULES.interactionRange && this.segment(actor, npc);
@@ -196,7 +209,8 @@ export class LivingWorldController {
 
   strike(actor: LivingWorldHuman, mobId: string, lifeRevision: number, now: number, spendSwing: SpendKnifeSwing, damage: number = SURVIVAL.attackDamage): ActionResult {
     const mob = this.mobs.find(m => m.state.id === mobId);
-    if (!this.validTime(now) || !mob || !['dormant', 'endangered'].includes(this.phase) || mob.state.health <= 0 || lifeRevision !== mob.state.lifeRevision || !Number.isFinite(damage) || damage <= 0)
+    const available = ['dormant', 'endangered'].includes(this.phase) || (this.phase === 'cooldown' && this.postCasualtyUntil !== null);
+    if (!this.validTime(now) || !mob || !available || mob.state.health <= 0 || lifeRevision !== mob.state.lifeRevision || !Number.isFinite(damage) || damage <= 0)
       return { ok: false, reason: 'That threat is no longer available' };
     if (!actor.armed || !this.active(actor, now) || distance(actor, mob.state) > SURVIVAL.attackRange || !this.segment(actor, mob.state)) return { ok: false, reason: 'Equip a knife and reach the bandit outside safety' };
     if ((this.attackAt.get(actor.id) ?? -Infinity) + LIVING_WORLD_RULES.attackCooldownMs > now) return { ok: false, reason: 'Knife is recovering' };
@@ -204,7 +218,7 @@ export class LivingWorldController {
     const spent = spendSwing(actor, mob.state, now); if (!spent.ok) return spent;
     this.attackAt.set(actor.id, now);
     if (this.phase === 'dormant') this.begin(now, actor.id);
-    if (this.helpers.size < LIVING_WORLD_RULES.maxHumans) this.helpers.add(actor.id);
+    if (this.phase === 'endangered' && this.helpers.size < LIVING_WORLD_RULES.maxHumans) this.helpers.add(actor.id);
     mob.state.health = Math.max(0, mob.state.health - Math.min(500, damage)); mob.state.hurtAt = now;
     if (!mob.state.health) { mob.state.phase = 'defeated'; mob.state.defeatedAt = now; mob.state.moving = false; mob.path = []; delete mob.state.windup; }
     return { ok: true };
@@ -261,10 +275,23 @@ export class LivingWorldController {
     if (this.phase === 'endangered' || this.phase === 'escorting') {
       // A restored room has no simulation clock until its first tick. Zero is not an epoch-safe start.
       this.startedAt ??= now;
-      if (!this.alive(npc) || now - this.startedAt > (this.phase === 'endangered' ? LIVING_WORLD_RULES.dangerTimeoutMs : LIVING_WORLD_RULES.escortTimeoutMs)) this.setback(now);
+      if (!this.alive(npc) || now - this.startedAt > (this.phase === 'endangered' ? LIVING_WORLD_RULES.dangerTimeoutMs : LIVING_WORLD_RULES.escortTimeoutMs)) this.setback(now, !this.alive(npc) && this.phase === 'endangered');
       else this.rescueStep(now, npc, exposed, steering);
     }
     if (this.phase === 'endangered' && this.alive(npc)) this.mobStep(now, dt, humans, exposed, npc, context, damage);
+    if (this.phase === 'cooldown' && this.postCasualtyUntil !== null) {
+      const pursuing = now < this.postCasualtyUntil;
+      if (!pursuing && !this.casualtyRetreatStarted) {
+        this.casualtyRetreatStarted = true;
+        for (const mob of this.mobs) {
+          delete mob.state.windup; mob.targetId = undefined; mob.targetLifeRevision = undefined;
+          mob.path = []; mob.nextPathAt = now; mob.readyAt = now;
+          if (mob.state.health > 0) mob.state.phase = 'returning';
+        }
+      }
+      // After six seconds, even a windup already in progress is cancelled and every survivor walks home.
+      this.mobStep(now, dt, humans, pursuing ? exposed : [], undefined, context, damage);
+    }
     if ((this.phase === 'recovering' || this.phase === 'complete') && this.alive(npc)) {
       steering.push({ npcId: npc.id, goal: { ...this.definition.destination }, speed: .9,
         activity: this.phase === 'recovering' ? 'recovering' : 'fruit-picking', until: now + 1200 });
@@ -273,7 +300,7 @@ export class LivingWorldController {
     const already = new Set(steering.map(s => s.npcId));
     for (const actor of npcs) {
       if (already.has(actor.id) || !this.alive(actor) || !this.civilian(actor)) continue;
-      const mob = this.phase === 'endangered' ? this.mobs.filter(m => m.state.health > 0 && distance(m.state, actor) <= LIVING_WORLD_RULES.noticeRange && this.segment(actor, m.state)).sort((a, b) => distance(a.state, actor) - distance(b.state, actor))[0] : undefined;
+      const mob = this.phase === 'endangered' || (this.phase === 'cooldown' && this.postCasualtyUntil !== null && now < this.postCasualtyUntil) ? this.mobs.filter(m => m.state.health > 0 && distance(m.state, actor) <= LIVING_WORLD_RULES.noticeRange && this.segment(actor, m.state)).sort((a, b) => distance(a.state, actor) - distance(b.state, actor))[0] : undefined;
       const witness = [...this.witnesses.values()].filter(w => w.npcId === actor.id).map(w => ({ memory: w, player: exposed.find(p => p.id === w.actorId) })).find(w => w.player && distance(w.player, actor) <= LIVING_WORLD_RULES.fearRange && this.segment(actor, w.player));
       const remembered = exposed.find(p => (p.afraidNpcIds?.includes(actor.id) || p.afraidNpcIds?.includes(actor.id.slice(4))) && distance(p, actor) <= LIVING_WORLD_RULES.fearRange && this.segment(actor, p));
       const threat = mob?.state ?? witness?.player ?? remembered;
@@ -320,7 +347,7 @@ export class LivingWorldController {
     }
   }
 
-  private mobStep(now: number, dt: number, humans: LivingWorldHuman[], exposed: LivingWorldHuman[], npc: ForestNPC, context: LivingWorldContext, damage: LivingWorldDamageIntent[]) {
+  private mobStep(now: number, dt: number, humans: LivingWorldHuman[], exposed: LivingWorldHuman[], npc: ForestNPC | undefined, context: LivingWorldContext, damage: LivingWorldDamageIntent[]) {
     const needsPath: { mob: MobActor; goal: Point }[] = [];
     for (const mob of this.mobs) {
       const state = mob.state; state.moving = false;
@@ -329,7 +356,7 @@ export class LivingWorldController {
       if (illuminated) { delete state.windup; mob.path = []; state.phase = 'recovering'; mob.readyAt = now + 200; continue; }
       const candidates: (LivingWorldHuman | ForestNPC)[] = [
         ...exposed.filter(p => distance(p, state) <= LIVING_WORLD_RULES.turnOnHumanRange && distance(p, mob.home) <= LIVING_WORLD_RULES.leashRadius && this.segment(state, p) && !this.lit(p, humans, now, context)),
-        ...(distance(npc, mob.home) <= LIVING_WORLD_RULES.leashRadius && this.segment(state, npc) && !this.lit(npc, humans, now, context) ? [npc] : []),
+        ...(this.alive(npc) && distance(npc, mob.home) <= LIVING_WORLD_RULES.leashRadius && this.segment(state, npc) && !this.lit(npc, humans, now, context) ? [npc] : []),
       ];
       if (state.phase === 'windup') {
         if (now >= state.windup!.until) {

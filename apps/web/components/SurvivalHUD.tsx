@@ -1,4 +1,6 @@
 'use client';
+import { useLayoutEffect, useRef } from 'react';
+import { observeSurvivalHUD } from '../lib/survival-hud-layout';
 import type { SurvivalItem, SurvivalPlayer } from '../../../packages/contracts/src/survival';
 const labels = { flashlight: 'Flashlight', apple: 'Apple', knife: 'Knife', 'strength-potion':'Strength potion', 'speed-potion':'Speed potion' };
 const doses=(player:SurvivalPlayer,item:SurvivalItem)=>item==='apple'?player.apples:item==='strength-potion'?player.potions?.strength:item==='speed-potion'?player.potions?.speed:undefined;
@@ -16,9 +18,11 @@ export default function SurvivalHUD({ player, disabled = false, onSelect, onUse,
     onUse: () => void; onFocusGame?: () => void; onFinish?:()=>void; finishingTarget?:string; threatened?:boolean;
     effects?:import('../../../packages/contracts/src/living-world').PotionEffect[];spiritEffects?:{wardUntil:number;snareUntil:number};serverTime?:number;
 }) {
+    const panel = useRef<HTMLElement>(null);
+    useLayoutEffect(() => panel.current ? observeSurvivalHUD(panel.current) : undefined, []);
     const percent = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
     const slots = player.slots ?? ['flashlight', null, null, null, null];
-    return <section className="survival-hud" aria-label="Inventory" onPointerDown={event => event.stopPropagation()}>
+    return <section ref={panel} className="survival-hud" aria-label="Inventory" onPointerDown={event => event.stopPropagation()}>
         {threatened&&<p className="finisher-alert" role="alert">Incoming lunge — move out of the marked circle.</p>}
         {!!effects.length&&<p className="potion-effects" aria-label="Active potions">{effects.filter(e=>e.expiresAt>serverTime).map(e=>`${e.kind==='strength'?'Strength':'Speed'} ${Math.ceil((e.expiresAt-serverTime)/1000)}s`).join(' · ')}</p>}
         {spiritEffects&&Math.max(spiritEffects.wardUntil,spiritEffects.snareUntil)>serverTime&&<p className="potion-effects" aria-label="Spirit effects">{spiritEffects.wardUntil>serverTime?`Lumen’s goblin ward ${Math.ceil((spiritEffects.wardUntil-serverTime)/1000)}s`:`Morrow’s snare ${Math.ceil((spiritEffects.snareUntil-serverTime)/1000)}s · slowed`}</p>}

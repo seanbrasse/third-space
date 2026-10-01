@@ -60,7 +60,7 @@ export const NPC_CONVERSATION_NEIGHBOURS: Readonly<Record<string, Neighbour>> = 
   'washer-elsie': { name: 'Elsie Reed', role: 'Pond washer', contribution: 'Mara’s road joins our village. Help on that road matters to the people waiting here.', location: 'The pond south of Bramblewick' },
   'woodworker-bram': { name: 'Bram', role: 'Woodworker', contribution: 'I work at the south end of Bramblewick, where the orchard road arrives.', location: 'Southern edge of Bramblewick, near Pell and Lark' },
   'spirit-lumen': { name: 'Lumen', role: 'Lantern spirit', contribution: 'A small light can show the next safe step. Follow the lead your home has found.', location: 'Lantern Orchard road' },
-  'spirit-morrow': { name: 'Morrow', role: 'Whispering spirit', contribution: 'My whispers are no witness account. Let the home’s discovered evidence guide you.', location: 'The pond south of Bramblewick, beside Reed House' },
+  'spirit-morrow': { name: 'Morrow', role: 'Whispering spirit', contribution: 'My whispers are no witness account. Let the home’s discovered evidence guide you.', location: 'The pond south of Bramblewick, near Reed House' },
   'forest:0': { name: 'Moss', role: 'Trail counter', contribution: 'Orin can give the home its first keeper lead. I can point out the next recorded step.', location: 'The forest camp' },
   'forest:1': { name: 'Wren', role: 'Keeper’s messenger', contribution: 'Carry the news the home has found. Orin keeps the keeper’s trail together.', location: 'The forest camp' },
   'forest:2': { name: 'Fern', role: 'Lantern mender', contribution: 'I keep the camp lights ready. Here is the next step the home can take.', location: 'The forest camp' },
@@ -142,7 +142,7 @@ export function npcConversation(context: NPCConversationContext): NPCConversatio
   if (relatedSide) { lead = sideLead(relatedSide); tab = 'leads'; }
   const rescue = context.rescue;
   if (rescue?.discovered && ['orchard-worker-mara', 'washer-elsie', 'woodworker-bram', 'spirit-lumen', 'spirit-morrow'].includes(id)) {
-    lead = nextLead(rescue.id, rescue.title, rescue.objective, ['recovering','complete'].includes(rescue.stage) ? 'Bramblewick, at the south end of town' : place('orchard-worker-mara'));
+    lead = nextLead(rescue.id, rescue.title, rescue.objective, ['recovering', 'complete'].includes(rescue.stage) ? 'Bramblewick, at the south end of town' : place('orchard-worker-mara'));
     tab = 'leads';
   }
   const account = context.story.chapter === 'inquiry' ? context.story.suspects.find(s => s.id === id)?.testimony : undefined;
