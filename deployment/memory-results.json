@@ -1,0 +1,235 @@
+{
+  "testedBase": "cf0892500367212f4c62b39090e83228ccb546b0",
+  "measuredGameSourcesUnchanged": true,
+  "decision": "512 MiB is adequate for an initial friends test on this verified baseline. Repeat on the final candidate and validate on native Fly before calling production capacity proven.",
+  "nativeLinuxArm64Soak": {
+    "testedBase": "cf0892500367212f4c62b39090e83228ccb546b0",
+    "completedCasesPassed": true,
+    "fullHarnessCompleted": false,
+    "reportingError": "The original 64-player formatter used Math.max(...samples) and exceeded the client argument stack after gameplay completed; fixed to reduce before the separate amd64 rerun. No server OOM.",
+    "phases": [
+      {
+        "startTimestamp": 1790818018861,
+        "endTimestamp": 1790818618890,
+        "rooms": 1,
+        "players": 8,
+        "durationSeconds": 600.02,
+        "minSnapshotHz": 20.04,
+        "p95SnapshotGapMs": 56.69,
+        "p99SnapshotGapMs": 70.49,
+        "maxSnapshotGapMs": 602.43,
+        "p95LocalPingRttMs": 7.91,
+        "p99LocalPingRttMs": 90.77,
+        "resources": {
+          "samples": 598,
+          "maxContainerCurrentMiB": 111.23,
+          "maxProcessRssMiB": 155.11,
+          "maxHeapUsedMiB": 26.52,
+          "firstContainerCurrentMiB": 103.9,
+          "lastContainerCurrentMiB": 111.07,
+          "meanCpuPercentOfOneCore": 11.85,
+          "maxEventLoopDelayMs": 463.21
+        }
+      },
+      {
+        "startTimestamp": 1790818620842,
+        "endTimestamp": 1790818741176,
+        "rooms": 4,
+        "players": 32,
+        "durationSeconds": 120.33,
+        "minSnapshotHz": 20.04,
+        "p95SnapshotGapMs": 66.46,
+        "p99SnapshotGapMs": 138.53,
+        "maxSnapshotGapMs": 510.86,
+        "p95LocalPingRttMs": 65.93,
+        "p99LocalPingRttMs": 162.24,
+        "resources": {
+          "samples": 119,
+          "maxContainerCurrentMiB": 121.77,
+          "maxProcessRssMiB": 162.87,
+          "maxHeapUsedMiB": 30.95,
+          "firstContainerCurrentMiB": 113.25,
+          "lastContainerCurrentMiB": 121.63,
+          "meanCpuPercentOfOneCore": 39.01,
+          "maxEventLoopDelayMs": 486.28
+        }
+      }
+    ],
+    "limitations": [
+      "Native Linux ARM64 in a local Colima VM; no Fly CPU/WAN proof.",
+      "Only completed 8- and 32-player phases have client timing metrics in this supplemental report."
+    ],
+    "runtime": {
+      "node": "v24.19.0",
+      "platform": "linux",
+      "arch": "arm64",
+      "memoryLimitMiB": 512.0,
+      "swapLimitMiB": 0,
+      "cpuQuotaCores": 1
+    },
+    "memory": {
+      "samples": 927,
+      "maxContainerCurrentMiB": 132.36,
+      "maxProcessRssMiB": 172.11,
+      "maxHeapUsedMiB": 34.01,
+      "firstContainerCurrentMiB": 85.74,
+      "lastContainerCurrentMiB": 131.78,
+      "meanCpuPercentOfOneCore": 19.98,
+      "maxEventLoopDelayMs": 560.99,
+      "kernelRecordedPeakMiB": 132.75,
+      "peakPercentOfLimit": 25.93,
+      "remainingAtPeakMiB": 379.25,
+      "limitEvents": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      }
+    }
+  },
+  "linuxAmd64UnderRosetta": {
+    "ok": true,
+    "testedBase": "cf0892500367212f4c62b39090e83228ccb546b0",
+    "elapsedSeconds": 255.09,
+    "clientNode": "v24.19.0",
+    "phases": [
+      {
+        "startTimestamp": 1790818683434,
+        "endTimestamp": 1790818743439,
+        "rooms": 1,
+        "players": 8,
+        "durationSeconds": 60,
+        "minSnapshotHz": 20.23,
+        "p95SnapshotGapMs": 54.35,
+        "p99SnapshotGapMs": 66.03,
+        "maxSnapshotGapMs": 109.52,
+        "p95LocalPingRttMs": 4,
+        "p99LocalPingRttMs": 22.92,
+        "resources": {
+          "samples": 60,
+          "maxContainerCurrentMiB": 255.01,
+          "maxProcessRssMiB": 223.81,
+          "maxHeapUsedMiB": 26.98,
+          "firstContainerCurrentMiB": 239.3,
+          "lastContainerCurrentMiB": 254.95,
+          "meanCpuPercentOfOneCore": 13.34,
+          "maxEventLoopDelayMs": 116.65
+        }
+      },
+      {
+        "startTimestamp": 1790818745111,
+        "endTimestamp": 1790818805225,
+        "rooms": 4,
+        "players": 32,
+        "durationSeconds": 60.11,
+        "minSnapshotHz": 20.05,
+        "p95SnapshotGapMs": 61.44,
+        "p99SnapshotGapMs": 71.98,
+        "maxSnapshotGapMs": 211.77,
+        "p95LocalPingRttMs": 11.57,
+        "p99LocalPingRttMs": 17.32,
+        "resources": {
+          "samples": 60,
+          "maxContainerCurrentMiB": 280.23,
+          "maxProcessRssMiB": 247.87,
+          "maxHeapUsedMiB": 27.47,
+          "firstContainerCurrentMiB": 261.45,
+          "lastContainerCurrentMiB": 280.23,
+          "meanCpuPercentOfOneCore": 34.65,
+          "maxEventLoopDelayMs": 200.67
+        }
+      },
+      {
+        "startTimestamp": 1790818808942,
+        "endTimestamp": 1790818929133,
+        "rooms": 8,
+        "players": 64,
+        "durationSeconds": 120.19,
+        "minSnapshotHz": 20,
+        "p95SnapshotGapMs": 79.8,
+        "p99SnapshotGapMs": 168.2,
+        "maxSnapshotGapMs": 2600.04,
+        "p95LocalPingRttMs": 147,
+        "p99LocalPingRttMs": 1289.97,
+        "resources": {
+          "samples": 114,
+          "maxContainerCurrentMiB": 345.54,
+          "maxProcessRssMiB": 313.92,
+          "maxHeapUsedMiB": 35.9,
+          "firstContainerCurrentMiB": 288.9,
+          "lastContainerCurrentMiB": 345.54,
+          "meanCpuPercentOfOneCore": 65.92,
+          "maxEventLoopDelayMs": 1486.88
+        }
+      }
+    ],
+    "inputPackets": 320537,
+    "chatSends": 1074,
+    "boardWrites": 228,
+    "mediaActions": 228,
+    "pinJoins": 126,
+    "expectedDisconnects": 21,
+    "reconnects": 21,
+    "forestCaughtEvents": 29,
+    "roomRecreationCycles": 10,
+    "unexpectedErrors": 0,
+    "limitations": [
+      "Local synthetic SDK clients; no WAN latency or browser/video/voice streams",
+      "Benchmark adapter invokes unchanged createGameServer but binds a container-accessible address",
+      "CPU quota is one dedicated local vCPU, not a Fly shared CPU performance guarantee",
+      "Latest uncommitted campsite/playback changes are not included"
+    ],
+    "runtime": {
+      "node": "v24.19.0",
+      "platform": "linux",
+      "arch": "x64",
+      "memoryLimitMiB": 512.0,
+      "swapLimitMiB": 0,
+      "cpuQuotaCores": 1
+    },
+    "memory": {
+      "samples": 327,
+      "maxContainerCurrentMiB": 356.26,
+      "maxProcessRssMiB": 324.71,
+      "maxHeapUsedMiB": 35.9,
+      "firstContainerCurrentMiB": 211.94,
+      "lastContainerCurrentMiB": 356.06,
+      "meanCpuPercentOfOneCore": 36.33,
+      "maxEventLoopDelayMs": 1486.88,
+      "kernelRecordedPeakMiB": 356.33,
+      "peakPercentOfLimit": 69.6,
+      "remainingAtPeakMiB": 155.67,
+      "limitEvents": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      }
+    }
+  },
+  "persistenceAfterRestart": {
+    "ok": true,
+    "mode": "after",
+    "savedIdentities": 8,
+    "savedBoards": 8,
+    "freshRoomAdmissions": 8
+  },
+  "provenance": {
+    "containerDockerfileSha256": "15eb29c455875da729f9d03b2e4a113bdfa4fd5bdb80836df28e2c3b38faa929",
+    "runtimeAdapterSha256": "949a1f4649dec6403cadffb6246ead4085664c72ab8d76ff7f6d64ea28ccdb01",
+    "clientHarnessSha256": "9e47468cb3eb7ddbc824ebab0af078d8f87e4d72863d697b646d1e5f711e3488",
+    "hostTools": "Dedicated fresh Colima contexts; amd64 build used checksum-verified Buildx v0.37.2. No cloud hosting resources or credentials created."
+  },
+  "limits": [
+    "The newer uncommitted campsite/asylum/playback/queue/battery/movement build is not included.",
+    "AMD64 is locally translated by Rosetta; translator memory is counted and CPU timings are not native Fly measurements.",
+    "64-player stress had a 2.6-second snapshot gap and p99 local ping RTT of 1.29 seconds; do not promise smooth 64-player capacity.",
+    "No browser rendering, HTTPS/WSS, WAN, actual provider video playback, or native voice validation.",
+    "One SQLite-backed server remains a single failure/deployment interruption point; backup automation still needed before live hosting.",
+    "Native full harness hit a client-side formatter argument-stack error after 64-player gameplay; fixed and the complete amd64 rerun including churn passed. Completed native 8/32 phases are retained separately."
+  ]
+}

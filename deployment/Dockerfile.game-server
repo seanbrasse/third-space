@@ -1,0 +1,24 @@
+FROM node:24.19.0-bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/* \
+    && npm install --global pnpm@11.19.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/game-server/package.json ./apps/game-server/package.json
+COPY packages/config/package.json ./packages/config/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/data/package.json ./packages/data/package.json
+COPY packages/simulation/package.json ./packages/simulation/package.json
+RUN pnpm install --frozen-lockfile --filter @third-space/game-server...
+COPY apps/game-server/src ./apps/game-server/src
+COPY packages/config/src ./packages/config/src
+COPY packages/contracts/src ./packages/contracts/src
+COPY packages/data/src ./packages/data/src
+COPY packages/simulation/src ./packages/simulation/src
+RUN mkdir /data && chown node:node /data
+COPY deployment/container-entrypoint.sh /usr/local/bin/third-space-entrypoint
+RUN chmod 755 /usr/local/bin/third-space-entrypoint
+ENV NODE_ENV=production GAME_HOST=0.0.0.0 GAME_PORT=2567 DATA_PATH=/data/third-space.sqlite
+EXPOSE 2567
+WORKDIR /app/apps/game-server
+ENTRYPOINT ["third-space-entrypoint"]
+CMD ["node", "--import", "tsx", "src/index.ts"]
