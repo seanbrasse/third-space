@@ -627,7 +627,8 @@ describe("real HTTP admission and Colyseus multiplayer", () => {
     send(peers[0]!,{type:"input",worldRevision:0,input:{seq:99999,axisX:1,axisY:0,jump:false}});await pause(300);
     expect(peers[0]!.snapshot!.players.find(p=>p.id===identities[0]!.id)!.x).toBe(before.x);
     send(peers[0]!,{type:"media.control",revision:0,commandId:crypto.randomUUID(),action:"source",url:"https://example.com/movie.mp4"});
-    await until(()=>[...peers.slice(0,7),rejoined].every(p=>p.snapshot?.media.revision===1),"Shared media did not reach every client");
+    await until(()=>peers[0]!.notices.some(n=>n.code==="TOO_FAR"),"Outdoor media command was not rejected");
+    expect(peers[0]!.snapshot!.media.revision).toBe(0);
   },30000);
 
 });

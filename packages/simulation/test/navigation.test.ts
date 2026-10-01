@@ -58,10 +58,12 @@ describe("footprint-aware click navigation", () => {
 
 describe("bounded forest",()=>{
   it("has eight reachable safe spawns and eight reachable campfire seats in a finite map",()=>{
-    const map=getWorld("forest").map;expect(map.width).toBe(48);expect(map.seats).toHaveLength(8);expect(map.spawns).toHaveLength(8);
+    const map=getWorld("forest").map;expect(map.width).toBe(80);expect(map.height).toBe(64);expect(map.seats.filter(seat=>seat.id.startsWith("camp-seat-"))).toHaveLength(8);expect(map.spawns).toHaveLength(8);
     for(const spawn of map.spawns){expect(isHomeWalkable(spawn,map)).toBe(true);for(const seat of map.seats){expect(isHomeWalkable(seat,map)).toBe(true);const path=findHomePath(spawn,seat,map);expect(path).not.toBeNull();}}
     const p=createPlayer("forest","Friend");Object.assign(p,map.spawn);let state=p;
     for(let i=0;i<1500;i++)state=stepHome(state,{seq:i,axisX:0,axisY:1,jump:false},1/60,map);
     expect(state.y).toBeLessThan(map.height-1);expect(isHomeWalkable(state,map)).toBe(true);
   });
 });
+
+it("routes from each campsite seat to the cabin, shared board, TV and charger",()=>{const map=getWorld("forest").map;for(const spawn of map.spawns)for(const point of map.furniture.flatMap(f=>f.usePoints)){expect(isHomeWalkable(point,map)).toBe(true);expect(findHomePath(spawn,point,map)).not.toBeNull();}});

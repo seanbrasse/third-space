@@ -14,7 +14,9 @@ describe("room connection health", () => {
     });
     it("does not blame background tabs and prioritizes offline/reconnecting", () => {
         expect(connectionQuality({ ...healthy, age: 30000, hidden: true })).toBe("background");
-        expect(connectionQuality({ ...healthy, online: false, hidden: true })).toBe("offline");
+        expect(connectionQuality({ ...healthy, online: false, hidden: true })).toBe("background");
+        expect(connectionQuality({...healthy,online:false})).toBe("good");
+        expect(connectionQuality({...healthy,online:false,age:2500})).toBe("offline");
         expect(connectionQuality({ ...healthy, connected: false })).toBe("reconnecting");
         expect(connectionQuality({ ...healthy, samples: [] })).toBe("checking");
     });

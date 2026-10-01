@@ -1,4 +1,7 @@
 "use client";
+import WorldMap from "./WorldMap";
+import StaminaBar from "./StaminaBar";
+import { gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
@@ -18,6 +21,7 @@ import {
 } from "../lib/types";
 import { SoundboardAudio } from "../lib/audio";
 import { readPersonVolumes } from "../lib/person-volume";
+import { browserStorage, readCustomization, saveCustomization, readVisits, recordVisit, uniqueHomes, suggestCampsiteName, type HomeVisit } from "../lib/local-persistence";
 import PersonVolume from "./PersonVolume";
 import WorldMenu from "./WorldMenu";
 import DeathVeil from "./DeathVeil";
@@ -35,6 +39,7 @@ const World = dynamic(() => import("./World"), {
 type Modal =
   | "board"
   | "portal"
+  | "race-entry"
   | "settings"
   | "emotes"
   | "sound"
@@ -44,6 +49,7 @@ type Modal =
   | "tv"
   | null;
 type Prefs = {
+  theme:"light"|"dark";
   panel: boolean;
   bubbles: boolean;
   reducedMotion: boolean;
@@ -56,6 +62,7 @@ type Prefs = {
   announce: boolean;
 };
 const initialPrefs: Prefs = {
+  theme:"dark",
   panel: true,
   bubbles: true,
   reducedMotion: false,
@@ -79,6 +86,7 @@ function id() {
 export default function ThirdSpace() {
   const [identity, setIdentity] = useState<Identity | null>(null),
     [homes, setHomes] = useState<Home[]>([]),
+    [visits, setVisits] = useState<HomeVisit[]>([]),
     [home, setHome] = useState<Home | null>(null),
     [snapshot, setSnapshot] = useState<Snapshot | null>(null),
     [connection, setConnection] = useState("Loading your profile"),
@@ -87,7 +95,7 @@ export default function ThirdSpace() {
     [modal, setModal] = useState<Modal>(null),
     [name, setName] = useState(""),
     [avatar, setAvatar] = useState<Avatar>(DEFAULT_AVATAR),
-    [homeName, setHomeName] = useState("Our little place"),
+    [homeName, setHomeName] = useState("Ember Hollow"),
     [pin, setPin] = useState(""),
     [joinId, setJoinId] = useState(""),
     [entryMode, setEntryMode] = useState<"create" | "join">("create"),
@@ -132,6 +140,11 @@ export default function ThirdSpace() {
     recovering = useRef(false),
     connectGeneration = useRef(0),
     savedSession = useRef("");
+  const visitsRef = useRef<HomeVisit[]>([]), suggestedNameAssigned = useRef(false);
+  function changeAvatar(selected: Avatar) {
+    setAvatar(selected);
+    saveCustomization(browserStorage(), identityRef.current?.id ?? null, selected);
+  }
   function remember(targetHome: Home, connected: Room) {
     const userId=identityRef.current?.id;if(!userId||leaving.current||!mounted.current)return;
     const value=JSON.stringify({homeId:targetHome.id,userId,token:connected.reconnectionToken});
@@ -140,15 +153,16 @@ export default function ThirdSpace() {
   }
   function forgetSession(){try{sessionStorage.removeItem("third-space.session");}catch{}savedSession.current="";}
   async function recover(targetHome: Home, token?: string) {
-    if(recovering.current)return;
-    recovering.current=true;leaving.current=false;setHome(targetHome);
+    if(recovering.current||leaving.current||!mounted.current)return;
+    recovering.current=true;setHome(targetHome);
     if(!token){try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");if(previous?.homeId===targetHome.id&&previous.userId===identityRef.current?.id)token=previous.token;}catch{}}
     try{
       for(let attempt=0;attempt<6&&mounted.current&&!leaving.current;attempt++){
         try{
           setConnection("Reconnecting…");
-          if(token){try{await connect(targetHome,false,token);return;}catch{}}
-          await connect(targetHome);return;
+          if(token){const expectedGeneration=connectGeneration.current+1;try{await connect(targetHome,false,token,true);return;}catch{if(!mounted.current||leaving.current||connectGeneration.current!==expectedGeneration)return;}}
+          if(!mounted.current||leaving.current)return;
+          await connect(targetHome,false,undefined,true);return;
         }catch(e){
           if(!mounted.current||leaving.current)return;
           const message=(e as Error).message;
@@ -172,7 +186,7 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (room.current) room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision}:command);
+    if (room.current) room.current.send("command", command.type==="input"?{...command,worldRevision:bridgeRef.current?.snapshot?.worldRevision,zoneRevision:bridgeRef.current?.snapshot?.players.find(p=>p.id===identityRef.current?.id)?.zoneRevision??0}:command);
   }, []);
   if (!bridgeRef.current)
     bridgeRef.current = {
@@ -192,11 +206,13 @@ export default function ThirdSpace() {
   const bridge = bridgeRef.current;
   if (!room.current) bridge.snapshot = snapshot;
   bridge.selfId = identity?.id || "";
-  bridge.blocked = modal !== null || connection !== "Connected";
+  bridge.blocked = modal !== null || watchExpanded || connection !== "Connected";
   bridge.bubbles = prefs.bubbles;
   bridge.mutedText = new Set(prefs.textMuted);
   bridge.reducedMotion = prefs.reducedMotion;
   bridge.interact = (object) => {
+    if(object==="enter-asylum"||object==="exit-asylum"){send({type:"area.enter",area:object==="enter-asylum"?"asylum":"forest"});return;}
+    if(object==="race-house"){setModal("race-entry");return;}
     if(object==="tv"){setWatchExpanded(true);return;}
     if(object==="campfire"){send({type:"roast",enabled:true});return;}
     if (object.startsWith("seat:")) {
@@ -216,8 +232,12 @@ export default function ThirdSpace() {
   useEffect(() => {
     mounted.current=true;leaving.current=false;
     let disposed=false;
+    if (!suggestedNameAssigned.current) {
+      suggestedNameAssigned.current = true;
+      setHomeName(suggestCampsiteName(browserStorage()));
+    }
     audio.current = new SoundboardAudio();
-    const suspend=()=>{leaving.current=true;connectGeneration.current++;if(room.current){room.current.reconnection.enabled=false;room.current.connection.close(1001);}};
+    const suspend=()=>{leaving.current=true;connectGeneration.current++;if(room.current){room.current.reconnection.enabled=false;room.current.connection.close(1000);}};
     const online=()=>{const current=homeRef.current;if(current&&!leaving.current&&!room.current)void recover(current);};
     window.addEventListener("pagehide",suspend);window.addEventListener("online",online);
     const fragment = new URLSearchParams(location.hash.slice(1));
@@ -253,11 +273,18 @@ export default function ThirdSpace() {
       .then(async ([profile, rooms, media]) => {
         if(disposed)return;
         setIdentity(profile.profile);
+        identityRef.current = profile.profile;
         if (profile.profile) {
           setName(profile.profile.name);
-          setAvatar(profile.profile.avatar);
+          const restored = readCustomization(browserStorage(), profile.profile.id, profile.profile.avatar);
+          setAvatar(restored);
+          saveCustomization(browserStorage(), profile.profile.id, restored);
+          visitsRef.current = readVisits(browserStorage(), profile.profile.id);
+          setVisits(visitsRef.current);
+        } else {
+          setAvatar(readCustomization(browserStorage(), null));
         }
-        setHomes(rooms.homes || []);
+        setHomes(uniqueHomes(rooms.homes || []));
         setVoiceReason(
           media.reason ||
             "Native voice needs a configured, verified media service.",
@@ -290,31 +317,29 @@ export default function ThirdSpace() {
       new Set(prefs.soundMuted),
       prefs.gameSoundsMuted,
     );
-    if (prefsLoaded)
-      localStorage.setItem("third-space.preferences", JSON.stringify(prefs));
+    if (prefsLoaded) {
+      try { localStorage.setItem("third-space.preferences", JSON.stringify(prefs)); } catch {}
+    }
   }, [prefs, prefsLoaded]);
   useEffect(() => {
     if (!home) return;
     const onKey = (event: KeyboardEvent) => {
       const element = event.target as HTMLElement;
-      const typing =
-        ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) ||
-        element.isContentEditable;
-      if (
-        !typing &&
-        !modal &&
-        element.classList.contains("world-canvas") &&
-        [" ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
-          event.key,
-        )
-      )
-        event.preventDefault();
+      const typing = isEditingTarget(element);
+      if (gameHotkey(event, bridge.blocked || !!modal || watchExpanded || connection !== "Connected") === "flashlight") {
+        const self = bridge.snapshot?.players.find(player => player.id === bridge.selfId);
+        if (self?.connected && self.mode === "home" && !self.respawnAt) {
+          event.preventDefault();
+          send({ type: "flashlight", enabled: !self.flashlightOn });
+        }
+        return;
+      }
       if (event.key === "Escape") {
         if (modal) setModal(null);
         else if (typing) element.blur();
         return;
       }
-      if (event.key === "Enter" && !typing && !modal && prefs.panel) {
+      if (prefs.panel && shouldOpenChat(event, !!modal || watchExpanded || connection !== "Connected")) {
         event.preventDefault();
         setChatOpen(true);
         setTimeout(() => chatInput.current?.focus(), 0);
@@ -326,6 +351,8 @@ export default function ThirdSpace() {
       bridge.blocked = true;
       send({type:"input.stop"});
     };
+    const focus = () => { bridge.blocked = !!modal || watchExpanded || connection !== "Connected"; };
+    window.addEventListener("focus", focus);
     window.addEventListener("blur", reset);
     window.addEventListener("orientationchange", reset);
     const visibility = () => {
@@ -336,11 +363,12 @@ export default function ThirdSpace() {
     document.addEventListener("visibilitychange", visibility);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("focus", focus);
       window.removeEventListener("blur", reset);
       window.removeEventListener("orientationchange", reset);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [home, modal, prefs.panel, bridge, send]);
+  }, [home, modal, watchExpanded, connection, prefs.panel, bridge, send]);
   useEffect(() => {
     if (modal === "board" && home) {
       void api<{ notes: Note[] }>(`/homes/${home.id}/board`)
@@ -403,13 +431,27 @@ export default function ThirdSpace() {
         .catch((e) => notify(e.message));
     }
   }, [modal, home, notify]);
-  async function connect(targetHome: Home, replaceExisting = false, resumeToken?: string) {
+  async function connect(targetHome: Home, replaceExisting = false, resumeToken?: string, automatic=false, profileReady=false) {
+    if(automatic&&(!mounted.current||leaving.current))throw new Error("Connection cancelled.");
     const generation=++connectGeneration.current;
     void audio.current?.unlock().catch(()=>{});
     setConnection("Joining your private home…");
     setError("");
-    leaving.current = false;
+    if(!automatic)leaving.current = false;
+    // Saved-home buttons bypass the create/join form; send the restored/drafted
+    // appearance before admission there too. Recovery retains the active profile.
+    if (!automatic && !profileReady && identityRef.current) {
+      const current = identityRef.current;
+      const result = await api<{ profile: Identity }>("/identity", "PATCH", {
+        name, avatar, expectedRevision: current.revision,
+      });
+      if(!mounted.current||leaving.current||generation!==connectGeneration.current)throw new Error("Connection cancelled.");
+      identityRef.current = result.profile;
+      setIdentity(result.profile);
+      saveCustomization(browserStorage(), result.profile.id, avatar);
+    }
     const ticket = resumeToken ? undefined : (await api<{ticket:string}>(`/homes/${targetHome.id}/ticket`,"POST",{})).ticket;
+    if(!mounted.current||leaving.current||generation!==connectGeneration.current)throw new Error("Connection cancelled.");
     const endpoint =
       process.env.NEXT_PUBLIC_GAME_SERVER_URL ||
       `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:2567`;
@@ -425,6 +467,13 @@ export default function ThirdSpace() {
     remember(targetHome,connected);
     setHome(targetHome);
     setConnection("Connected");
+    const userId = identityRef.current?.id;
+    // Count only successful intentional entries. Reconnect, refresh recovery,
+    // session replacement, snapshots and rerenders are the same visit.
+    if (userId && !automatic && !resumeToken && !replaceExisting) {
+      visitsRef.current = recordVisit(browserStorage(), userId, targetHome.id, id(), Date.now(), visitsRef.current);
+      setVisits(visitsRef.current);
+    }
     lastInstance.current = "";
     seenChat.current.clear();
     bridge.liveBubbleIds.clear();
@@ -446,6 +495,7 @@ export default function ThirdSpace() {
       lastInstance.current = data.instanceId;
       bridge.snapshot = data;
       audio.current?.setWorld(data,identityRef.current?.id||"",prefsRef.current.effectsVolume);
+      if(modeChanged)setWatchExpanded(false);
       if (modeChanged || (!document.hidden && Date.now() - snapshotUiAt.current >= 200)) {
         snapshotUiAt.current = Date.now();
         setSnapshot(data);
@@ -580,6 +630,8 @@ export default function ThirdSpace() {
         current = result.profile;
         setIdentity(current);
       }
+      identityRef.current = current;
+      saveCustomization(browserStorage(), current.id, avatar);
       let selected: Home;
       if (entryMode === "create") {
         const result = await api<{ home: Home }>("/homes", "POST", {
@@ -587,6 +639,7 @@ export default function ThirdSpace() {
           pin,
         });
         selected = result.home;
+        setHomeName(suggestCampsiteName(browserStorage()));
       } else {
         const result = await api<{ home: Home }>(
           `/homes/${joinId.trim()}/join`,
@@ -596,7 +649,7 @@ export default function ThirdSpace() {
         selected = result.home;
       }
       try {
-        await connect(selected);
+        await connect(selected, false, undefined, false, true);
       } catch (e) {
         if (
           (e as Error).message?.includes("SESSION_ACTIVE") ||
@@ -626,7 +679,7 @@ export default function ThirdSpace() {
     setPending([]);
     try {
       const result = await api<{ homes: Home[] }>("/homes");
-      setHomes(result.homes);
+      setHomes(uniqueHomes(result.homes));
     } catch {}
   }
   function chat(event: React.FormEvent) {
@@ -736,7 +789,7 @@ export default function ThirdSpace() {
       }),
     }));
   }
-  const selectedPerson = snapshot?.players.find(
+  const selectedPerson = (snapshot?.members??snapshot?.players)?.find(
     (p) => p.id === selectedPersonId,
   );
   const self = snapshot?.players.find((p) => p.id === identity?.id),
@@ -758,7 +811,7 @@ export default function ThirdSpace() {
     );
   }, [snapshot]);
   return (
-    <main className={`app ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
+    <main className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
       <DeathVeil caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
         <a className="brand" href="/" aria-label="Third Space home">
@@ -847,7 +900,7 @@ export default function ThirdSpace() {
                 <AvatarCustomizer
                   avatar={avatar}
                   name={name}
-                  onChange={setAvatar}
+                  onChange={changeAvatar}
                 />
                 <div className="segmented">
                   <button
@@ -952,7 +1005,7 @@ export default function ThirdSpace() {
                     }}
                   >
                     {h.name}
-                    <span>↗</span>
+                    <span>{visits.find(visit => visit.homeId === h.id)?.count ?? 0} {(visits.find(visit => visit.homeId === h.id)?.count ?? 0) === 1 ? "visit" : "visits"} · ↗</span>
                   </button>
                 ))}
               </div>
@@ -971,7 +1024,7 @@ export default function ThirdSpace() {
                 {race ? "GARDEN DASH" : "YOUR LITTLE CORNER OF THE INTERNET"}
               </span>
               <h1>
-                {race ? "A little friendly competition." : snapshot?.worldId==="forest" ? "Midnight Pines" : home.name}
+                {race ? "A little friendly competition." : snapshot?.worldId==="asylum"?"The abandoned asylum":snapshot?.worldId==="forest" ? "Midnight Pines" : home.name}
                 <span className="room-flower">✦</span>
               </h1>
             </div>
@@ -998,7 +1051,7 @@ export default function ThirdSpace() {
                 className="people-button"
                 onClick={() => setModal("people")}
               >
-                {snapshot?.players.length || 0}/
+                {(snapshot?.members??snapshot?.players)?.length || 0}/
                 {Math.min(
                   home.capacity || GAME_CONFIG.partyCapacity,
                   GAME_CONFIG.partyCapacity,
@@ -1027,8 +1080,9 @@ export default function ThirdSpace() {
                 <span>
                   {race
                     ? "← → MOVE · SPACE JUMP"
-                    : "CLICK TO WALK · WASD / ARROWS"}
+                    : "CLICK TO WALK · WASD / ARROWS · SPACE BOOST · F FLASHLIGHT"}
                 </span>
+                <WorldMap snapshot={snapshot} selfId={identity?.id??""}/>
               </div>
               <World bridge={bridge} />
               {snapshot && connection!=="Connected" && <div className="world-busy reconnecting-cover" role="status"><span className="loading-spinner" aria-hidden="true"/>{connection==="Disconnected"?"Your room is saved. Rejoin when ready.":connection}</div>}
@@ -1065,6 +1119,7 @@ export default function ThirdSpace() {
               )}
               <SharedWatching snapshot={snapshot} getSnapshot={()=>bridge.snapshot} selfId={identity?.id||""} expanded={watchExpanded} onExpand={setWatchExpanded} send={send}/>
               <div className="world-bottomline">
+                <StaminaBar snapshot={snapshot} selfId={identity?.id??""}/>
                 <span>
                   ◇{" "}
                   {race
@@ -1205,7 +1260,7 @@ export default function ThirdSpace() {
                           onFocus={() => (bridge.blocked = true)}
                           onBlur={() =>
                             (bridge.blocked =
-                              modal !== null || connection !== "Connected")
+                              modal !== null || watchExpanded || connection !== "Connected")
                           }
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => {
@@ -1291,8 +1346,8 @@ export default function ThirdSpace() {
                 <span className="voice-reach">Native voice unavailable</span>
               </div>
               <div className="social-buttons">
-                {snapshot?.worldId==="forest"&&!race&&<><button onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"}</span></button></>}
-                <button onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>
+                {snapshot&&getWorld(snapshot.worldId).dark&&!race&&<><button aria-keyshortcuts="F" title="Toggle flashlight (F)" onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"} · {Math.ceil((self?.flashlightBattery??1)*100)}%</span></button></>}
+                {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
                 <button onClick={() => setModal("emotes")}>
                   ☺ <span>Emotes</span>
                 </button>
@@ -1350,6 +1405,7 @@ export default function ThirdSpace() {
             >
               ×
             </button>
+            {modal === "race-entry" && <><span className="eyebrow">A LITTLE FRIENDLY COMPETITION</span><h2>Join the race?</h2><p>Step inside the cabin to start Garden Dash. Your friends can stay at camp.</p><div className="watching-actions"><button onClick={()=>{send({type:"race.enter"});setModal(null);}}>Join race</button><button onClick={()=>setModal(null)}>Cancel</button></div></>}
             {modal === "board" && (
               <>
                 <span className="eyebrow">LITTLE THOUGHTS, SHARED</span>
@@ -1773,7 +1829,7 @@ export default function ThirdSpace() {
                 <span className="eyebrow">YOUR PEOPLE</span>
                 <h2>Who&apos;s here.</h2>
                 <p className="roster-summary">
-                  {snapshot?.players.length || 0} of{" "}
+                  {(snapshot?.members??snapshot?.players)?.length || 0} of{" "}
                   {Math.min(
                     home.capacity || GAME_CONFIG.partyCapacity,
                     GAME_CONFIG.partyCapacity,
@@ -1785,7 +1841,7 @@ export default function ThirdSpace() {
                   role="list"
                   aria-label="Friends in this world"
                 >
-                  {snapshot?.players.map((p) => (
+                  {(snapshot?.members??snapshot?.players)?.map((p) => (
                     <article key={p.id} role="listitem">
                       <span
                         className="roster-avatar"
@@ -1808,7 +1864,7 @@ export default function ThirdSpace() {
                         </b>
                         <small>
                           {p.id === snapshot.hostId ? "Host · " : ""}
-                          {p.connected ? "Here" : "Reconnecting"} · Native voice{" "}
+                          {p.connected ? p.zone?"In the asylum":"Outside / lounge" : "Reconnecting"} · Native voice{" "}
                           {p.nativeMode}
                         </small>
                       </div>
@@ -1902,6 +1958,7 @@ export default function ThirdSpace() {
                   Reduced motion
                 </label>
                 <h3>Game sounds</h3>
+                <label>Appearance<select aria-label="Color theme" value={prefs.theme} onChange={e=>setPrefs({...prefs,theme:e.target.value as Prefs["theme"]})}><option value="dark">Dark</option><option value="light">Light</option></select></label>
                 <label className="check"><input aria-label="Mute game sounds" type="checkbox" checked={prefs.gameSoundsMuted} onChange={e=>setPrefs({...prefs,gameSoundsMuted:e.target.checked})}/>Mute game sounds</label>
                 <label>Ambience &amp; movement<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
                 <p>Mute covers ambience, footsteps, clown sounds and soundboard effects. Voice and movie volume have separate controls.</p>

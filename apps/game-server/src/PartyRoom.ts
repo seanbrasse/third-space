@@ -1,7 +1,9 @@
+import { ForestWerewolf } from "./ForestWerewolf";
 import { ForestEncounter } from "./ForestStalker";
+import { stepFlashlight } from "./flashlight";
 import { Room, ServerError, type Client } from "@colyseus/core";
 import { randomUUID } from "node:crypto";
-import { resolveMediaLink, GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
+import { resolveMediaLink, CAMP_RACE_DOOR, ASYLUM_DOOR, GAME_CONFIG, HOME_MAP, RACE_MAP, getWorld, WORLD_COUNTDOWN_MS, type WorldId } from "@third-space/config";
 import {
   parseCommand,
   type ChatMessage,
@@ -20,6 +22,8 @@ import {
 import {
   createPlayer,
   stepHome,
+  requestSprint,
+  cancelSprint,
   stepRace,
   resetRacePlayer,
   hasFinishedRace,
@@ -53,10 +57,12 @@ export class PartyRoom extends Room {
   static store: LocalStore;
   static activeHomes = new Set<string>();
   homeId = "";
-  worldId: WorldId = "forest";
+  worldId: "living-room" | "forest" = "forest";
   worldRevision = 0;
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
+  private indoorSpawnSeats=new Map<string,string>();
+  private spawnSeats = new Map<string, string>();
   private acceptedWorldCommands = new Map<string,string>();
   private acceptedMediaCommands = new Set<string>();
   epoch = randomUUID();
@@ -81,6 +87,7 @@ export class PartyRoom extends Room {
   private seq = 0;
   private tick = 0;
   private encounter: ForestEncounter | null = null;
+  private werewolf: ForestWerewolf | null = null;
   private accumulation = 0;
   private hostId: string | null = null;
   private windows = new Map<string, number[]>();
@@ -103,6 +110,7 @@ export class PartyRoom extends Room {
     PartyRoom.activeHomes.add(options.homeId);
     this.homeId = options.homeId;
     this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
+    this.werewolf = this.worldId === "forest" ? new ForestWerewolf(getWorld(this.worldId)) : null;
     this.onMessage("connection.ping", (client, raw: unknown) => {
       const id = (client.auth as Admission)?.userId;
       if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0 || raw > 1e9 || this.clientsByUser.get(id) !== client || !this.cooled(id, "ping", 1000)) return;
@@ -211,12 +219,13 @@ export class PartyRoom extends Room {
     let player = this.players.get(auth.userId);
     if (!player) {
       player = createPlayer(auth.userId, auth.name, auth.avatar);
-      const spawn = this.findHomeSpawn();
+      const spawn = this.findHomeSpawn(auth.userId);
       player.x = spawn.x;
       player.y = spawn.y;
+      if(this.worldId==="forest"&&this.mapFor(player).seats.some(seat=>seat.id===this.spawnSeats.get(auth.userId)&&distance(seat,spawn)<.01))player.seatId=this.spawnSeats.get(auth.userId);
     }
     player.connected = true;
-    player.flashlightOn ??= true;
+    player.flashlightOn ??= true; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
     this.players.set(auth.userId, player);
     this.roles.set(auth.userId, auth.role);
     this.clientsByUser.set(auth.userId, client);
@@ -237,7 +246,7 @@ export class PartyRoom extends Room {
     )
       return;
     const player = this.players.get(id);
-    if (player) player.connected = false;
+    if (player) { player.connected = false; cancelSprint(player, Date.now()); }
     this.intents.delete(id);
     try {
       await this.allowReconnection(client, GAME_CONFIG.reconnectGraceMs / 1000);
@@ -261,7 +270,7 @@ export class PartyRoom extends Room {
     const player = this.players.get(id);
     if (player) {
       player.connected = true;
-    player.flashlightOn ??= true;
+    player.flashlightOn ??= true; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
       if (player.mode === "race") this.safeRaceRespawn(player);
     }
     this.clientsByUser.set(id, client);
@@ -287,6 +296,7 @@ export class PartyRoom extends Room {
     this.players.delete(id);
     this.roles.delete(id);
     this.intents.delete(id);
+    this.spawnSeats.delete(id);this.indoorSpawnSeats.delete(id);
     if(this.worldProposal?.proposerId === id) this.worldProposal = null;
     const prefix = id + ":";
     for (const cache of [this.windows, this.cooldowns, this.chatAcks]) {
@@ -312,6 +322,11 @@ export class PartyRoom extends Room {
 
   private findHomeSpawn(excludeId?: string): { x: number; y: number } {
     const map = getWorld(this.worldId).map;
+    if(this.worldId==="forest"&&excludeId&&!this.spawnSeats.has(excludeId)){
+      const reserved=new Set(this.spawnSeats.values());
+      const seat=map.seats.find(seat=>!reserved.has(seat.id));
+      if(seat)this.spawnSeats.set(excludeId,seat.id);
+    }
     const occupied = [...this.players.values()].filter(
       (player) => player.mode === "home" && player.id !== excludeId,
     );
@@ -324,7 +339,8 @@ export class PartyRoom extends Room {
       occupied.every(
         (player) => distance(player, point) >= 2 * GAME_CONFIG.playerRadius,
       );
-    const authored = map.spawns.find(safe);
+    const ownSeat=map.seats.find(seat=>seat.id===this.spawnSeats.get(excludeId??""));
+    const authored = ownSeat&&safe(ownSeat)?ownSeat:map.spawns.find(safe);
     if (authored) return { x: authored.x, y: authored.y };
     // Moving occupants can cover more than one authored point. Find a nearby clear
     // location rather than stacking a new/returning avatar on another participant.
@@ -392,9 +408,10 @@ export class PartyRoom extends Room {
     this.cooldowns.set(key, now);
     return true;
   }
-  private emit(mode: "home" | "race", type: string, value: unknown) {
+  private mapFor(p:PlayerState){return getWorld(p.zone??this.worldId).map;}
+  private emit(mode: "home" | "race", type: string, value: unknown, zone?:PlayerState["zone"]) {
     for (const [id, client] of this.clientsByUser)
-      if (this.players.get(id)?.mode === mode) client.send(type, value);
+      if (this.players.get(id)?.mode === mode && (type!=="effect" || this.players.get(id)?.zone===zone)) client.send(type, value);
   }
 
   private command(client: Client, id: string, command: ClientCommand) {
@@ -403,6 +420,7 @@ export class PartyRoom extends Room {
     if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     switch (command.type) {
       case "world.propose": {
+        if(command.worldId!=="forest")return this.notice(client,"WORLD_UNAVAILABLE","Midnight Pines is the current campsite.");
         const key=id+":"+command.commandId;
         if(this.acceptedWorldCommands.has(key)) break;
         if(command.revision!==this.worldRevision || this.worldProposal)
@@ -418,10 +436,25 @@ export class PartyRoom extends Room {
         if(this.worldProposal?.id!==command.proposalId || Date.now()>=this.worldProposal.endsAt)
           return this.notice(client,"PROPOSAL_EXPIRED","That world countdown has ended.");
         this.worldProposal=null; this.broadcast("notice",{code:"WORLD_CANCELLED",message:p.name+" asked to stay here. World change cancelled."}); this.sendSnapshots(); break;
-      case "flashlight": p.flashlightOn=command.enabled; break;
+      case "area.enter": {
+        if(p.mode!=="home"||this.worldId!=="forest"||this.worldProposal)return this.notice(client,"WORLD_BUSY","Finish the world countdown first.");
+        const entering=command.area==="asylum";
+        if(entering===!!p.zone)break;
+        const door=entering?ASYLUM_DOOR:{x:10,y:17.5};
+        if(distance(p,door)>GAME_CONFIG.interactionDistance)return this.notice(client,"TOO_FAR","Walk to the doorway first.");
+        const zone=entering?"asylum":undefined;
+        const indoor=getWorld("asylum").map;
+        if(entering&&!this.indoorSpawnSeats.has(id)){const reserved=new Set(this.indoorSpawnSeats.values());const seat=indoor.seats.find(s=>s.id!=="charger-seat"&&!reserved.has(s.id));if(seat)this.indoorSpawnSeats.set(id,seat.id);}
+        const own=indoor.seats.find(s=>s.id===this.indoorSpawnSeats.get(id));
+        const candidates=entering?[...(own?[own]:[]),...indoor.spawns]:Array.from({length:8},(_,i)=>({x:67.5+i%4,y:13.5+Math.floor(i/4)}));
+        const spawn=candidates.find(s=>[...this.players.values()].every(o=>o.id===id||o.zone!==zone||distance(s,o)>.65));
+        if(!spawn)return this.notice(client,"DOOR_BUSY","The doorway is occupied. Try again.");
+        cancelSprint(p,Date.now());p.zone=zone;p.zoneRevision=(p.zoneRevision??0)+1;Object.assign(p,{x:spawn.x,y:spawn.y,vx:0,vy:0});delete p.seatId;if(entering&&own&&distance(own,spawn)<.01)p.seatId=own.id;delete p.roastingAt;this.intents.delete(id);this.sendSnapshots();break;
+      }
+      case "flashlight": p.flashlightOn=command.enabled&&(p.flashlightBattery??1)>0; break;
       case "roast": {
         const fire=getWorld(this.worldId).fire;
-        if(command.enabled && (p.mode!=="home" || !fire || distance(p,fire)>4))
+        if(command.enabled && (p.mode!=="home" || p.zone || !fire || distance(p,fire)>4))
           return this.notice(client,"TOO_FAR","Come close to the campfire to roast a marshmallow.");
         if(command.enabled) p.roastingAt=Date.now(); else delete p.roastingAt;
         break;
@@ -429,15 +462,26 @@ export class PartyRoom extends Room {
       case "media.control": {
         const key=id+":"+command.commandId;
         if(this.acceptedMediaCommands.has(key))break;
-        if(id!==this.hostId)return this.notice(client,"ACCESS_DENIED","The host controls shared playback.");
+        if(p.mode!=="home"||getWorld(p.zone??this.worldId).mediaEnabled===false)return this.notice(client,"TOO_FAR","Use the campsite TV.");
+        if(command.action==="ended"&&(command.revision!==this.media.revision||command.playbackId!==this.media.playbackId))break;
         if(command.revision!==this.media.revision)return this.notice(client,"MEDIA_CONFLICT","Playback changed. Try again with the latest controls.");
         const now=Date.now();
         const position=Math.min(86400,this.media.position+(this.media.playing?Math.max(0,now-this.media.anchorAt)/1000:0));
-        if(command.action==="source") {
+        if(command.action==="queue.add"){
+          if(!command.url)break;const queue=this.media.queue??[];
+          if(queue.length>=20)return this.notice(client,"QUEUE_FULL","The queue has twenty videos. Remove one first.");
+          try{const source=resolveMediaLink(command.url);this.media={...this.media,revision:this.media.revision+1,queue:[...queue,{id:randomUUID(),url:source.url,addedBy:id,start:source.start}]};}catch(error){return this.notice(client,"INVALID_MEDIA",(error as Error).message);}
+        }else if(command.action==="queue.remove"){
+          const queue=this.media.queue??[];if(!queue.some(v=>v.id===command.itemId))break;this.media={...this.media,revision:this.media.revision+1,queue:queue.filter(v=>v.id!==command.itemId)};
+        }else if(command.action==="next"||command.action==="ended"){
+          if(command.action==="ended"&&!this.media.playing)break;const [next,...queue]=this.media.queue??[];
+          if(next){const source=resolveMediaLink(next.url);this.media={playbackId:randomUUID(),revision:this.media.revision+1,url:source.url,playing:true,position:next.start??source.start,anchorAt:now,queue};}
+          else this.media={...this.media,revision:this.media.revision+1,position,playing:false,anchorAt:now};
+        }else if(command.action==="source") {
           if(!command.url)return this.notice(client,"INVALID_MEDIA","Paste a YouTube link or an HTTPS video file link.");
           try {
             const source=resolveMediaLink(command.url);
-            this.media={revision:this.media.revision+1,url:source.url,playing:false,position:source.start,anchorAt:now};
+            this.media={playbackId:randomUUID(),revision:this.media.revision+1,url:source.url,playing:false,position:source.start,anchorAt:now,queue:this.media.queue??[]};
           }catch(error){return this.notice(client,"INVALID_MEDIA",(error as Error).message);}
         } else {
           if(!this.media.url)return this.notice(client,"INVALID_MEDIA","Choose a video first.");
@@ -448,6 +492,7 @@ export class PartyRoom extends Room {
       }
       case "input.stop": { const seq=this.intents.get(id)?.value.seq??p.lastInputSeq;this.intents.set(id,{value:neutral(seq),receivedAt:Date.now()});p.vx=p.vy=0;break;}
       case "input": {
+        if(command.zoneRevision!==undefined && command.zoneRevision!==(p.zoneRevision??0))return;
         if(command.worldRevision!==undefined && command.worldRevision!==this.worldRevision)return;
         if(command.lifeRevision!==undefined && command.lifeRevision!==(p.respawnCount??0))return;
         const previous = this.intents.get(id)?.value.seq ?? p.lastInputSeq;
@@ -459,7 +504,20 @@ export class PartyRoom extends Room {
             "Input sequence is out of range.",
           );
         if (!this.allowed(id + ":input", 60, 1000)) return;
-        this.intents.set(id, { value: command.input, receivedAt: Date.now() });
+        const now = Date.now();
+        if(command.input.axisX||command.input.axisY){delete p.seatId;delete p.roastingAt;}
+        // Packets carry only intent. Charge, duration and speed come from authority.
+        if (command.input.sprint) {
+          const press = command.input.sprintPress;
+          const fresh = press === undefined ? !this.intents.get(id)?.value.sprint :
+            press > (p.lastSprintPress ?? 0) && press <= (p.lastSprintPress ?? 0) + 10_000;
+          if (fresh) {
+            // Consume even a denied tap: holding during refill never rearms it.
+            if (press !== undefined) p.lastSprintPress = press;
+            Object.assign(p, requestSprint(p, now));
+          }
+        }
+        this.intents.set(id, { value: command.input, receivedAt: now });
         if (command.input.axisX || command.input.axisY) { delete p.seatId; delete p.roastingAt; }
         break;
       }
@@ -517,12 +575,12 @@ export class PartyRoom extends Room {
           delete p.seatId;
           break;
         }
-        const seat = getWorld(this.worldId).map.seats.find((s) => s.id === command.seatId);
-        if (p.mode !== "home" || !seat || distance(p, seat) > GAME_CONFIG.interactionDistance || !isHomeSegmentWalkable(p, seat, getWorld(this.worldId).map))
+        const seat = this.mapFor(p).seats.find((s) => s.id === command.seatId);
+        if (p.mode !== "home" || !seat || distance(p, seat) > GAME_CONFIG.interactionDistance || !isHomeSegmentWalkable(p, seat, this.mapFor(p)))
           return this.notice(client, "TOO_FAR", "Walk closer to that seat.");
         if (
           [...this.players.values()].some(
-            (other) => other.seatId === seat.id && other.id !== id,
+            (other) => other.seatId === seat.id && other.zone===p.zone && other.id !== id,
           )
         )
           return this.notice(
@@ -531,6 +589,7 @@ export class PartyRoom extends Room {
             "Someone is already sitting there.",
           );
         p.seatId = seat.id;
+        if(seat.id==="charger-seat"){p.flashlightBattery=1;this.notice(client,"CHARGED","Flashlight fully charged.");}
         const fire=getWorld(this.worldId).fire;
         if(fire){const dx=fire.x-seat.x,dy=fire.y-seat.y;p.facing=Math.abs(dx)>Math.abs(dy)?dx>0?"right":"left":dy>0?"down":"up";}
         p.x = seat.x;
@@ -548,7 +607,7 @@ export class PartyRoom extends Room {
           targeted &&
           (!target ||
             target.id === id ||
-            target.mode !== p.mode ||
+            target.mode !== p.mode || target.zone!==p.zone ||
             !target.connected ||
             distance(p, target) > 2)
         )
@@ -579,7 +638,7 @@ export class PartyRoom extends Room {
           this.proposals.set(effect.id, { effect, mode: p.mode });
           client.send("effect", effect);
           this.clientsByUser.get(target!.id)?.send("effect", effect);
-        } else this.emit(p.mode, "effect", effect);
+        } else this.emit(p.mode, "effect", effect,p.zone);
         break;
       }
       case "social.accept": {
@@ -598,7 +657,7 @@ export class PartyRoom extends Room {
         if (
           !source ||
           !source.connected ||
-          source.mode !== p.mode ||
+          source.mode !== p.mode || source.zone!==p.zone ||
           distance(p, source) > 2
         )
           return this.notice(
@@ -613,7 +672,7 @@ export class PartyRoom extends Room {
           type: "emote",
           startTime: Date.now(),
           expiresAt: Date.now() + 3000,
-        });
+        },p.zone);
         break;
       }
       case "sound": {
@@ -639,7 +698,7 @@ export class PartyRoom extends Room {
           y: p.y,
           startTime: now,
           expiresAt: now + 2000,
-        });
+        },p.zone);
         break;
       }
       case "sound.enabled":
@@ -672,26 +731,39 @@ export class PartyRoom extends Room {
           );
         break;
       case "race.ready": {
-        if(this.worldId!=="living-room" || this.worldProposal) return this.notice(client,"WORLD_BUSY","Return to the lounge before starting Garden Dash.");
+        if(this.worldProposal) return this.notice(client,"WORLD_BUSY","Return to the campsite before starting Garden Dash.");
         if (p.mode !== "home" || this.race.phase !== "lobby")
           return this.notice(
             client,
             "RACE_ACTIVE",
             "A race is already in progress.",
           );
-        const portal = HOME_MAP.furniture.find((item) => item.id === HOME_MAP.portal.id)!;
+        const portal = getWorld(this.worldId).map.furniture.find((item) => item.id === (this.worldId==="forest"?"abandoned-cabin":HOME_MAP.portal.id))!;
         if (command.ready && !canUseFurniture(p, portal))
           return this.notice(
             client,
             "TOO_FAR",
-            "Walk over to the glowing portal to join the race.",
+            "Walk to the cabin door to join the race.",
           );
         this.race.readyIds = this.race.readyIds.filter((value) => value !== id);
         if (command.ready) this.race.readyIds.push(id);
         break;
       }
+      case "race.enter": {
+        if(p.mode!=="home"||p.zone||this.worldId!=="forest"||distance(p,CAMP_RACE_DOOR)>GAME_CONFIG.interactionDistance)return this.notice(client,"TOO_FAR","Walk to the cabin door to start racing.");
+        const now=Date.now();
+        if(!["lobby","countdown"].includes(this.race.phase)||(this.race.phase==="countdown"&&now>=this.race.startAt))return this.notice(client,"RACE_ACTIVE","This race has started. Join the next one.");
+        if(!this.cooled(id,"race.enter",5000))return;
+        if(this.race.phase==="lobby")this.startRace([id]);
+        else if(!this.race.readyIds.includes(id)){
+          this.race.readyIds.push(id);cancelSprint(p,now);
+          this.players.set(id,resetRacePlayer(p));this.intents.delete(id);
+          client.send("transition",{mode:"race",instanceId:this.race.id});
+        }
+        this.sendSnapshots();break;
+      }
       case "race.start": {
-        if(this.worldId!=="living-room" || this.worldProposal) return this.notice(client,"WORLD_BUSY","Finish the world change first.");
+        if(this.worldProposal) return this.notice(client,"WORLD_BUSY","Finish the world change first.");
         if (id !== this.hostId)
           return this.notice(
             client,
@@ -715,24 +787,7 @@ export class PartyRoom extends Room {
             "NO_RACERS",
             "Ask someone to ready up at the portal.",
           );
-        const now = Date.now();
-        this.race = {
-          id: randomUUID(),
-          phase: "countdown",
-          startAt: now + 3000,
-          endAt: now + 123000,
-          readyIds: ready,
-          results: [],
-        };
-        this.chats.race = [];
-        this.voiceModes.race = this.voiceModes.home;
-        for (const pid of ready) {
-          this.players.set(pid, resetRacePlayer(this.players.get(pid)!));
-          this.intents.delete(pid);
-          this.clientsByUser
-            .get(pid)
-            ?.send("transition", { mode: "race", instanceId: this.race.id });
-        }
+        this.startRace(ready);
         break;
       }
       case "race.return": {
@@ -767,16 +822,40 @@ export class PartyRoom extends Room {
     }
   }
 
-  private changeWorld(worldId: WorldId) {
+  private startRace(ready:string[]) {
+        const now = Date.now();
+        this.race = {
+          id: randomUUID(),
+          phase: "countdown",
+          startAt: now + 3000,
+          endAt: now + 123000,
+          readyIds: ready,
+          results: [],
+        };
+        this.chats.race = [];
+        this.voiceModes.race = this.voiceModes.home;
+        for (const pid of ready) {
+          cancelSprint(this.players.get(pid)!,Date.now());
+          this.players.set(pid, resetRacePlayer(this.players.get(pid)!));
+          this.intents.delete(pid);
+          this.clientsByUser
+            .get(pid)
+            ?.send("transition", { mode: "race", instanceId: this.race.id });
+        }
+  }
+
+  private changeWorld(worldId: "living-room"|"forest") {
     this.worldId=worldId; this.worldRevision++; this.worldProposal=null;
     this.encounter=getWorld(worldId).stalker?new ForestEncounter(getWorld(worldId)):null;
     this.encounter?.reset(Date.now());
+    this.werewolf=worldId==="forest"?new ForestWerewolf(getWorld(worldId)):null;
+    this.werewolf?.reset(Date.now());
     this.proposals.clear(); this.chats.home=[]; this.chats.race=[];
     this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
     const map=getWorld(worldId).map;
     // Includes grace-reserved avatars; reconnect never restores the old map.
     const sorted=[...this.players.values()].sort((a,b)=>a.id.localeCompare(b.id));
-    sorted.forEach((p,i)=>{p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);p.flashlightOn=true;delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.respawnAt;});
+    sorted.forEach((p,i)=>{cancelSprint(p,Date.now());delete p.zone;p.zoneRevision=(p.zoneRevision??0)+1;p.mode="home";p.x=map.spawns[i]!.x;p.y=map.spawns[i]!.y;p.vx=p.vy=0;p.lastInputSeq=Math.max(p.lastInputSeq,this.intents.get(p.id)?.value.seq??-1);delete p.seatId;delete p.roastingAt;delete p.finishedAt;delete p.haloUntil;delete p.caughtAt;delete p.respawnAt;});
     this.intents.clear();
     this.broadcast("transition",{mode:"home",worldId,worldRevision:this.worldRevision,instanceId:this.homeId+":home:"+this.worldRevision});
     this.sendSnapshots();
@@ -799,7 +878,11 @@ export class PartyRoom extends Room {
           ? intent.value
           : neutral(p.lastInputSeq);
       if (p.mode === "home") {
-        if (!p.seatId) this.players.set(id, stepHome(p, input, dt, getWorld(this.worldId).map));
+        if(p.connected&&getWorld(p.zone??this.worldId).dark){
+          Object.assign(p,stepFlashlight({flashlightBattery:p.flashlightBattery??1,flashlightOn:p.flashlightOn??false},dt));
+        }
+        if (!p.seatId) this.players.set(id, stepHome(p, input, dt, this.mapFor(p), now-dt*1000));
+
       } else if (
         this.race.phase === "running" &&
         !p.finishedAt &&
@@ -821,16 +904,21 @@ export class PartyRoom extends Room {
       }
     }
     const previousEncounter=this.encounter?.state?.id;
-    const caught=this.encounter?.update(now,[...this.players.values()]);
-    const encounter=this.encounter?.state;
+    const outside=[...this.players.values()].filter(p=>!p.zone);
+    // One threat at a time; overdue rare encounters get first safe opportunity.
+    const wolfCaught=!this.encounter?.state?this.werewolf?.update(now,outside):null;
+    const clownCaught=!this.werewolf?.state?this.encounter?.update(now,outside):null;
+    for(const cue of this.werewolf?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
+    const caught=wolfCaught??clownCaught;
+    const encounter=wolfCaught?this.werewolf?.state:this.encounter?.state;
     if(encounter?.id!==previousEncounter&&encounter?.giggleAt)this.worldSound({id:this.epoch+":"+this.worldRevision+":"+encounter.id+":giggle",kind:"giggle",x:encounter.x,y:encounter.y,createdAt:now,expiresAt:now+1200});
     if(caught){
       const player=this.players.get(caught)!;
       player.respawnCount=(player.respawnCount??0)+1;player.caughtAt=now;player.respawnAt=now+900;
-      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+encounter!.id+":slash",kind:"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
+      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(wolfCaught?"werewolf:":"")+encounter!.id+(wolfCaught?":claw":":slash"),kind:wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
       player.vx=player.vy=0;player.lastInputSeq=Math.max(player.lastInputSeq,this.intents.get(caught)?.value.seq??-1);
-      delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
-      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT","The clown caught you. Returning to the fire...");
+      cancelSprint(player,now);delete player.seatId;delete player.roastingAt;this.intents.delete(caught);
+      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT",wolfCaught?"The werewolf caught you. Returning to the fire...":"The clown caught you. Returning to the fire...");
       this.sendSnapshots();
     }
     if (this.race.phase === "running" && now >= this.race.endAt) {
@@ -843,7 +931,8 @@ export class PartyRoom extends Room {
       if (v.effect.expiresAt < now) this.proposals.delete(key);
   }
   private worldSound(event:WorldSoundEvent){
-    for(const [id,client] of this.clientsByUser){const listener=this.players.get(id);if(listener?.connected&&listener.mode==="home"&&distance(listener,event)<=12)client.send("world.sound",event);}
+    event={...event,epoch:this.epoch,worldRevision:this.worldRevision};
+    for(const [id,client] of this.clientsByUser){const listener=this.players.get(id);if(listener?.connected&&listener.mode==="home"&&!listener.zone&&distance(listener,event)<=(event.kind==="howl"?32:12))client.send("world.sound",event);}
   }
   private recordDnf(p: PlayerState, reason: RaceResult["reason"]) {
     if (this.race.results.some((r) => r.playerId === p.id)) return;
@@ -900,12 +989,14 @@ export class PartyRoom extends Room {
       if (!p) continue;
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
-        stalker:this.encounter?.visibleTo(p)??null,
-        worldId:this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
-        instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision : this.race.id,
+        stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
+        werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,
+        rootWorldId:this.worldId,worldId:p.zone??this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
+        instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision + ":" + (p.zone??"outside") + ":" + (p.zoneRevision??0) : this.race.id,
         epoch: this.epoch,
         serverTime: now,
-        players: [...this.players.values()].filter((v) => v.mode === p.mode),
+        members:[...this.players.values()],
+        players: [...this.players.values()].filter((v) => v.mode === p.mode&&v.zone===p.zone),
         voiceMode: this.voiceModes[p.mode],
         hostId: this.hostId,
         soundboardEnabled: this.soundboardEnabled,

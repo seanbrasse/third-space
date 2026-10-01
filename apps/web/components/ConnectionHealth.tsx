@@ -29,7 +29,7 @@ export default function ConnectionHealth({ room, connection }: {
         });
         const tick = () => {
             const now = performance.now(), online = navigator.onLine, hidden = document.hidden, connected = connection === "Connected";
-            if (online && !hidden && connected) {
+            if (!hidden && connected) {
                 if (pending !== null && now - sent > 4000) {
                     pending = null;
                     timeouts++;

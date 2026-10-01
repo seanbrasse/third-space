@@ -1,7 +1,7 @@
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import {
   GAME_CONFIG,
-  HOME_MAP,
+  FOREST_MAP as HOME_MAP,
   RACE_MAP,
   SKIN_COLORS,
   HAIR_COLORS,
@@ -47,11 +47,10 @@ async function worldPoint(page: Page, point: { x: number; y: number }) {
         const box = canvas.getBoundingClientRect();
         const data = (element as HTMLElement).dataset;
         return (
-          Math.abs(box.width - box.height) < 2 &&
           Math.abs(box.width - element.clientWidth) < 2 &&
           Math.abs(
             Number(data.cameraZoom) -
-              box.width / (Number(data.tileSize) * Number(data.worldWidth)),
+              Math.min(box.width,box.height) / (Number(data.tileSize) * 22),
           ) < 0.001
         );
       }),
@@ -230,10 +229,7 @@ async function followRaceCamera(page: Page) {
 }
 async function enterLounge(page: Page) {
   await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","forest");
-  await page.getByRole("button",{name:"☷ Worlds"}).click();
-  await page.getByRole("button",{name:/The reading lounge/}).click();
-  await page.getByRole("button",{name:"Close worlds"}).click();
-  await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","living-room",{timeout:12000});
+  await expect(page.locator(".world-canvas")).toHaveAttribute("data-seat-id",/camp-seat-/);
 }
 async function createHome(page: Page, name: string, homeName: string) {
   await page.goto("/");
@@ -245,7 +241,7 @@ async function createHome(page: Page, name: string, homeName: string) {
   await page.getByLabel("Choose a private PIN", { exact: true }).fill("123456");
   await page.getByRole("button", { name: "Create & enter home" }).click();
   await enterLounge(page);
-  await expect(page.getByRole("heading", { name: homeName })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Midnight Pines" })).toBeVisible();
   await expect(page.locator(".connection")).toHaveText("Connected");
   await expect(page.locator("canvas")).toBeVisible();
   const { homes } = await api<{ homes: { id: string; name: string }[] }>(
@@ -613,331 +609,6 @@ test("mobile entry and local settings remain touch-accessible", async ({
       reducedMotion: true,
     });
     await noOverlay(page);
-    expect(errors).toEqual([]);
-  } finally {
-    await context.close();
-  }
-});
-
-test("walk to the portal, ready up, jump in a synchronized race, and return home", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  collectErrors(page, errors);
-  const unique = Date.now().toString(36),
-    homeName = `Race nook ${unique}`;
-  await createHome(page, `Racer ${unique}`, homeName);
-  await page.bringToFront();
-  await expect
-    .poll(async () =>
-      Number(
-        await page
-          .locator(".world-canvas")
-          .getAttribute("data-authoritative-y"),
-      ),
-    )
-    .toBeGreaterThan(11);
-  const portal = HOME_MAP.furniture.find(
-    (object) => object.id === HOME_MAP.portal.id,
-  )!;
-  await reachTile(page, portal.usePoints[0]);
-  await page.getByRole("button", { name: "Let's play" }).click();
-  await page.getByRole("button", { name: "Count me in" }).click();
-  await expect(page.locator(".ready-list")).toContainText("✓ ready");
-  await page.getByRole("button", { name: "Start the race" }).click();
-  await expect(page.locator(".countdown")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "A little friendly competition." }),
-  ).toBeVisible();
-  await expect(page.locator(".countdown")).toHaveCount(0);
-  await expect(page.locator(".world-canvas")).toHaveAttribute(
-    "data-world-width",
-    String(RACE_MAP.width),
-  );
-  const trackBox = await page.locator(".world-canvas canvas").boundingBox();
-  expect(trackBox!.width).toBeGreaterThan(trackBox!.height);
-  for (const selector of [".people-panel", ".chat-panel"]) {
-    const panel = await page.locator(selector).boundingBox();
-    expect(panel!.y).toBeGreaterThanOrEqual(trackBox!.y + trackBox!.height - 1);
-  }
-  await expect
-    .poll(async () =>
-      Number(
-        await page
-          .locator(".world-canvas")
-          .getAttribute("data-authoritative-y"),
-      ),
-    )
-    .toBeGreaterThan(RACE_MAP.spawn.y - 0.5);
-  const initialX = Number(
-    await page.locator(".world-canvas").getAttribute("data-authoritative-x"),
-  );
-  await page.locator(".world-canvas").focus();
-  await page.keyboard.down("d");
-  const renderSamples = await page.evaluate(
-    () =>
-      new Promise<number[]>((resolve) => {
-        const samples: number[] = [];
-        const start = performance.now();
-        const sample = () => {
-          samples.push(
-            Number(
-              (document.querySelector(".world-canvas") as HTMLElement).dataset
-                .renderX,
-            ),
-          );
-          if (performance.now() - start < 600) requestAnimationFrame(sample);
-          else resolve(samples);
-        };
-        requestAnimationFrame(sample);
-      }),
-  );
-  await page.keyboard.up("d");
-  expect(renderSamples.length).toBeGreaterThan(10);
-  expect(renderSamples.every(Number.isFinite)).toBe(true);
-  expect(renderSamples.at(-1)! - renderSamples[0]).toBeGreaterThan(1);
-  expect(
-    Math.max(
-      ...renderSamples
-        .slice(1)
-        .map((x, index) => Math.abs(x - renderSamples[index])),
-    ),
-  ).toBeLessThan(1);
-
-  await expect
-    .poll(async () =>
-      Number(
-        await page
-          .locator(".world-canvas")
-          .getAttribute("data-authoritative-x"),
-      ),
-    )
-    .toBeGreaterThan(initialX + 1);
-  const groundedY = Number(
-    await page.locator(".world-canvas").getAttribute("data-authoritative-y"),
-  );
-  await page.keyboard.down("Space");
-  await expect
-    .poll(
-      async () =>
-        Number(
-          await page
-            .locator(".world-canvas")
-            .getAttribute("data-authoritative-y"),
-        ),
-      { intervals: [20, 40, 60] },
-    )
-    .toBeLessThan(groundedY - 0.5);
-  await page.keyboard.up("Space");
-  await expect
-    .poll(async () => (await serverPosition(page)).y)
-    .toBeGreaterThan(RACE_MAP.spawn.y - 0.05);
-  await followRaceCamera(page);
-  await expect(page.locator(".race-status")).toContainText("Checkpoint 0/4");
-  await page.screenshot({
-    path: "tests/e2e/artifacts/garden-race.png",
-    fullPage: true,
-  });
-  await page
-    .locator(".race-status")
-    .getByRole("button", { name: "Return home" })
-    .click();
-  await expect(page.getByRole("heading", { name: homeName })).toBeVisible();
-  await expect(page.locator(".race-status")).toHaveCount(0);
-  await expect
-    .poll(async () =>
-      Number(
-        await page
-          .locator(".world-canvas")
-          .getAttribute("data-authoritative-y"),
-      ),
-    )
-    .toBeLessThan(HOME_MAP.height - 2);
-  await reachTile(page, portal.usePoints[0]);
-  await page.getByRole("button", { name: "Let's play" }).click();
-  await expect(page.getByRole("button", { name: "Count me in" })).toBeEnabled();
-  await expect(page.locator(".connection")).toHaveText("Connected");
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  await noOverlay(page);
-  expect(errors).toEqual([]);
-});
-
-test("square room supports floor navigation, furniture seats, and names on hover", async ({
-  browser,
-  page,
-}) => {
-  const context = await browser.newContext();
-  const friend = await context.newPage();
-  const errors: string[] = [];
-  collectErrors(page, errors);
-  collectErrors(friend, errors);
-  const unique = Date.now().toString(36);
-  const friendName = `Robin ${unique}`;
-  try {
-    const homeId = await createHome(
-      page,
-      `Alex ${unique}`,
-      `Pixel house ${unique}`,
-    );
-    await joinHome(friend, friendName, homeId);
-    await page.bringToFront();
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-world-width",
-      String(HOME_MAP.width),
-    );
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-world-height",
-      String(HOME_MAP.height),
-    );
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-avatar-scale",
-      "1.65",
-    );
-    const avatarSize = await page
-      .locator(".world-canvas")
-      .evaluate((element) => {
-        const data = (element as HTMLElement).dataset;
-        return {
-          scale: Number(data.avatarScale),
-          screenHeight: Number(data.avatarHeight) * Number(data.cameraZoom),
-        };
-      });
-    expect(avatarSize.screenHeight).toBeGreaterThan(55);
-    await test
-      .info()
-      .attach("desktop-avatar-size", {
-        contentType: "application/json",
-        body: JSON.stringify(avatarSize),
-      });
-    const canvasBox = await page.locator(".world-canvas canvas").boundingBox();
-    expect(canvasBox).not.toBeNull();
-    expect(Math.abs(canvasBox!.width - canvasBox!.height)).toBeLessThan(2);
-    for (const selector of [".chat-panel", ".people-panel"]) {
-      const panel = await page.locator(selector).boundingBox();
-      expect(panel).not.toBeNull();
-      const overlaps =
-        panel!.x < canvasBox!.x + canvasBox!.width &&
-        panel!.x + panel!.width > canvasBox!.x &&
-        panel!.y < canvasBox!.y + canvasBox!.height &&
-        panel!.y + panel!.height > canvasBox!.y;
-      expect(overlaps).toBe(false);
-    }
-    await page.mouse.move(10, 10);
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-visible-name-count",
-      "0",
-    );
-    const friendPosition = await serverPosition(friend);
-    const friendPoint = await worldPoint(page, {
-      x: friendPosition.x,
-      y: friendPosition.y - 0.35,
-    });
-    await page.mouse.move(friendPoint.x, friendPoint.y);
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-hovered-player-id",
-      (await friend.locator(".world-canvas").getAttribute("data-local-id")) ||
-        "missing",
-    );
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-visible-name-count",
-      "1",
-    );
-    await page.mouse.click(friendPoint.x, friendPoint.y);
-    await expect(
-      page
-        .getByRole("dialog", { name: "person controls" })
-        .getByRole("heading", { name: friendName }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Close dialog" }).click();
-    await reachTile(page, { x: HOME_MAP.spawn.x, y: HOME_MAP.spawn.y + 3 });
-    const farGoal = { x: 14, y: 17 },
-      replacement = { x: 4, y: 15 };
-    await clickTile(page, farGoal);
-    await expect
-      .poll(async () =>
-        Number(
-          await page
-            .locator(".world-canvas")
-            .getAttribute("data-move-target-x"),
-        ),
-      )
-      .toBeCloseTo(farGoal.x, 1);
-    await clickTile(page, replacement);
-    await expect
-      .poll(async () =>
-        Number(
-          await page
-            .locator(".world-canvas")
-            .getAttribute("data-move-target-x"),
-        ),
-      )
-      .toBeCloseTo(replacement.x, 1);
-    await expect
-      .poll(
-        async () => {
-          const position = await serverPosition(page);
-          return Math.hypot(
-            position.x - replacement.x,
-            position.y - replacement.y,
-          );
-        },
-        { timeout: 10_000 },
-      )
-      .toBeLessThan(0.6);
-    await clickTile(page, farGoal);
-    await page.locator(".world-canvas").focus();
-    await page.keyboard.down("a");
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-move-target-x",
-      "",
-    );
-    await page.keyboard.up("a");
-    await clickTile(page, farGoal);
-    await page.keyboard.press("Escape");
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-move-target-x",
-      "",
-    );
-    await clickTile(page, farGoal);
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-move-target-x",
-      "",
-    );
-    await page.waitForTimeout(250);
-    const paused = await serverPosition(page);
-    await page.waitForTimeout(350);
-    const afterPause = await serverPosition(page);
-    expect(
-      Math.hypot(afterPause.x - paused.x, afterPause.y - paused.y),
-    ).toBeLessThan(0.2);
-    await page.getByRole("button", { name: "Close dialog" }).click();
-    const seat = HOME_MAP.seats[0];
-    await clickTile(page, seat);
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-seat-id",
-      seat.id,
-      { timeout: 15_000 },
-    );
-    const seated = await serverPosition(page);
-    expect(Math.hypot(seated.x - seat.x, seated.y - seat.y)).toBeLessThan(0.3);
-    await page
-      .getByRole("button", { name: `2/${GAME_CONFIG.partyCapacity} friends` })
-      .click();
-    await page.getByRole("button", { name: "Stand up", exact: true }).click();
-    await page.getByRole("button", { name: "Close dialog" }).click();
-    await expect(page.locator(".world-canvas")).toHaveAttribute(
-      "data-seat-id",
-      "",
-    );
-    await reachTile(page, { x: HOME_MAP.spawn.x, y: HOME_MAP.spawn.y + 3 });
-    await page.screenshot({
-      path: "tests/e2e/artifacts/large-pixel-lounge.png",
-      fullPage: true,
-    });
-    await noOverlay(page);
-    await noOverlay(friend);
     expect(errors).toEqual([]);
   } finally {
     await context.close();

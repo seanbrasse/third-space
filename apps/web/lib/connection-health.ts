@@ -8,10 +8,10 @@ export function connectionQuality({ online, hidden, connected, age, samples, tim
     samples: readonly number[];
     timeouts: number;
 }): ConnectionQuality {
-    if (!online)
-        return "offline";
     if (hidden)
         return "background";
+    // Fresh room packets outweigh navigator.onLine for a local Mac preview.
+    if (!online && (!connected || age>2000))return "offline";
     if (!connected)
         return "reconnecting";
     if (age > 2000 || timeouts >= 2)
