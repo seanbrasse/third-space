@@ -2479,3 +2479,12 @@ body:has(.dark-theme){background:#18231f;color:#e0e6d5;color-scheme:dark}
  .shared-watching.expanded input{font-size:16px}
  .shared-watching.expanded .media-loading{max-width:calc(100% - 24px);white-space:normal;text-align:center}
 }
+
+/* Give the picture room to grow while keeping all controls reachable. */
+.shared-watching.expanded:not(:fullscreen){width:min(960px,calc(100vw - 32px));max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
+.shared-watching.expanded:not(:fullscreen)>header{flex-shrink:0}
+.shared-watching.expanded:not(:fullscreen)>:is(.youtube-watching,video,.screen-placeholder){flex-shrink:0;width:100%;height:auto;aspect-ratio:16/9;max-height:min(60vh,calc(100vh - 220px));max-height:min(60dvh,calc(100dvh - 220px))}
+.shared-watching.expanded:not(:fullscreen)>.watching-controls{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+@media(max-width:650px){
+ .shared-watching.expanded:not(:fullscreen){right:8px;bottom:max(8px,env(safe-area-inset-bottom));width:calc(100vw - 16px);max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px - env(safe-area-inset-bottom))}
+}
