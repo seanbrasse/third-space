@@ -323,7 +323,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.clearMap();
         this.mapObjects.push(this.add.image(0, 0, this.textures.exists(this.forest?"forest-floor-v2":"asylum-floor-v1") ? (this.forest?"forest-floor-v2":"asylum-floor-v1") : this.texture(this.forest?"forest-floor-v2":"asylum-floor-v1", this.forest?forestFloorCanvas(TILE):asylumFloorCanvas(TILE))).setOrigin(0).setDepth(0));
         for (const item of this.map.furniture) {
-            if (item.kind === "campfire")
+            if (item.kind === "campfire" || this.forest && bridge.snapshot?.survival?.appleTrees.some(tree => tree.id === item.id))
                 continue;
             const f = item.footprint, charger=!this.forest&&item.id==="charger", key = charger?"asylum-charger-dock-v1":`${this.forest?"forest":"asylum"}-object:${item.kind}:${f.width}:${f.height}`;
             const image = this.add.image(f.x * TILE, f.y * TILE, this.textures.exists(key) ? key : this.texture(key, charger?asylumChargerCanvas():this.forest?forestObjectCanvas(item, TILE):asylumObjectCanvas(item,TILE))).setOrigin(0).setDepth((f.y + f.height - .4) * TILE);

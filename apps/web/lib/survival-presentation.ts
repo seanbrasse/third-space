@@ -1,3 +1,5 @@
+import { FOREST_MAP } from '@third-space/config';
+import { appleTreeCanvas } from './apple-tree-art';
 import type * as Phaser from 'phaser';
 import type { SurvivalSnapshot } from '../../../packages/contracts/src/survival';
 import type { PlayerState } from '@third-space/contracts';
@@ -60,7 +62,9 @@ export class SurvivalPresentation {
         const key = `survival-${kind}`;
         if (!scene.textures.exists(key))
             scene.textures.addCanvas(key, survivalAssetCanvas(kind));
-    } }
+    }
+        for (const ripe of [true, false]) { const key = `survival-tree-${ripe}`; if (!scene.textures.exists(key)) scene.textures.addCanvas(key, appleTreeCanvas(ripe)); }
+    }
     update(snapshot: SurvivalSnapshot | undefined, viewer: {
         x: number;
         y: number;
@@ -78,8 +82,13 @@ export class SurvivalPresentation {
             for (const tree of snapshot.appleTrees) {
                 const key = `tree-${tree.id}`;
                 wanted.add(key);
-                const sprite = this.obtain(key, 'survival-apples', () => this.command({ type: 'survival.harvest', treeId: tree.id }));
-                sprite.setPosition(tree.x * TILE, (tree.y - 1.9) * TILE).setDepth(tree.y * TILE + .2).setVisible(tree.readyAt <= now && Math.hypot(tree.x - viewer.x, tree.y - viewer.y) <= 12);
+                const f = FOREST_MAP.furniture.find(item => item.id === tree.id)?.footprint;
+                if (!f) continue;
+                const texture = `survival-tree-${tree.readyAt <= now}`;
+                const sprite = this.obtain(key, texture, () => this.command({ type: 'survival.harvest', treeId: tree.id }));
+                sprite.setTexture(texture).setOrigin(0).setScale(1).setPosition(f.x * TILE, f.y * TILE)
+                    .setDepth((f.y + f.height - .4) * TILE).setVisible(Math.hypot(tree.x - viewer.x, tree.y - viewer.y) <= 24);
+
             }
         }
         for (const [key, sprite] of this.sprites)

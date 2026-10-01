@@ -1,14 +1,18 @@
-.survival-hud { flex:1 0 100%; min-width:0; box-sizing:border-box; padding: .55rem .7rem; color: var(--ink); background: var(--paper); border:1px solid var(--sage); border-radius:.7rem; max-width:32rem; }
-.world-bottomline .survival-hud span{display:inline;flex:initial;text-align:initial}
-.survival-meters { display:flex; gap:.6rem; flex-wrap:wrap; font-size:.75rem; }
-.survival-meters label { display:flex; align-items:center; gap:.25rem; margin:0; }
-.survival-meters meter { width:4rem; height:.65rem; }
-.survival-hotbar { display:flex; gap:.35rem; margin-top:.45rem; flex-wrap:wrap; }
-.survival-hotbar button { min-width:3.4rem; min-height:44px; padding:.35rem .5rem; border:1px solid var(--sage); background:var(--paper); color:var(--ink); border-radius:.35rem; }
-.survival-hotbar button[aria-pressed=true] { outline:2px solid var(--sage); background:var(--cream); }
-.survival-hotbar button:disabled { opacity:.45; }
-.survival-hotbar small { display:block; font-size:.65rem; }
-.survival-hotbar button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
-.survival-hud p { margin:.4rem 0 0; font-size:.65rem; line-height:1.3; }
-.survival-hud summary { cursor:pointer; margin-top:.35rem; font-size:.65rem; }
-@media(max-width:480px) {.survival-hud{padding:.4rem;max-width:100%;}.survival-hotbar{gap:.25rem}.survival-hotbar button{min-width:3rem;padding:.25rem}.survival-hud p{max-width:26rem}}
+.survival-hud { position:absolute; z-index:12; bottom:max(8px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100% - 12px); color:#f5e9c9; text-align:center; font:11px monospace; pointer-events:none; filter:drop-shadow(0 2px 3px #0008); }
+.survival-meters { display:flex; justify-content:center; gap:12px; margin-bottom:5px; text-shadow:0 1px 2px #000; }
+.survival-meters label { display:flex; align-items:center; gap:4px; margin:0; font:10px monospace; }
+.survival-meters meter { width:40px; height:7px; }
+.survival-meters b { font-weight:400; font-variant-numeric:tabular-nums; }
+.survival-hotbar { display:flex; gap:3px; padding:4px; background:#202722ed; border:2px solid #a99e7f; box-shadow:inset 0 2px #d3c7a3,inset 0 -2px #484735,0 2px #111a15; }
+.survival-hotbar .inventory-slot { position:relative; width:48px; height:48px; min-width:44px; min-height:44px; padding:4px; border:2px solid #4b5043; border-radius:0; background:#303e35e8; box-shadow:inset 2px 2px #18251d,inset -2px -2px #66735a; color:#ddd9bb; pointer-events:auto; touch-action:manipulation; }
+.survival-hotbar .inventory-slot[aria-pressed=true] { border-color:#f3d49a; outline:2px solid #f3d49a; outline-offset:-1px; background:#566451; box-shadow:inset 2px 2px #263d31,inset -2px -2px #b3ac83; }
+.inventory-slot kbd { position:absolute; left:4px; top:2px; font:9px monospace; color:#dfd7bb; text-shadow:1px 1px #16241c; }
+.inventory-icon { width:32px; height:32px; margin-top:3px; image-rendering:pixelated; }
+.inventory-count { position:absolute; right:4px; bottom:2px; font:12px monospace; color:#fff5d7; text-shadow:1px 1px #071a14; }
+.survival-use { pointer-events:auto; min-height:44px; margin:3px 0 0; padding:3px 14px; color:#f1e8cd; background:#21352bea; border:1px solid #7e8e70; border-radius:3px; font:10px monospace; touch-action:manipulation; }
+.survival-hud button:disabled { opacity:.55; }
+.survival-hud button:focus-visible { outline:2px solid #fff9da; outline-offset:3px; }
+/* Keep movement controls above inventory, with independent touch targets. */
+.forest-view .touch-controls { margin-bottom:132px; }
+@media(max-width:480px) { .survival-hotbar .inventory-slot{width:44px;height:44px} .survival-meters{gap:8px}.survival-meters meter{width:33px}.survival-hud{bottom:max(6px,env(safe-area-inset-bottom))} }
+@media(max-width:1080px){.forest-view .navigation-map{align-self:start;margin:8px 0 0 8px}.forest-view .navigation-map .map-card{bottom:auto;top:42px}}

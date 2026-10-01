@@ -172,6 +172,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flashlight"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
+  z.object({type:z.literal("survival.select"),slot:z.number().int().min(0).max(4),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.harvest"),treeId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.eat"),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),

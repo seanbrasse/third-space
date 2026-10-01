@@ -24,6 +24,13 @@ export function gameHotkey(event: KeyEvent & Pick<KeyboardEvent, "defaultPrevent
       isGameInputBlocked(event.target)) return null;
   return event.code === "KeyF" || (!event.code && event.key.toLowerCase() === "f") ? "flashlight" : null;
 }
+/** Number keys select inventory only when gameplay owns focus. */
+export function inventoryHotkey(event: KeyEvent & Pick<KeyboardEvent, "defaultPrevented">, blocked: boolean): number | null {
+  if (blocked || event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey || isGameInputBlocked(event.target)) return null;
+  const match = /^(?:Digit|Numpad)([1-5])$/.exec(event.code);
+  const digit = match?.[1] ?? (!event.code && /^[1-5]$/.test(event.key) ? event.key : null);
+  return digit ? Number(digit) - 1 : null;
+}
 function gameKey(event: KeyEvent): string {
   if (event.altKey || event.ctrlKey || event.metaKey) return "";
   if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) return event.code;

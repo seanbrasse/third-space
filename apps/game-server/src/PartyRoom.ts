@@ -919,6 +919,7 @@ export class PartyRoom extends Room {
     if (!this.survival.acceptCommand(p.id,command.commandId,now)) { this.sendSnapshots(); return; }
     let result: SurvivalResult;
     switch (command.type) {
+      case "survival.select": result=this.survival.selectSlot(p.id,command.slot); break;
       case "survival.equip": result=this.survival.equip(p.id,command.item); break;
       case "survival.eat": result=this.survival.eat(p,now); break;
       case "survival.harvest": result=this.survival.harvest(p,command.treeId,now); break;

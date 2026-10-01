@@ -15,7 +15,7 @@ import StaminaBar from "./StaminaBar";
 import SurvivalHUD from "./SurvivalHUD";
 import "./survival-hud.css";
 import { holdTouchSprint, releaseTouchSprint } from "../lib/touch-boost";
-import { gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
+import { inventoryHotkey, gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Client, type Room } from "@colyseus/sdk";
@@ -382,6 +382,11 @@ export default function ThirdSpace() {
           send({ type: "flashlight", enabled: !self.flashlightOn });
         }
         return;
+      }
+      const slot = inventoryHotkey(event, bridge.blocked || !!modal || connection !== "Connected");
+      if (slot !== null && bridge.snapshot?.survival) {
+        event.preventDefault(); send({type:"survival.select",slot});
+        restoreGameFocus([document.activeElement]); return;
       }
       if (event.key === "Escape") {
         if (modal) setModal(null);
@@ -1226,7 +1231,15 @@ export default function ThirdSpace() {
                     : "CLICK TO WALK · WASD / ARROWS · HOLD SPACE SPRINT · F FLASHLIGHT"}
                 </span>
               </div>
-              <World bridge={bridge} />
+              <World bridge={bridge}>
+                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onSelect={slot=>send({type:"survival.select",slot})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
+                  const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
+                  if(!player||!inventory?.equipped)return;
+                  if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});
+                  else if(inventory.equipped==="apple")send({type:"survival.eat"});
+                  else {const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a player outside the safe areas, then swing.");}
+                }}/>}
+              </World>
               <WorldMap snapshot={snapshot} selfId={identity?.id??""}/>
               {snapshot && connection!=="Connected" && <div className="world-busy reconnecting-cover" role="status"><span className="loading-spinner" aria-hidden="true"/>{connection==="Disconnected"?"Your room is saved. Rejoin when ready.":connection}</div>}
               {!snapshot && (
@@ -1264,13 +1277,6 @@ export default function ThirdSpace() {
               <SharedWatching snapshot={snapshot} getSnapshot={()=>bridge.snapshot} selfId={identity?.id||""} expanded={watchExpanded} onExpand={setWatchExpanded} send={send}/>
               <div className="world-bottomline">
                 <StaminaBar snapshot={snapshot} selfId={identity?.id??""}/>
-                {!race && survivalSelf && <SurvivalHUD player={survivalSelf} disabled={!bridge.transportConnected||!!self?.respawnAt} onEquip={item=>send({type:"survival.equip",item})} onFocusGame={()=>{restoreGameFocus([document.activeElement]);}} onUse={()=>{
-                  const latest=bridge.snapshot, player=latest?.players.find(p=>p.id===bridge.selfId), inventory=latest?.survival?.players.find(p=>p.id===bridge.selfId);
-                  if(!player||!inventory)return;
-                  if(inventory.equipped==="flashlight")send({type:"flashlight",enabled:!player.flashlightOn});
-                  else if(inventory.equipped==="apple")send({type:"survival.eat"});
-                  else {const target=latest!.players.filter(p=>p.id!==player.id&&p.connected&&p.mode===player.mode&&p.zone===player.zone&&!p.respawnAt&&Math.hypot(p.x-player.x,p.y-player.y)<=1.4).sort((a,b)=>Math.hypot(a.x-player.x,a.y-player.y)-Math.hypot(b.x-player.x,b.y-player.y))[0];if(target)send({type:"survival.attack",targetId:target.id});else notify("Move close to a player outside the safe areas, then swing.");}
-                }}/>}
                 <span>
                   ◇{" "}
                   {race
