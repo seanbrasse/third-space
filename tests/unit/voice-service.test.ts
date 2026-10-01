@@ -81,6 +81,21 @@ describe("voice admission and ACL watchdog", () => {
     expect(finished).toHaveLength(8); // All removals start before any slow call completes.
     for (const finish of finished) finish(); await pending;
   });
+  it("never regrants a replaced identity from stale acknowledgement", async () => {
+    const f = fixture(), old = await f.service.join("a", "tab-a", "old");
+    vi.mocked(f.provider.list).mockResolvedValue([{ identity: old.identity }]); await f.service.sync();
+    const oldPolicy = f.states.get("a")!;
+    vi.setSystemTime(101100); f.state.peers[0]!.sessionId = "new-tab";
+    const current = await f.service.join("a", "new-tab", "new");
+    f.service.publishStates();
+    f.service.acknowledge("a", "tab-a", old.identity, oldPolicy.policyVersion);
+    f.service.acknowledge("a", "new-tab", old.identity, f.states.get("a")!.policyVersion);
+    vi.mocked(f.provider.list).mockResolvedValue([{ identity: old.identity }, { identity: current.identity }]);
+    vi.setSystemTime(103200); await f.service.sync();
+    expect(f.provider.permissions).not.toHaveBeenCalled();
+    expect(f.states.get("a")!.identity).toBe(current.identity);
+    expect(f.provider.remove).toHaveBeenCalledWith("home:epoch", old.identity);
+  });
   it("does not overlap provider requests and fails closed on service outage", async () => {
     const f = fixture(); await f.service.join("a", "tab-a", "a"); let reject!: (error: Error) => void;
     vi.mocked(f.provider.list).mockImplementation(() => new Promise((_resolve, r) => { reject = r; }));
@@ -95,6 +110,19 @@ describe("provider configuration and token grants", () => {
     const env = { VOICE_ENABLED: "true", VOICE_PRIVACY_VERIFIED: "true", LIVEKIT_URL: "ws://127.0.0.1:7880", LIVEKIT_API_KEY: "test", LIVEKIT_API_SECRET: "fixture" };
     expect(voiceConfig(env)).not.toBeNull(); expect(voiceConfig({ ...env, NODE_ENV: "production" })).toBeNull();
     expect(voiceConfig({ ...env, LIVEKIT_URL: "ws://media.example" })).toBeNull();
+  });
+  it("requires explicit verified token revocation for production", () => {
+    const env = { NODE_ENV: "production", VOICE_ENABLED: "true", VOICE_PRIVACY_VERIFIED: "true",
+      LIVEKIT_URL: "wss://media.example", LIVEKIT_API_KEY: "test", LIVEKIT_API_SECRET: "fixture" };
+    expect(voiceConfig(env)).toBeNull();
+    expect(voiceConfig({ ...env, LIVEKIT_STRICT_REVOCATION_VERIFIED: "true" })?.strictRevocation).toBe(true);
+  });
+  it("uses an explicit future second cutoff to reject even same-second refreshed Cloud tokens", async () => {
+    const request = vi.fn(async () => ({ ok: true, json: async () => ({}) })) as unknown as typeof fetch;
+    const provider = new LiveKitVoiceProvider({ url: "wss://media.example", key: "fixture", secret: "fixture", strictRevocation: true }, request);
+    await provider.remove("home:epoch", "user:old-lease");
+    const call = vi.mocked(request).mock.calls[0]!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ room: "home:epoch", identity: "user:old-lease", revoke_token_ts: 101 });
   });
   it("has a 30s room-bound microphone-only token without admin/data grants", () => {
     const provider = new LiveKitVoiceProvider({ url: "wss://media.example", key: "fixture", secret: "fixture" });

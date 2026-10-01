@@ -1,15 +1,17 @@
 import { createHmac } from "node:crypto";
 
-export interface VoiceConfig { url: string; key: string; secret: string }
+export interface VoiceConfig { url: string; key: string; secret: string; strictRevocation?: boolean }
 export function voiceConfig(env: NodeJS.ProcessEnv = process.env): VoiceConfig | null {
   // Verification is an operator attestation AFTER the adversarial provider probe.
   if (env.VOICE_ENABLED !== "true" || env.VOICE_PRIVACY_VERIFIED !== "true" ||
       !env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) return null;
+  // Refreshed tokens outlive the initial TTL; production needs tested provider revocation.
+  if (env.NODE_ENV === "production" && env.LIVEKIT_STRICT_REVOCATION_VERIFIED !== "true") return null;
   try {
     const url = new URL(env.LIVEKIT_URL);
     const local = env.NODE_ENV !== "production" && url.protocol === "ws:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
     if ((!local && url.protocol !== "wss:") || url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
-    return { url: url.origin, key: env.LIVEKIT_API_KEY, secret: env.LIVEKIT_API_SECRET };
+    return { url: url.origin, key: env.LIVEKIT_API_KEY, secret: env.LIVEKIT_API_SECRET, strictRevocation: env.LIVEKIT_STRICT_REVOCATION_VERIFIED === "true" };
   } catch { return null; }
 }
 export function voiceJwt(config: VoiceConfig, identity: string | undefined, video: Record<string, unknown>, now = Date.now()) {
@@ -50,6 +52,8 @@ export class LiveKitVoiceProvider implements VoiceProvider {
   async permissions(room: string, identity: string, publish: boolean) {
     await this.call("UpdateParticipant", room, { room, identity, permission: { can_subscribe: true, can_publish: publish, can_publish_data: false, can_publish_sources: [2], can_update_metadata: false } });
   }
-  async remove(room: string, identity: string) { await this.call("RemoveParticipant", room, { room, identity }); }
+  async remove(room: string, identity: string) { await this.call("RemoveParticipant", room, { room, identity,
+    // Cloud supports strict revocation; self-hosted dev intentionally omits it.
+    ...(this.config.strictRevocation ? { revoke_token_ts: Math.floor(Date.now() / 1000) + 1 } : {}) }); }
   async delete(room: string) { await this.call("DeleteRoom", room, { room }); }
 }

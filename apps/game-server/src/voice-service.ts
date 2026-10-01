@@ -76,6 +76,7 @@ export class RoomVoiceService {
         if (lease) this.leases.delete(lease.userId);
       }));
       await completeBatch([...this.leases.values()].map(async lease => {
+        if (this.joining.has(lease.userId)) return; // The replacing join owns old-identity removal.
         const peer = this.active(lease.userId, lease.sessionId);
         const initialExpired = !lease.ackAt && now - lease.joinedAt > 8000;
         const heartbeatExpired = !!lease.ackAt && now - lease.ackAt > 2500;
