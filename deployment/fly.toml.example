@@ -1,0 +1,41 @@
+# Select an available app name and the region nearest the testers after approval.
+app = "REPLACE_WITH_APPROVED_APP_NAME"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile.game-server"
+
+[env]
+  NODE_ENV = "production"
+  GAME_HOST = "0.0.0.0"
+  GAME_PORT = "2567"
+  DATA_PATH = "/data/third-space.sqlite"
+  # Exact stable production frontend origin, no wildcard preview access.
+  WEB_ORIGIN = "https://REPLACE_WITH_FRONTEND.vercel.app"
+
+[[mounts]]
+  source = "third_space_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 2567
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/ready"
+
+[[vm]]
+  cpu_kind = "shared"
+  # Published 2-shared-CPU / 512 MiB preset quoted at $3.89/mo in iad;
+  # with a 1 GB volume the starting resource base is $4.04/mo.
+  cpus = 2
+  memory = "512mb"

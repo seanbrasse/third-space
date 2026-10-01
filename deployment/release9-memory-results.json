@@ -1,0 +1,123 @@
+{
+  "ok": true,
+  "testedBase": "14c25bd6614466665bba28355627734379f02685",
+  "includeMedia": false,
+  "elapsedSeconds": 128.61,
+  "clientNode": "v24.19.0",
+  "phases": [
+    {
+      "startTimestamp": 1790820531993,
+      "endTimestamp": 1790820592018,
+      "rooms": 1,
+      "players": 8,
+      "durationSeconds": 60.02,
+      "minSnapshotHz": 19.86,
+      "p95SnapshotGapMs": 53.59,
+      "p99SnapshotGapMs": 57.38,
+      "maxSnapshotGapMs": 75.37,
+      "p95LocalPingRttMs": 2.58,
+      "p99LocalPingRttMs": 4.17,
+      "resources": {
+        "samples": 60,
+        "maxContainerCurrentMiB": 92.64,
+        "maxProcessRssMiB": 131.97,
+        "maxHeapUsedMiB": 26.03,
+        "firstContainerCurrentMiB": 89.04,
+        "lastContainerCurrentMiB": 92.41,
+        "meanCpuPercentOfOneCore": 11.73,
+        "maxEventLoopDelayMs": 36.5
+      }
+    },
+    {
+      "startTimestamp": 1790820593188,
+      "endTimestamp": 1790820623197,
+      "rooms": 4,
+      "players": 32,
+      "durationSeconds": 30.01,
+      "minSnapshotHz": 19.99,
+      "p95SnapshotGapMs": 53.61,
+      "p99SnapshotGapMs": 66.21,
+      "maxSnapshotGapMs": 119.58,
+      "p95LocalPingRttMs": 3.61,
+      "p99LocalPingRttMs": 6.73,
+      "resources": {
+        "samples": 30,
+        "maxContainerCurrentMiB": 106.6,
+        "maxProcessRssMiB": 144.47,
+        "maxHeapUsedMiB": 29.09,
+        "firstContainerCurrentMiB": 101.56,
+        "lastContainerCurrentMiB": 106.26,
+        "meanCpuPercentOfOneCore": 27.7,
+        "maxEventLoopDelayMs": 73.66
+      }
+    },
+    {
+      "startTimestamp": 1790820625132,
+      "endTimestamp": 1790820655330,
+      "rooms": 8,
+      "players": 64,
+      "durationSeconds": 30.2,
+      "minSnapshotHz": 20,
+      "p95SnapshotGapMs": 53.85,
+      "p99SnapshotGapMs": 64.73,
+      "maxSnapshotGapMs": 95.31,
+      "p95LocalPingRttMs": 6.92,
+      "p99LocalPingRttMs": 11.89,
+      "resources": {
+        "samples": 30,
+        "maxContainerCurrentMiB": 113.0,
+        "maxProcessRssMiB": 150.84,
+        "maxHeapUsedMiB": 31.68,
+        "firstContainerCurrentMiB": 109.82,
+        "lastContainerCurrentMiB": 112.78,
+        "meanCpuPercentOfOneCore": 53.78,
+        "maxEventLoopDelayMs": 77.46
+      }
+    }
+  ],
+  "inputPackets": 112516,
+  "chatSends": 346,
+  "boardWrites": 84,
+  "mediaActions": 0,
+  "pinJoins": 126,
+  "expectedDisconnects": 1,
+  "reconnects": 1,
+  "forestCaughtEvents": 6,
+  "roomRecreationCycles": 10,
+  "unexpectedErrors": 0,
+  "limitations": [
+    "Local synthetic SDK clients; no WAN latency or browser/video/voice streams",
+    "Benchmark adapter invokes unchanged createGameServer but binds a container-accessible address",
+    "CPU quota is one dedicated local vCPU, not a Fly shared CPU performance guarantee",
+    "Newer uncommitted work is not included"
+  ],
+  "runtime": {
+    "node": "v24.19.0",
+    "platform": "linux",
+    "arch": "arm64",
+    "memoryLimitMiB": 512.0,
+    "swapLimitMiB": 0,
+    "cpuQuotaCores": 1
+  },
+  "memory": {
+    "samples": 286,
+    "maxContainerCurrentMiB": 113.5,
+    "maxProcessRssMiB": 151.34,
+    "maxHeapUsedMiB": 31.68,
+    "firstContainerCurrentMiB": 85.18,
+    "lastContainerCurrentMiB": 111.84,
+    "meanCpuPercentOfOneCore": 13.72,
+    "maxEventLoopDelayMs": 77.46,
+    "kernelRecordedPeakMiB": 113.77,
+    "peakPercentOfLimit": 22.22,
+    "remainingAtPeakMiB": 398.23,
+    "limitEvents": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  }
+}
