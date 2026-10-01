@@ -1,6 +1,7 @@
 "use client";
 import {applySnapshotFrame,type SnapshotState} from '../../../packages/contracts/src/snapshot-delta';
 import GameMenu from "./GameMenu";
+import NativeVoicePanel from "./NativeVoicePanel";
 import { useGameFullscreen } from "../lib/use-game-fullscreen";
 import ChatTimestamp from "./ChatTimestamp";
 import LiveSessions from "./LiveSessions";
@@ -136,7 +137,6 @@ export default function ThirdSpace() {
     [conflict, setConflict] = useState<Note | null>(null),
     [target, setTarget] = useState(""),
     [toast, setToast] = useState(""),
-    [voiceReason, setVoiceReason] = useState("Checking native voice service…"),
     [proposal, setProposal] = useState<Effect | null>(null),
     [invites, setInvites] = useState<{ id: string; url?: string }[]>([]),
     [inviteUrl, setInviteUrl] = useState(""),
@@ -327,9 +327,8 @@ export default function ThirdSpace() {
           return { homes: [] };
         throw e;
       }),
-      api<{ configured: boolean; reason: string }>("/media/status"),
     ])
-      .then(async ([profile, rooms, media]) => {
+      .then(async ([profile, rooms]) => {
         if(disposed)return;
         setIdentity(profile.profile);
         identityRef.current = profile.profile;
@@ -344,10 +343,6 @@ export default function ThirdSpace() {
           setAvatar(readCustomization(browserStorage(), null));
         }
         setHomes(uniqueHomes(rooms.homes || []));
-        setVoiceReason(
-          media.reason ||
-            "Native voice needs a configured, verified media service.",
-        );
         setConnection("Ready to enter");
         if(!pendingJoinInvite.current&&!inviteToken.current&&profile.profile){
           try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");
@@ -1143,6 +1138,8 @@ export default function ThirdSpace() {
                 {connection}
               </span>
               <ConnectionHealth room={room.current} connection={connection}/>
+              <NativeVoicePanel room={room.current} connected={!!room.current?.connection?.isOpen}
+                snapshot={snapshot} personVolumes={prefs.personVolumes} mutedIds={prefs.soundMuted}/>
               <GameMenu>
                 <button className="primary" disabled={!gameFullscreen.supported} onClick={()=>void gameFullscreen.toggle()}>{gameFullscreen.active ? "Exit game fullscreen" : "Game fullscreen"}</button>
                 {!gameFullscreen.supported && <small>This browser does not offer game fullscreen.</small>}
@@ -1160,33 +1157,6 @@ export default function ThirdSpace() {
                 {identity && <SessionInfo key={`${identity.id}:${home.id}`} home={home} profileId={identity.id}/>}
                 <h3>Things to do</h3>
             <nav className="social-toolbar" aria-label="Hangout controls" data-close-game-menu="true">
-              <div className="audio-toolbar">
-                <button
-                  className="native-off"
-                  onClick={() => notify(voiceReason)}
-                >
-                  <span>♩</span>
-                  <div>
-                    Native voice off
-                    <small>Text & game audio are available</small>
-                  </div>
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Microphone unavailable"
-                  onClick={() => notify(voiceReason)}
-                >
-                  ♩̸
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Native listening unavailable"
-                  onClick={() => notify(voiceReason)}
-                >
-                  ♧
-                </button>
-                <span className="voice-reach">Native voice unavailable</span>
-              </div>
               <div className="social-buttons">
                 {snapshot&&getWorld(snapshot.worldId).dark&&!race&&<><button aria-keyshortcuts="F" title="Toggle flashlight (F)" onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"} · {Math.ceil((self?.flashlightBattery??1)*100)}%</span></button></>}
                 {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button aria-label="▣ Watch together" onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
@@ -1340,7 +1310,7 @@ export default function ThirdSpace() {
                 {peopleOpen && (
                   <div id="corner-people" className="corner-people">
                     <small>
-                      Only affects what you hear. Native voice is not connected.
+                      Only affects what you hear. Game sounds and voice use independent volume controls.
                     </small>
                     {snapshot?.players
                       .filter(
@@ -2115,28 +2085,7 @@ export default function ThirdSpace() {
                 <label>Ambience &amp; movement<input aria-label="Forest ambience volume" type="range" min="0" max="1" step=".05" value={prefs.effectsVolume} onChange={e=>setPrefs({...prefs,effectsVolume:Number(e.target.value)})}/></label>
                 <p>Mute covers ambience, footsteps, clown sounds and soundboard effects. Voice and movie volume have separate controls.</p>
                 <h3>Native voice</h3>
-                <div className="service-notice">{voiceReason}</div>
-                <p>
-                  Microphone capture stays off until server-enforced voice
-                  privacy is verified.
-                </p>
-                <div className="segmented">
-                  <button
-                    className="active"
-                    onClick={() =>
-                      send({
-                        type: "voice.status",
-                        nativeMode: "off",
-                        manualMute: false,
-                        deafened: false,
-                      })
-                    }
-                  >
-                    Native off
-                  </button>
-                  <button disabled>Listen only</button>
-                  <button disabled>Enabled</button>
-                </div>
+                <p>Use Native voice beside the Game menu to listen or enable your microphone. Off stops native voice for Discord. Microphone permission is requested only when you choose Enable microphone.</p>
                 <label>
                   Soundboard volume
                   <input
@@ -2175,8 +2124,7 @@ export default function ThirdSpace() {
                   </button>
                 </div>
                 <small>
-                  Only the host changes this policy. Native voice is not
-                  connected in local mode.
+                  Only the host changes this policy. Room-wide includes every admitted party member, including interiors and races. Proximity separates areas and fades distant voices.
                 </small>
               </>
             )}

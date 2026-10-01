@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {PartyRoom} from '../../apps/game-server/src/PartyRoom';
 import {LocalStore} from '../../packages/data/src/index';
 import {FOREST_INTERIORS} from '../../packages/config/src/authored-forest';
+import type {RoomVoiceService} from '../../apps/game-server/src/voice-service';
 import type {PlayerState, RoomSnapshot} from '../../packages/contracts/src/index';
 import {applySnapshotFrame, type SnapshotDeltaEncoder, type SnapshotFrame, type SnapshotState} from '../../packages/contracts/src/snapshot-delta';
 
@@ -9,6 +10,7 @@ type Client = Parameters<PartyRoom['onJoin']>[0];
 type Handler = (client: Client, payload: unknown) => void;
 type Stream = {encoder: SnapshotDeltaEncoder<RoomSnapshot>; forceFull: boolean; resyncAt: number};
 interface Authority {
+  voice: RoomVoiceService;
   snapshotStreams: Map<Client, Stream>;
   sendSnapshots(): void;
   changeWorld(id: 'living-room' | 'forest'): void;
@@ -94,6 +96,72 @@ beforeEach(() => {
 afterEach(() => {room.onDispose(); room.clock.clear(); store.close(); vi.restoreAllMocks(); vi.useRealTimers();});
 
 describe('snapshot transport through the actual eight-human PartyRoom', () => {
+  it('keeps shared interior voice groups independent of personal revisions in delta snapshots, with party-wide host policy', () => {
+    const interior = FOREST_INTERIORS[0]!;
+    place(0, 6, 7, interior.id); place(1, 7, 7, interior.id);
+    player(0).zoneRevision = 2; player(1).zoneRevision = 9;
+    clients.slice(0, 3).forEach(enable); snapshot();
+    const states = clients.slice(0, 3).map(client => reconstruct(client));
+    expect(states[0]!.snapshot.instanceId).not.toBe(states[1]!.snapshot.instanceId);
+    expect(states[0]!.snapshot.voiceScope).toStrictEqual(states[1]!.snapshot.voiceScope);
+    expect(states[0]!.snapshot.voiceScope?.participantIds).toEqual([ids[0], ids[1]]);
+    expect(states[2]!.snapshot.voiceScope?.participantIds).not.toContain(ids[0]);
+    expect(states[0]!.snapshot.survival).toBeDefined();
+    send(clients[0]!, 'command', {type: 'voice.mode', mode: 'room'}); snapshot();
+    clients.slice(0, 3).forEach((client, i) => {
+      states[i] = reconstruct(client, states[i]);
+      expect(states[i]!.snapshot.voiceScope?.participantIds).toEqual(ids);
+      expect(states[i]!.snapshot.voiceScope?.mode).toBe('room');
+    });
+    send(clients[1]!, 'command', {type: 'voice.mode', mode: 'proximity'}); snapshot();
+    expect(reconstruct(clients[0]!, states[0]).snapshot.voiceMode).toBe('room');
+  });
+
+  it('keeps voice disabled and token-free without verified media while world deltas and inventory remain usable', async () => {
+    const client = clients[0]!; enable(client); snapshot(); const state = reconstruct(client);
+    send(client, 'command', {type: 'voice.status', nativeMode: 'enabled', manualMute: false, deafened: false});
+    send(client, 'voice.refresh'); send(client, 'voice.join', {requestId: 'disabled-media'});
+    await Promise.resolve(); await Promise.resolve();
+    expect(player(0).nativeMode).toBe('off');
+    expect(events(client, 'voice.state').at(-1)).toMatchObject({available: false, receive: [], publishTo: []});
+    expect(events(client, 'voice.token')).toEqual([{requestId: 'disabled-media', error: expect.any(String)}]);
+    command(0, {type: 'survival.select', slot: 1});
+    const next = reconstruct(client, state).snapshot;
+    expect(next.survival).toBeDefined(); expect(next.survival?.players.find(p => p.id === ids[0])?.selectedSlot).toBe(1);
+    expect(next.members).toHaveLength(8);
+  });
+
+  it('rejects displaced-tab voice requests and rechecks admission before returning an asynchronous token', async () => {
+    const old = clients[0]!, fresh = admit(0, '-voice-replacement', true); clients[0] = fresh;
+    let resolve!: (value: Awaited<ReturnType<RoomVoiceService['join']>>) => void;
+    const join = vi.spyOn(authority().voice, 'join').mockImplementation(() => new Promise(done => {resolve = done;}));
+    send(old, 'voice.join', {requestId: 'retired-tab'}); expect(join).not.toHaveBeenCalled();
+    send(fresh, 'voice.join', {requestId: 'current-tab'}); expect(join).toHaveBeenCalledWith(ids[0], fresh.sessionId, 'current-tab');
+    room.onLeave(fresh);
+    resolve({requestId: 'current-tab', url: 'wss://fixture.invalid', token: 'must-not-be-delivered', identity: 'retired', expiresAt: Date.now()+30000});
+    await Promise.resolve(); await Promise.resolve();
+    expect(events(old, 'voice.token')).toEqual([]); expect(events(fresh, 'voice.token')).toEqual([]);
+  });
+
+  it('isolates a closing voice transport so state delivery reaches the other seven peers', () => {
+    vi.mocked(clients[0]!.send).mockImplementation(() => {throw new Error('socket closed');});
+    expect(() => send(clients[1]!, 'voice.refresh')).not.toThrow();
+    for (const client of clients.slice(1)) expect(events(client, 'voice.state').at(-1)).toMatchObject({available: false});
+  });
+
+  it.each(['resolve', 'reject'])('settles a pending voice token %s without an unhandled closing-socket error', async outcome => {
+    const client = clients[0]!;
+    let finish!: () => void;
+    const operation = new Promise<Awaited<ReturnType<RoomVoiceService['join']>>>((resolve, reject) => {
+      finish = () => outcome === 'reject' ? reject(new Error('provider unavailable')) : resolve({requestId: 'closing', url: 'wss://fixture.invalid', token: 'fixture', identity: 'fixture', expiresAt: Date.now()+30000});
+    });
+    vi.spyOn(authority().voice, 'join').mockReturnValue(operation);
+    send(client, 'voice.join', {requestId: 'closing'});
+    vi.mocked(client.send).mockImplementation(() => {throw new Error('socket closed');});
+    finish(); await Promise.resolve(); await Promise.resolve();
+    expect(events(client, 'voice.token')).toEqual([]);
+  });
+
   it('keeps legacy clients on complete snapshots until each current admitted socket explicitly opts in', () => {
     skip(50); snapshot();
     for (const client of clients) {
