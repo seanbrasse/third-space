@@ -2,7 +2,7 @@
 import { createGameServer } from "../apps/game-server/src/server.ts";
 import { writeFileSync, readFileSync } from "node:fs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-const origin = "http://third-space-load.invalid";
+const origin = process.env.LOAD_ORIGIN || "https://third-space-load.invalid";
 const { server, store } = createGameServer({ dataPath: "/data/load.sqlite", origins: [origin] });
 const fixture = Array.from({ length: 8 }, (_, group) => {
   const identities = Array.from({ length: 8 }, (_, member) => store.createIdentity({ name: `Load ${group + 1}-${member + 1}` }));

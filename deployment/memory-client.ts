@@ -5,7 +5,10 @@ import { performance } from "node:perf_hooks";
 import assert from "node:assert/strict";
 import type { RoomSnapshot } from "../packages/contracts/src/index.ts";
 const endpoint = process.env.LOAD_ENDPOINT || "http://127.0.0.1:2588";
-const origin = "http://third-space-load.invalid";
+const origin = process.env.LOAD_ORIGIN || "https://third-space-load.invalid";
+// Current room authority permits media only indoors; this load driver stays outside.
+const includeMedia = process.env.LOAD_INCLUDE_MEDIA === "1";
+const sdk = () => new Client(endpoint, { headers: { Origin: origin } });
 const fixtures = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as Array<{ homeId: string; members: Array<{ id: string; cookie: string }> }>;
 const phaseSeconds = (process.env.LOAD_PHASE_SECONDS || "600,120,120").split(",").map(Number);
 assert(phaseSeconds.length === 3 && phaseSeconds.every(x => Number.isFinite(x) && x >= 5));
@@ -63,7 +66,7 @@ async function connectGroup(group: number) {
     const member = fixture.members[index]!;
     if (index > 0) { await api(`/api/homes/${fixture.homeId}/join`, member.cookie, "POST", { pin: "123456" }); pinJoins++; }
     const ticket = await api(`/api/homes/${fixture.homeId}/ticket`, member.cookie, "POST", {});
-    const room = await new Client(endpoint).joinOrCreate("party", ticket);
+    const room = await sdk().joinOrCreate("party", ticket);
     const peer: Peer = { group, index, ...member, room, lastAt: 0, snapshots: 0, gaps: [], rtts: [], pings: new Map(), seq: 0, paused: false, changing: false, positions: new Set(), chat: 0 };
     attach(peer, room);
     peers.push(peer);
@@ -82,7 +85,7 @@ async function reconnect(peer: Peer) {
   peer.room.connection.close();
   expectedDisconnects++;
   await sleep(500);
-  attach(peer, await new Client(endpoint).reconnect(token));
+  attach(peer, await sdk().reconnect(token));
   await until(() => peer.snapshot?.players.find(p => p.id === peer.id)?.connected === true, "Reconnect failed");
   peer.changing = peer.paused = false;
   reconnects++;
@@ -130,6 +133,7 @@ try {
           if (!note) note = (await api(`/api/homes/${homeId}/board`, owner.cookie, "POST", { requestId: `load-${owner.group}`, text: "Synthetic benchmark note", x: 0.5, y: 0.5 })).note;
           else note = (await api(`/api/homes/${homeId}/board/${note.id}`, owner.cookie, "PATCH", { expectedRevision: note.revision, text: `Synthetic note update ${Math.round(elapsed)}` })).note;
           notes.set(owner.group, note); boardWrites++;
+          if (!includeMedia) continue;
           const revision = owner.snapshot!.media.revision;
           const source = !owner.snapshot!.media.url;
           owner.room.send("command", { type: "media.control", commandId: `media-${owner.group}-${phase}-${Math.round(elapsed)}`, revision, action: source ? "source" : owner.snapshot!.media.playing ? "pause" : "play", ...(source ? { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" } : {}) });
@@ -176,7 +180,7 @@ try {
     assert.equal(board.notes[0].revision, note.revision);
   }
   assert.equal(failures.length,0,failures.join("\n"));
-  const report = { ok: true, testedBase: "cf0892500367212f4c62b39090e83228ccb546b0", elapsedSeconds: +( (performance.now()-started)/1000).toFixed(2), clientNode: process.version, phases, inputPackets, chatSends, boardWrites, mediaActions, pinJoins, expectedDisconnects, reconnects, forestCaughtEvents, roomRecreationCycles: 10, unexpectedErrors: failures.length, limitations: ["Local synthetic SDK clients; no WAN latency or browser/video/voice streams", "Benchmark adapter invokes unchanged createGameServer but binds a container-accessible address", "CPU quota is one dedicated local vCPU, not a Fly shared CPU performance guarantee", "Latest uncommitted campsite/playback changes are not included"] };
+  const report = { ok: true, testedBase: process.env.LOAD_TESTED_COMMIT || "unrecorded", includeMedia, elapsedSeconds: +( (performance.now()-started)/1000).toFixed(2), clientNode: process.version, phases, inputPackets, chatSends, boardWrites, mediaActions, pinJoins, expectedDisconnects, reconnects, forestCaughtEvents, roomRecreationCycles: 10, unexpectedErrors: failures.length, limitations: ["Local synthetic SDK clients; no WAN latency or browser/video/voice streams", "Benchmark adapter invokes unchanged createGameServer but binds a container-accessible address", "CPU quota is one dedicated local vCPU, not a Fly shared CPU performance guarantee", "Newer uncommitted work is not included"] };
   writeFileSync(process.argv[3]!, JSON.stringify(report,null,2)+"\n");
   console.log(JSON.stringify({ kind: "complete", ...report }));
 } finally {

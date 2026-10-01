@@ -1,0 +1,28 @@
+# Third Space account setup
+
+## Current state
+
+Fly CLI is installed and authenticated as Sean. The personal organization contains the new, undeployed `third-space-seanbrasse` app. Its future HTTPS/WSS host is `third-space-seanbrasse.fly.dev`. No Fly machine, volume, IP, remote builder or support subscription has been created.
+
+Vercel's existing authorized account contains the new `third-space` project, with Next.js, Node 24.x, root `apps/web`, and workspace sources outside the root enabled. Its reserved production alias is `https://third-space-topaz.vercel.app`. Production environment points `GAME_HTTP_URL` to the Fly HTTPS host and `NEXT_PUBLIC_GAME_SERVER_URL` to its WSS host. No deployment is live. The project is intentionally not connected to automatic GitHub deploys while implementation continues.
+
+Vercel's default protection still requires account access on the production alias. After authorization, change only this new project's protection to `prod_deployment_urls_and_all_previews`: friends can open the production alias while previews remain protected. No other project or account setting should change.
+
+## Approval before provisioning
+
+The initial design is one always-on machine in Ashburn (`iad`), two shared CPUs, 512 MiB, one 1 GB encrypted SQLite volume, daily snapshots with five-day retention, and included shared IPv4/IPv6. Published base: $3.89/month compute + $0.15/month volume = $4.04/month, excluding tax and usage. North American egress is $0.02/GB. First 10 GB of snapshots is free; additional snapshot storage is $0.08/GB/month. See [official Fly pricing](https://fly.io/pricing/). No paid support or dedicated IPv4 is needed.
+
+Original deployment scope requires approval for paid resources and new security access. Confirm this resource cost and the public production alias before provisioning. Sean completes any payment-method, password, verification-code or additional OAuth permission step directly with the provider.
+
+## Deployment after approval
+
+Run from the isolated repository root, not from the active preview or publishing mirror. Use the already built Linux amd64 production image or a local Docker build, avoiding a billable remote builder. Never upload local SQLite files or synthetic fixtures.
+
+1. Recheck Fly billing readiness and that this app still has zero machines/volumes/IPs.
+2. Create one `third_space_data` volume: region `iad`, size 1 GB, scheduled snapshots enabled, retention five days. Retain default encryption.
+3. Allocate included shared IPv4 and IPv6 only.
+4. Deploy with `fly deploy . --config deployment/fly.toml --local-only --ha=false`. Use the dedicated deployment Docker context explicitly. Confirm exactly one machine and one volume; do not enable replicas, autoscaling, or a spare.
+5. Verify the backend's public HTTPS `/health` and `/ready`, production origin and denied origins, then deploy the configured Vercel project to production.
+6. Complete the README's two-browser acceptance gate before calling the application playable. Native voice is unconfigured. Stored SQLite data survives restart; active room simulations/playback restart with the process.
+
+This is a single-host friends release. Horizontal scaling requires shared durable storage and multi-process Colyseus presence/driver design; adding machines to the SQLite configuration is unsupported.

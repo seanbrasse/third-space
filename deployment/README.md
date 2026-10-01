@@ -1,6 +1,6 @@
 # Third Space hosting preparation
 
-Status: prepared only; no frontend/backend resource has been provisioned and there is no live multiplayer URL. Base candidate: cf0892500367212f4c62b39090e83228ccb546b0 (PR #8). Latest asylum/playback changes must arrive as a verified candidate from the implementation lead before release.
+Status: accounts connected and application projects prepared; no live multiplayer deployment yet. Release source: 41b3edb26c0b890fe875299630bc555444ef78c4 (merged PR #10, YouTube hotfix), incorporating verified milestone 9 at 14c25bd6614466665bba28355627734379f02685. Ongoing uncommitted race work is excluded. See [release validation](RELEASE-VALIDATION.md) and [account setup](SETUP.md).
 
 ## Architecture
 
@@ -12,18 +12,18 @@ Vercel's current WebSocket beta supports transport, but function duration and in
 
 ## Deployment sequence after host/access approval
 
-1. Receive the verified release SHA and integrate deployment/integration-request.md through the lead. Build/test that exact candidate in the isolated checkout.
+1. Confirm the recorded verified release SHA. The lead's production host/port, Secure cookie and origin-policy changes are already integrated in milestone 9. Build/test in the isolated checkout.
 2. Provision only the chosen single server and persistent disk. No new database subscription, paid support, dedicated IP, recurring job or preview backend is needed.
 3. Deploy the backend with an empty persistent /data mount. Do not upload Sean's local SQLite files or copy test fixtures. Container copies only source/package manifests, then initializes mount directory ownership and runs Node as the node user.
 4. On Vercel set GAME_HTTP_URL to the backend HTTPS origin and NEXT_PUBLIC_GAME_SERVER_URL to the same host with wss://. Both must be set before build; rebuild after URL changes. Existing API rewrites keep browser session cookies on the frontend origin.
-5. Set backend WEB_ORIGIN to the exact stable frontend HTTPS origin and NODE_ENV=production. Configure production Secure cookies through the lead patch. Keep preview origins blocked until separately authorized. Do not disable deployment protection on existing projects.
+5. Set backend WEB_ORIGIN to the exact stable frontend HTTPS origin and NODE_ENV=production. Secure cookies are enabled by the verified server. Keep preview origins blocked until separately authorized. Make only this new project's production alias public for friends after authorization; retain protected previews and leave all existing projects unchanged.
 6. Deploy production and complete live verification below before sharing with friends. Record frontend URL, backend URL, commit SHA, host resources and limitations. Native voice remains unavailable until a separately approved/configured media service exists.
 
 ## Prepared files
 
 - Dockerfile.game-server: pinned Node/pnpm runtime, filtered backend dependency install, no data/credentials in the image. Build from repository root using -f deployment/Dockerfile.game-server.
 - container-entrypoint.sh: makes the mounted /data directory writable, then drops root and execs the server.
-- fly.toml.example: exact frontend origin placeholder, TLS, one persistent disk and always-on service. Copy to a chosen config only after app name/region/cost approval. Provision one machine explicitly; Fly launch defaults may create a spare.
+- fly.toml: reserved app third-space-seanbrasse, exact Vercel production origin, TLS, one persistent disk and always-on service. Configuration validates with the authenticated CLI. Provision one machine explicitly with --ha=false; Fly deploy defaults can create a spare. fly.toml.example remains a reusable reference.
 - render.yaml.example: current 0.5c-512mb plan, one disk, automatic deploys disabled. Reference only; applying creates paid infrastructure.
 - railway.json.example: Docker backend and healthcheck. Persistent /data volume, service environment and one replica must be configured separately. Do not turn on paid billing automatically.
 
@@ -37,8 +37,10 @@ Create a board note and room, restart only this new backend, then verify identit
 
 ## Current validation and limits
 
-Pinned dependency install, the direct production Next build, and all 11 integration tests across two files passed independently on the base candidate. No shared source symlinks or active local-preview changes. JSON configuration parse, shell syntax and diff whitespace checks passed.
+The milestone 9 production Next build and all 12 integration tests across three files passed independently. The milestone 10 YouTube-only hotfix also passed a fresh production Next build; its backend source is identical to milestone 9. No shared source symlinks or active local-preview changes. Configuration parse, shell syntax and diff whitespace checks passed.
 
 The Dockerfile now builds for Linux ARM64 and amd64. A benchmark-only adapter tested unchanged game sources under a hard 512 MiB cgroup limit with no swap. Native eight-player gameplay passed ten minutes at 20.04 Hz minimum snapshot throughput. A complete translated amd64 8/32/64-player run plus reconnect/churn checks passed without memory-limit/OOM events; its peak of 356.33 MiB includes translator overhead. Synthetic identity sessions, eight boards and fresh admissions survived a container restart on the test volume. See [memory methodology and limits](MEMORY-TEST.md) and [sanitized measurements](memory-results.json). Local benchmark VMs/volumes are removed after testing.
 
-For the initial friends release, the prepared Fly configuration uses its published 2-shared-CPU / 512 MiB preset in iad plus 1 GB volume, quoted at $4.04/month resource base before tax/egress. No cloud resources have been provisioned. Repeat the memory test on the latest verified candidate. Server integration, actual-host CPU/latency, backup setup, hosted HTTPS/WSS/cookie/origin checks and browser/media verification remain required before a live-ready claim. The 64-player translated stress had latency spikes and does not establish smooth 64-player capacity.
+Milestone 9 also passed a native Linux ARM64 512 MiB/no-swap run with 8/32/64 synthetic players and a 113.77 MiB kernel peak. Media actions were disabled for this quick run; provider playback was separately verified by the lead. The actual production container entrypoint passed health/readiness, Secure cookie flags, exact-origin rejection, wrong/correct PIN checks, and restart persistence with eight saved identities/boards and fresh WebSocket admissions. See [sanitized measurements](release9-memory-results.json). These are local checks, not hosted browser acceptance.
+
+For the initial friends release, Fly's published 2-shared-CPU / 512 MiB preset in iad plus a 1 GB volume is $4.04/month resource base before tax/egress. Fly app and Vercel project names are reserved, with no Fly machines, disks or IPs provisioned. Paid resources await explicit approval. Actual-host CPU/latency, snapshot/restore behavior, hosted HTTPS/WSS/cookie/origin checks and two-browser media verification remain required before a live-ready claim. The older 64-player translated stress had latency spikes and does not establish smooth 64-player capacity.

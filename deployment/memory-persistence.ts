@@ -6,10 +6,11 @@ const [mode, fixtureFile, expectedFile] = process.argv.slice(2);
 assert(mode === "before" || mode === "after");
 const fixtures = JSON.parse(readFileSync(fixtureFile!, "utf8"));
 const endpoint = process.env.LOAD_ENDPOINT || "http://127.0.0.1:2589";
+const origin = process.env.LOAD_ORIGIN || "https://third-space-load.invalid";
 const revisions: number[] = [];
 for (const fixture of fixtures) {
   const owner = fixture.members[0];
-  const headers = { cookie: owner.cookie, origin: "http://third-space-load.invalid", "content-type": "application/json" };
+  const headers = { cookie: owner.cookie, origin, "content-type": "application/json" };
   const identity = await fetch(`${endpoint}/api/identity`, { headers });
   assert.equal(identity.status, 200);
   assert.equal((await identity.json() as any).profile.id, owner.id);
@@ -21,7 +22,7 @@ for (const fixture of fixtures) {
   if (mode === "after") {
     const response = await fetch(`${endpoint}/api/homes/${fixture.homeId}/ticket`, { method: "POST", headers, body: "{}" });
     assert.equal(response.status, 200);
-    const room = await new Client(endpoint).joinOrCreate("party", await response.json());
+    const room = await new Client(endpoint, { headers: { Origin: origin } }).joinOrCreate("party", await response.json());
     room.onMessage("welcome", () => {});
     room.onMessage("snapshot", () => {});
     room.onMessage("board.changed", () => {});
