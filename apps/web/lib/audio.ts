@@ -1,3 +1,4 @@
+import {ambienceSamples,fireAmbienceGain} from "./ambience";
 import { gameSoundGain,clownStepInterval,gameSoundSamples,type GameSoundKind } from "./game-sound";
 import type { WorldSoundEvent } from "@third-space/contracts";
 import type { Effect, Snapshot } from "./types";
@@ -20,18 +21,20 @@ export class SoundboardAudio {
     source.connect(gain);gain.connect(pan);pan.connect(this.gameOutput(ctx));this.gameNodes++;source.start();source.onended=()=>{source.disconnect();gain.disconnect();pan.disconnect();this.gameNodes=Math.max(0,this.gameNodes-1);};
   }
   playWorld(event:WorldSoundEvent,snapshot:Snapshot,selfId:string,volume:number){
-    if(event.expiresAt<snapshot.serverTime||this.heard.has(event.id))return;
+    if(event.expiresAt<snapshot.serverTime||this.heard.has(event.id)
+      ||(event.epoch!==undefined&&event.epoch!==snapshot.epoch)
+      ||(event.worldRevision!==undefined&&event.worldRevision!==snapshot.worldRevision))return;
     this.heard.add(event.id);if(this.heard.size>256)this.heard.delete(this.heard.values().next().value!);
-    const self=snapshot.players.find(p=>p.id===selfId);if(!self||self.mode!=="home")return;
+    const self=snapshot.players.find(p=>p.id===selfId);if(!self||self.mode!=="home"||self.zone||(snapshot.worldId!=="forest"&&["howl","growl","claw"].includes(event.kind)))return;
     // The victim hears the impact at full personal game level, before their respawn.
     this.cue(event.kind,event.x,event.y,event.victimId===selfId?event:self,volume);
   }
   private movement(snapshot:Snapshot|null,selfId:string,volume:number){
-    if(!snapshot){this.stepAt.clear();this.heard.clear();this.soundInstance="";return;}
+    if(!snapshot){this.stepAt.clear();this.soundInstance="";return;}
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);if(!ctx||ctx.state!=="running"||!snapshot||!self)return;
-    if(this.soundInstance!==snapshot.instanceId){this.soundInstance=snapshot.instanceId;this.stepAt.clear();this.heard.clear();}
+    if(this.soundInstance!==snapshot.instanceId){this.soundInstance=snapshot.instanceId;this.stepAt.clear();}
     const now=snapshot.serverTime;
-    const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
+    const live=new Set(snapshot.players.map(p=>p.id));live.add("clown");live.add("werewolf");for(const id of this.stepAt.keys())if(!live.has(id))this.stepAt.delete(id);
     for(const p of snapshot.players){
       if(!p.connected||p.respawnAt||p.seatId||(p.mode==="race"&&!p.grounded)||Math.hypot(p.vx,p.vy)<.2||this.muted.has(p.id))continue;
       if(now-(this.stepAt.get(p.id)??0)<390)continue;
@@ -41,39 +44,39 @@ export class SoundboardAudio {
       const target=snapshot.players.find(p=>p.id===s.targetId),d=target?Math.hypot(s.x-target.x,s.y-target.y):8;
       if(now-(this.stepAt.get("clown")??0)>=clownStepInterval(d)){this.stepAt.set("clown",now);this.cue("clown-step",s.x,s.y,self,volume);}
     }else this.stepAt.delete("clown");
+    const wolf=snapshot.werewolf;
+    if(wolf?.phase==="chase"&&now-(this.stepAt.get("werewolf")??0)>=180){
+      this.stepAt.set("werewolf",now);this.cue("werewolf-step",wolf.x,wolf.y,self,volume);
+    }else if(wolf?.phase!=="chase")this.stepAt.delete("werewolf");
   }
   private environment: {wind:AudioBufferSourceNode;fire:AudioBufferSourceNode;windGain:GainNode;fireGain:GainNode;filter:BiquadFilterNode;fireFilter:BiquadFilterNode} | null=null;
   private lastEnvironmentAt=0;
   private howlBucket=0;
+  private natureNodes=new Set<AudioBufferSourceNode>();
   setWorld(snapshot: Snapshot|null,selfId:string,volume:number){
     this.movement(snapshot,selfId,volume);
     const ctx=this.context,self=snapshot?.players.find(p=>p.id===selfId);
     if(!ctx||ctx.state!=="running"||!self||self.mode!=="home"||snapshot?.worldId!=="forest"){
+      for(const source of this.natureNodes){source.stop();source.disconnect();}this.natureNodes.clear();
       if(this.environment){this.environment.wind.stop();this.environment.fire.stop();this.environment.wind.disconnect();this.environment.fire.disconnect();this.environment.windGain.disconnect();this.environment.fireGain.disconnect();this.environment.filter.disconnect();this.environment.fireFilter.disconnect();this.environment=null;}return;
     }
     if(!this.environmentOutput){this.environmentOutput=ctx.createGain();this.environmentOutput.gain.value=this.gameMuted?0:1;this.environmentOutput.connect(ctx.destination);}
     if(!this.environment){
       const noise=(fire=false)=>{
-        const b=ctx.createBuffer(1,ctx.sampleRate*8,ctx.sampleRate),a=b.getChannelData(0);
-        let brown=0,crackle=0;const decay=Math.exp(-1/(ctx.sampleRate*.008));
-        for(let i=0;i<a.length;i++){
-          brown=(brown+(Math.random()*2-1)*.025)/1.025;
-          if(fire&&Math.random()<3/ctx.sampleRate)crackle=.15+Math.random()*.25;
-          crackle*=decay;
-          a[i]=brown*(fire ? .16 : .3)+(fire?(Math.random()*2-1)*crackle*.2:0);
-        }
+        const data=ambienceSamples(fire?'fire':'night',ctx.sampleRate),b=ctx.createBuffer(1,data.length,ctx.sampleRate);b.getChannelData(0).set(data);
         const source=ctx.createBufferSource();source.buffer=b;source.loop=true;return source;
       };
       const wind=noise(),fire=noise(true),windGain=ctx.createGain(),fireGain=ctx.createGain(),filter=ctx.createBiquadFilter(),fireFilter=ctx.createBiquadFilter();
       windGain.gain.value=0;fireGain.gain.value=0;
-      filter.type="lowpass";filter.frequency.value=500;fireFilter.type="lowpass";fireFilter.frequency.value=1600;
+      filter.type="lowpass";filter.frequency.value=6500;fireFilter.type="lowpass";fireFilter.frequency.value=4000;
       wind.connect(windGain);windGain.connect(filter);filter.connect(this.environmentOutput!);fire.connect(fireFilter);fireFilter.connect(fireGain);fireGain.connect(this.environmentOutput!);
-      wind.start();fire.start();this.environment={wind,fire,windGain,fireGain,filter,fireFilter};this.howlBucket=Math.floor(snapshot.serverTime/65000);
+      wind.start();fire.start();this.environment={wind,fire,windGain,fireGain,filter,fireFilter};this.howlBucket=Math.floor(snapshot.serverTime/95000);
     }
     if(Date.now()-this.lastEnvironmentAt<200)return;this.lastEnvironmentAt=Date.now();
-    const level=Math.max(0,Math.min(1,volume));this.environment.windGain.gain.setTargetAtTime(level*.05,ctx.currentTime,.2);this.environment.fireGain.gain.setTargetAtTime(level*.09*Math.max(0,1-Math.hypot(self.x-24,self.y-24)/9),ctx.currentTime,.15);
-    const bucket=Math.floor(snapshot.serverTime/65000);
-    if(bucket!==this.howlBucket){this.howlBucket=bucket;if(level>0){const o=ctx.createOscillator(),g=ctx.createGain(),pan=ctx.createStereoPanner();o.type="sine";o.frequency.setValueAtTime(340,ctx.currentTime);o.frequency.exponentialRampToValueAtTime(540,ctx.currentTime+.7);o.frequency.exponentialRampToValueAtTime(260,ctx.currentTime+2.4);g.gain.setValueAtTime(.001,ctx.currentTime);g.gain.linearRampToValueAtTime(level*.065,ctx.currentTime+.6);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+2.5);pan.pan.value=bucket%2?.8:-.8;o.connect(g);g.connect(pan);pan.connect(this.environmentOutput!);o.start();o.stop(ctx.currentTime+2.6);o.onended=()=>{o.disconnect();g.disconnect();pan.disconnect();};}}
+    const level=Math.max(0,Math.min(1,volume));this.environment.windGain.gain.setTargetAtTime(level*.14,ctx.currentTime,.2);this.environment.fireGain.gain.setTargetAtTime(fireAmbienceGain(Math.hypot(self.x-24,self.y-24),level),ctx.currentTime,.15);
+    const bucket=Math.floor(snapshot.serverTime/95000);
+    if(bucket!==this.howlBucket){this.howlBucket=bucket;if(level>0&&!this.gameMuted){const kind=bucket%3===0?'wolf':'owl',data=ambienceSamples(kind,ctx.sampleRate,bucket),buffer=ctx.createBuffer(1,data.length,ctx.sampleRate);buffer.getChannelData(0).set(data);const source=ctx.createBufferSource(),gain=ctx.createGain(),pan=ctx.createStereoPanner();source.buffer=buffer;gain.gain.value=level*(kind==='wolf'?.12:.08);pan.pan.value=kind==='wolf'?0:bucket%2?.65:-.65;source.connect(gain);gain.connect(pan);pan.connect(this.gameOutput(ctx));this.natureNodes.add(source);source.start();source.onended=()=>{this.natureNodes.delete(source);source.disconnect();gain.disconnect();pan.disconnect();};}}
+
   }
   private count = 0;
   private personVolumes: Record<string, number> = {};

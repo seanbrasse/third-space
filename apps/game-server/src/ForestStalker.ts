@@ -1,6 +1,14 @@
 import { type WorldDefinition, type Point, GAME_CONFIG } from '@third-space/config';
 import { type PlayerState, type ForestStalker } from '@third-space/contracts';
 import { distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable } from '@third-space/simulation';
+export interface EncounterBehavior {
+    kind: 'werewolf';
+    intervalMs: number;
+    speedMultiplier: number;
+    minTargetDistance: number;
+    maxTargetDistance: number;
+    hiddenMargin: number;
+}
 /** One room-owned encounter. No timers, transport or client-random authority. */
 export class ForestEncounter {
     state: ForestStalker | null = null;
@@ -16,7 +24,7 @@ export class ForestEncounter {
         point: Point;
         id: string;
     }[] = [];
-    constructor(private world: WorldDefinition, private random: () => number = Math.random) {
+    constructor(private world: WorldDefinition, private random: () => number = Math.random, private behavior?: EncounterBehavior) {
         for (const item of world.map.furniture) {
             if (!['tree', 'camper', 'structure'].includes(item.kind))
                 continue;
@@ -27,8 +35,8 @@ export class ForestEncounter {
         }
     }
     reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; }
-    private interval() { return this.world.stalker!.intervalMs * (.85 + this.random() * .3); }
-    visibleTo(player: PlayerState) { return player.mode === 'home' && this.state && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
+    private interval() { return (this.behavior?.intervalMs ?? this.world.stalker!.intervalMs) * (.85 + this.random() * .3); }
+    visibleTo(player: PlayerState) { return player.connected && !player.zone && player.mode === 'home' && this.state && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
     private retreat(now: number) {
         if (this.state) {
             this.state.phase = 'retreat';
@@ -37,7 +45,7 @@ export class ForestEncounter {
         this.path = [];
     }
     private spawn(point: Point, coverId: string, targetId: string, intent: "hunt" | "perimeter", now: number) {
-        this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.random() < .45 ? { giggleAt: now } : {}) };
+        this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.behavior ? { kind: this.behavior.kind } : this.random() < .45 ? { giggleAt: now } : {}) };
         this.lastMove = now;
         this.lastPath = 0;
     }
@@ -46,10 +54,10 @@ export class ForestEncounter {
         const rules = this.world.stalker!, fire = this.world.fire!, map = this.world.map;
         if (!this.nextAt)
             this.reset(now);
-        const home = players.filter(p => p.connected && p.mode === "home");
+        const home = players.filter(p => p.connected && !p.zone && p.mode === "home");
         const allSafe = home.length > 0 && home.every(p => distance(p, fire) <= rules.safeRadius);
         if (allSafe && !this.allSafe)
-            this.campAt = now + rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs);
+            this.campAt = now + (rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs)) * (this.behavior ? this.behavior.intervalMs / rules.intervalMs : 1);
         if (!allSafe && this.allSafe) {
             this.nextAt = now + this.interval();
             this.campAt = 0;
@@ -59,10 +67,12 @@ export class ForestEncounter {
             if (allSafe) {
                 if (now < this.campAt)
                     return null;
-                this.campAt = now + rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs);
-                const candidates = this.cover.filter(c => distance(c.point, fire) <= rules.safeRadius + 4 && home.some(p => distance(p, c.point) <= rules.viewRadius));
-                if (!candidates.length)
+                this.campAt = now + (rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs)) * (this.behavior ? this.behavior.intervalMs / rules.intervalMs : 1);
+                const candidates = this.cover.filter(c => distance(c.point, fire) <= rules.safeRadius + 4 && (this.behavior ? home.every(p => distance(p, c.point) > rules.viewRadius + this.behavior!.hiddenMargin) : home.some(p => distance(p, c.point) <= rules.viewRadius)));
+                if (!candidates.length) {
+                    if (this.behavior) this.campAt = now + 5000;
                     return null;
+                }
                 const c = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
                 const viewer = home.reduce((a, b) => distance(a, c.point) < distance(b, c.point) ? a : b);
                 this.spawn(c.point, c.id, viewer.id, "perimeter", now);
@@ -72,7 +82,9 @@ export class ForestEncounter {
                 return null;
             this.nextAt = now + this.interval();
             const eligible = home.filter(p => distance(p, fire) > rules.safeRadius + .5 && (p.haloUntil ?? 0) <= now && !p.respawnAt);
-            const candidates = eligible.flatMap(p => this.cover.filter(c => { const d = distance(p, c.point); return d >= 2.5 && d <= 7; }).map(c => ({ p, c })));
+            const candidates = eligible.flatMap(p => this.cover.filter(c => { const d = distance(p, c.point); return d >= (this.behavior?.minTargetDistance ?? 2.5) && d <= (this.behavior?.maxTargetDistance ?? 7)
+                // Match visibleTo's authoritative snapshot cull, independent of viewport/lighting.
+                && (!this.behavior || home.every(viewer => distance(viewer, c.point) > rules.viewRadius + this.behavior!.hiddenMargin)); }).map(c => ({ p, c })));
             if (!candidates.length) {
                 this.nextAt = now + 5000;
                 return null;
@@ -95,7 +107,7 @@ export class ForestEncounter {
             if (s.phase === "peek") {
                 const p = target ?? home[0];
                 if (p) {
-                    const d = distance({ x: s.originX!, y: s.originY! }, p) || 1, amount = .5 * Math.min(1, (now - s.startedAt) / 900), next = { x: s.originX! + (p.x - s.originX!) / d * amount, y: s.originY! + (p.y - s.originY!) / d * amount };
+                    const d = distance({ x: s.originX!, y: s.originY! }, p) || 1, amount = (this.behavior ? 3 : .5) * Math.min(1, (now - s.startedAt) / 900), next = { x: s.originX! + (p.x - s.originX!) / d * amount, y: s.originY! + (p.y - s.originY!) / d * amount };
                     if (distance(next, fire) > rules.safeRadius + .5 && isHomeSegmentWalkable({ x: s.originX!, y: s.originY! }, next, map)) {
                         s.x = next.x;
                         s.y = next.y;
@@ -106,7 +118,7 @@ export class ForestEncounter {
             }
             return null;
         }
-        if (!target?.connected || target.mode !== 'home' || distance(target, fire) <= rules.safeRadius || (target.haloUntil ?? 0) > now) {
+        if (!target?.connected || target.mode !== 'home' || target.zone || target.respawnAt || distance(target, fire) <= rules.safeRadius || (target.haloUntil ?? 0) > now) {
             this.retreat(now);
             return null;
         }
@@ -153,8 +165,8 @@ export class ForestEncounter {
         const d = distance(s, goal);
         if (!d)
             return null;
-        // Brief lurches, then quick strides; still obey the same swept collision geometry.
-        const speed = GAME_CONFIG.homeSpeed * (Math.sin((now - s.startedAt) / 340) > -.65 ? 1.35 : .35), step = Math.min(d, speed * dt);
+        // Clown lurches or a continuous quadruped gallop; both use swept collision geometry.
+        const speed = GAME_CONFIG.homeSpeed * (this.behavior?.speedMultiplier ?? (Math.sin((now - s.startedAt) / 340) > -.65 ? 1.35 : .35)), step = Math.min(d, speed * dt);
         const next = { x: s.x + (goal.x - s.x) / d * step, y: s.y + (goal.y - s.y) / d * step };
         if (distance(next, fire) <= rules.safeRadius + .25) {
             this.retreat(now);

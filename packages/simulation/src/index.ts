@@ -13,6 +13,8 @@ import {
   type PlayerState,
   type VoiceMode,
 } from "@third-space/contracts";
+import { sprintMultiplier } from "./sprint";
+export { SPRINT, requestSprint, cancelSprint, sprintStatus, sprintMultiplier } from "./sprint";
 
 export { GAME_CONFIG, HOME_MAP, RACE_MAP } from "@third-space/config";
 export type { Point, Rect } from "@third-space/config";
@@ -118,26 +120,26 @@ export function isHomeSegmentWalkable(from: Point, to: Point, map: NavigationMap
 
 /** Bounded half-tile A*. Includes exact off-grid endpoints and smooths only safe segments.
  * Waypoints are movement targets; clients still submit bounded direction inputs. */
+const navigationNodes=new WeakMap<NavigationMap,Map<number,Point|null>>();
 export function findHomePath(start: Point, goal: Point, map: NavigationMap = HOME_MAP): Point[] | null {
   if (!isHomeWalkable(start, map) || !isHomeWalkable(goal, map)) return null;
   if (isHomeSegmentWalkable(start, goal, map)) return distance(start, goal) < EPSILON ? [{...start}] : [{...start}, {...goal}];
   const columns = Math.floor(map.width * 2) + 1;
   const rows = Math.floor(map.height * 2) + 1;
-  if (columns * rows > 16_384) return null;
-  const nodes = new Map<number, Point>();
-  for (let row = 0; row < rows; row++) for (let col = 0; col < columns; col++) {
-    const point = {x: col / 2, y: row / 2};
-    if (isHomeWalkable(point, map)) nodes.set(row * columns + col, point);
-  }
+  if (columns * rows > 32_768) return null;
+  // Immutable world definitions share lazy walkability. Most paths visit a tiny
+  // part of the bounded forest; no full-map solid scan on each click or pursuit.
+  let cached=navigationNodes.get(map);if(!cached){cached=new Map();navigationNodes.set(map,cached);}
+  const nodes=cached;
+  const node=(id:number)=>{if(nodes.has(id))return nodes.get(id);const point={x:(id%columns)/2,y:Math.floor(id/columns)/2};const result=isHomeWalkable(point,map)?point:null;nodes.set(id,result);return result;};
   const goalCosts = new Map<number, number>();
   const open = new Set<number>();
   const costs = new Map<number, number>();
   const parents = new Map<number, number>();
-  for (const [id, point] of nodes) {
-    if (distance(point, start) <= 1.1 && isHomeSegmentWalkable(start, point, map)) {
-      costs.set(id, distance(start, point)); open.add(id);
-    }
-    if (distance(point, goal) <= 1.1 && isHomeSegmentWalkable(point, goal, map)) goalCosts.set(id, distance(point, goal));
+  for(const endpoint of [start,goal])for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
+    const col=Math.round(endpoint.x*2)+dx,row=Math.round(endpoint.y*2)+dy;if(col<0||col>=columns||row<0||row>=rows)continue;
+    const id=row*columns+col,point=node(id);if(!point||distance(point,endpoint)>1.1||!isHomeSegmentWalkable(endpoint,point,map))continue;
+    if(endpoint===start){costs.set(id,distance(start,point));open.add(id);}else goalCosts.set(id,distance(point,goal));
   }
   let terminal: number | undefined;
   let terminalCost = Infinity;
@@ -161,7 +163,7 @@ export function findHomePath(start: Point, goal: Point, map: NavigationMap = HOM
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if ((!dx && !dy) || column + dx < 0 || column + dx >= columns || row + dy < 0 || row + dy >= rows) continue;
       const id = (row + dy) * columns + column + dx;
-      const next = nodes.get(id);
+      const next = node(id);
       if (!next || closed.has(id) || !isHomeSegmentWalkable(currentPoint, next, map)) continue;
       const candidate = costs.get(current)! + distance(currentPoint, next);
       if (candidate < (costs.get(id) ?? Infinity)) {
@@ -233,6 +235,7 @@ export function stepHome(
   input: PlayerInput,
   dt: number,
   map: NavigationMap = HOME_MAP,
+  now = 0,
 ): PlayerState {
   const next = { ...player };
   let axisX = player.connected ? safeAxis(input.axisX) : 0;
@@ -254,8 +257,9 @@ export function stepHome(
           ? "down"
           : "up";
   }
-  next.vx = axisX * GAME_CONFIG.homeSpeed;
-  next.vy = axisY * GAME_CONFIG.homeSpeed;
+  const speed = GAME_CONFIG.homeSpeed * sprintMultiplier(player, now, safeTime(dt));
+  next.vx = axisX * speed;
+  next.vy = axisY * speed;
   if (next.seatId) {
     next.vx = 0;
     next.vy = 0;

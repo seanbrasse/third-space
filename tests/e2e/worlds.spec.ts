@@ -13,64 +13,21 @@ async function create(page: Page) {
     }) => h.name === name).id, name);
 }
 async function join(page: Page, id: string) { await page.goto("/"); await page.getByLabel("Your name", { exact: true }).fill("Remy"); await page.getByRole("button", { name: "Join friends", exact: true }).click(); await page.getByLabel("Home ID", { exact: true }).fill(id); await page.getByLabel("Room PIN", { exact: true }).fill("123456"); await page.getByRole("button", { name: "Join your friends" }).click(); await expect(page.locator(".connection")).toHaveText("Connected"); }
-async function choose(page: Page, name: RegExp) { await page.getByRole("button", { name: "☷ Worlds" }).click(); await page.getByRole("button", { name }).click(); await page.getByRole("button", { name: "Close worlds" }).click(); }
-test("friends object, switch together, roast, sleep rendering and return to the lounge", async ({ browser, page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", e => errors.push(e.message));
-    const secondContext = await browser.newContext();
-    const second = await secondContext.newPage();
-    second.on("pageerror", e => errors.push(e.message));
-    try {
-        const id = await create(page);
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","forest");
-        await choose(page,/The reading lounge/);
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id","living-room",{timeout:12000});
-        await join(second, id);
-        await choose(page, /Midnight Pines/);
-        await expect(second.getByText(/Everyone moves together in/)).toBeVisible();
-        await second.getByText("Stay here · object").click();
-        await expect(page.getByText(/Everyone moves together in/)).toHaveCount(0);
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id", "living-room");
-        await choose(second, /Midnight Pines/);
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-id", "forest", { timeout: 12000 });
-        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "2");
-        const point = await page.locator(".world-canvas").evaluate(el => { const b = el.querySelector("canvas")!.getBoundingClientRect(), d = (el as HTMLElement).dataset; return { x: b.x + (20.8 * 32 - Number(d.cameraScrollX)) * Number(d.cameraZoom), y: b.y + (24 * 32 - Number(d.cameraScrollY)) * Number(d.cameraZoom) }; });
-        await page.mouse.click(point.x, point.y);
-        await expect.poll(() => page.locator(".world-canvas").getAttribute("data-seat-id")).not.toBe("");
-        await page.getByRole("button", { name: "☺ Emotes" }).click();
-        await page.getByRole("button", { name: /Roast marshmallow/ }).click();
-        await expect.poll(async () => Number(await page.locator(".world-canvas").getAttribute("data-roasting-at"))).toBeGreaterThan(0);
-        await page.getByRole("button", { name: /Flashlight on/ }).click();
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-flashlight-on", "false");
-        await page.evaluate(()=>{
-          const check={frames:0,maxError:0};(window as unknown as {projectionCheck:typeof check}).projectionCheck=check;
-          document.addEventListener("third-space:projection",event=>{
-            const world=event.target as HTMLElement,canvas=world.querySelector("canvas"),shell=world.closest(".world-shell"),screen=shell?.querySelector<HTMLElement>(".shared-watching.surface");if(!canvas||!shell||!screen)return;
-            const b=canvas.getBoundingClientRect(),s=shell.getBoundingClientRect(),d=(event as CustomEvent).detail,m=new DOMMatrixReadOnly(screen.style.transform);
-            check.frames++;check.maxError=Math.max(check.maxError,Math.abs(m.m41-(b.left-s.left+d.x+6)),Math.abs(m.m42-(b.top-s.top+d.y+6)));
-          });
-        });
-        await page.locator(".world-canvas").focus();await page.keyboard.down("d");await page.waitForTimeout(700);await page.keyboard.up("d");
-        const projection=await page.evaluate(()=>(window as unknown as {projectionCheck:{frames:number;maxError:number}}).projectionCheck);
-        expect(projection.frames).toBeGreaterThan(10);expect(projection.maxError).toBeLessThan(.1);
-        // Deterministic app policy test, not an OS background-throttling benchmark.
-        await second.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
-        await second.waitForTimeout(300);
-        const frame = await second.locator(".world-canvas").getAttribute("data-render-frame");
-        await second.waitForTimeout(500);
-        expect(await second.locator(".world-canvas").getAttribute("data-render-frame")).toBe(frame);
-        await second.evaluate(() => { delete (document as unknown as Record<string, unknown>).hidden; delete (document as unknown as Record<string, unknown>).visibilityState; document.dispatchEvent(new Event("visibilitychange")); });
-        await expect(second.locator(".connection")).toHaveText("Connected");
-        await expect.poll(() => second.locator(".world-canvas").getAttribute("data-render-frame")).not.toBe(frame);
-        await choose(page, /The reading lounge/);
-        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-id", "living-room", { timeout: 12000 });
-        await expect(page.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
-        await second.reload();
-        await expect(second.locator(".connection")).toHaveText("Connected");
-        await expect(second.locator(".world-canvas")).toHaveAttribute("data-world-revision", "3");
-        expect(errors).toEqual([]);
-    }
-    finally {
-        await secondContext.close();
-    }
-}, 65000);
+test("campsite-only friends have distinct seats, roast, sleep rendering and restore on refresh",async({browser,page})=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));const context=await browser.newContext(),second=await context.newPage();second.on("pageerror",e=>errors.push(e.message));
+ try{const id=await create(page);await join(second,id);await expect(page.locator(".world-canvas")).toHaveAttribute("data-seat-id",/camp-seat-/);await expect(second.locator(".world-canvas")).toHaveAttribute("data-seat-id",/camp-seat-/);expect(await page.locator(".world-canvas").getAttribute("data-seat-id")).not.toBe(await second.locator(".world-canvas").getAttribute("data-seat-id"));
+ await page.getByRole("button",{name:"☷ Worlds"}).click();await expect(page.getByRole("button",{name:/The reading lounge/})).toHaveCount(0);await expect(page.getByRole("button",{name:/Midnight Pines/})).toBeDisabled();await page.getByRole("button",{name:"Close worlds"}).click();
+ await page.getByRole("button",{name:"☺ Emotes"}).click();await page.getByRole("button",{name:/Roast marshmallow/}).click();await expect.poll(async()=>Number(await page.locator(".world-canvas").getAttribute("data-roasting-at"))).toBeGreaterThan(0);
+ const seat=await second.locator(".world-canvas").getAttribute("data-seat-id");await second.reload();await expect(second.locator(".connection")).toHaveText("Connected");await expect(second.locator(".world-canvas")).toHaveAttribute("data-seat-id",seat!);
+ await second.evaluate(()=>{Object.defineProperty(document,"hidden",{configurable:true,get:()=>true});document.dispatchEvent(new Event("visibilitychange"));});await second.waitForTimeout(300);const frame=await second.locator(".world-canvas").getAttribute("data-render-frame");await second.waitForTimeout(500);expect(await second.locator(".world-canvas").getAttribute("data-render-frame")).toBe(frame);await second.evaluate(()=>{delete(document as unknown as Record<string,unknown>).hidden;document.dispatchEvent(new Event("visibilitychange"));});await expect.poll(()=>second.locator(".world-canvas").getAttribute("data-render-frame")).not.toBe(frame);
+ await page.screenshot({path:"tests/e2e/artifacts/campsite-current.png",fullPage:true});expect(errors).toEqual([]);
+ }finally{await context.close();}
+});
+async function walk(page:Page,x:number,y:number){const world=page.locator('.world-canvas');const screen=await world.evaluate((el,p)=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(p.x*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(p.y*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}},{x,y});await page.mouse.click(screen.x,screen.y);await expect.poll(async()=>{const d=await world.evaluate(el=>(el as HTMLElement).dataset);return Math.hypot(Number(d.authoritativeX)-x,Number(d.authoritativeY)-y)},{timeout:10000}).toBeLessThan(.5);}
+test('physical bulletin board opens notes; walking to cabin confirms race and return restores camp',async({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await create(page);await expect(page.locator('.world-canvas')).toHaveAttribute('data-seat-id',/camp-seat-/);
+ await walk(page,24,20);const board=await page.locator('.world-canvas').evaluate(el=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(21.25*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(19*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}});await page.mouse.click(board.x,board.y);await expect(page.getByRole('heading',{name:'The idea board.'})).toBeVisible();await page.getByRole('button',{name:'Close dialog'}).click();
+ await walk(page,24,16);await walk(page,18.5,16);
+ const door=await page.locator('.world-canvas').evaluate(el=>{const d=(el as HTMLElement).dataset,b=el.querySelector('canvas')!.getBoundingClientRect();return{x:b.x+(15*32-Number(d.cameraScrollX))*Number(d.cameraZoom),y:b.y+(14.5*32-Number(d.cameraScrollY))*Number(d.cameraZoom)}});await page.mouse.click(door.x,door.y);await expect(page.getByRole('heading',{name:'Join the race?'})).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.locator('.world-canvas')).toHaveAttribute('data-mode','home');await page.waitForTimeout(500);await expect(page.getByRole('heading',{name:'Join the race?'})).toHaveCount(0);await page.keyboard.press('e');await expect(page.getByRole('heading',{name:'Join the race?'})).toBeVisible();await page.getByRole('button',{name:'Join race',exact:true}).click();await expect(page.locator('.world-canvas')).toHaveAttribute('data-mode','race');await expect(page.locator('.race-status')).not.toContainText('countdown',{timeout:6000});await page.locator('.world-canvas').focus();const before=Number(await page.locator('.world-canvas').getAttribute('data-authoritative-y'));await page.keyboard.down('Space');await page.waitForTimeout(180);await page.keyboard.up('Space');await expect.poll(async()=>Number(await page.locator('.world-canvas').getAttribute('data-authoritative-y'))).toBeLessThan(before-.3);
+ await page.getByRole('button',{name:/Return/}).first().click();await expect(page.locator('.world-canvas')).toHaveAttribute('data-mode','home');await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-id','forest');expect(errors).toEqual([]);
+});

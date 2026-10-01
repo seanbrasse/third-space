@@ -1,13 +1,13 @@
 import type { Furniture, Point } from "@third-space/config";
 export function forestFloorCanvas(tile: number) {
     const c = document.createElement("canvas");
-    c.width = c.height = 48 * tile;
+    c.width = 80 * tile; c.height = 64 * tile;
     const g = c.getContext("2d")!;
     g.imageSmoothingEnabled = false;
-    for (let y = 0; y < 48; y++)
-        for (let x = 0; x < 48; x++) {
-            const clearing = Math.hypot(x - 23.5, y - 23.5) < 7.5;
-            const path = Math.abs(x - 23.5) < 1.5 || Math.abs(y - 23.5) < 1.5 || (x > 11 && x < 18 && y > 12 && y < 24);
+    for (let y = 0; y < 64; y++)
+        for (let x = 0; x < 80; x++) {
+            const clearing = Math.hypot(x - 23.5, y - 23.5) < 7.5 || (x>62&&x<76&&y>5&&y<17);
+            const path = (x>24&&x<71&&Math.abs(y-23.5)<1.5)||(Math.abs(x-68.5)<1.5&&y>12&&y<26)||Math.abs(x - 23.5) < 1.5 || Math.abs(y - 23.5) < 1.5 || (x > 11 && x < 18 && y > 12 && y < 24);
             g.fillStyle = clearing || path ? ["#685544", "#635240", "#705b48"][(x * 7 + y * 3) % 3] : ["#263e33", "#2a4435", "#304937"][(x * 3 + y * 5) % 3];
             g.fillRect(x * tile, y * tile, tile, tile);
             for (let n = 0; n < 4; n++) {
@@ -78,6 +78,11 @@ export function forestObjectCanvas(item: Furniture, tile: number) {
         r(w*.44,86,31,h-105,"#182c28");r(w*.46,90,7,h-113,"#68523a");r(w*.56,116,3,3,"#b4975f");
         for(const x of [48,w-64]){r(x,91,25,25,"#1e3630");r(x+3,94,17,17,"#456453");r(x+10,92,3,23,"#9a8058");r(x,103,25,3,"#957d56");}
         r(46,110,28,4,"#7b6046");r(w-61,89,4,30,"#937854");r(w*.42,h-22,38,7,"#817052");
+    }
+    else if (item.kind === "board") {
+        r(7,h-15,5,15,"#5d4935");r(w-12,h-15,5,15,"#5d4935");
+        r(0,3,w,h-18,"#49382b");r(4,7,w-8,h-26,"#94724f");
+        for(let i=0;i<6;i++){const x=9+i%3*22,y=12+Math.floor(i/3)*19;r(x,y,17,15,["#decb76","#bbbd91","#d3a58e"][i%3]);r(x+7,y,3,3,"#705948");r(x+3,y+6,11,1,"#967d50");r(x+3,y+9,8,1,"#967d50");}
     }
     else if (item.kind === "tv") {
         r(2, 2, w - 4, h - 14, "#3d382f");

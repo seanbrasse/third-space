@@ -51,6 +51,9 @@ export interface PlayerState {
   vy: number;
   facing: Facing;
   mode: "home" | "race";
+  zone?: "asylum";
+  zoneRevision?: number;
+  flashlightBattery?: number;
   flashlightOn?: boolean;
   roastingAt?: number;
   respawnCount?: number;
@@ -68,6 +71,9 @@ export interface PlayerState {
   seatId?: string;
   grounded?: boolean;
   jumpHeld?: boolean;
+  sprintUntil?: number;
+  sprintReadyAt?: number;
+  lastSprintPress?: number;
   coyoteTime?: number;
   jumpBuffer?: number;
   respawnTimer?: number;
@@ -79,6 +85,8 @@ export const InputSchema = z
     axisX: z.number().finite().min(-1).max(1),
     axisY: z.number().finite().min(-1).max(1),
     jump: z.boolean(),
+    sprint: z.boolean().optional(),
+    sprintPress: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   })
   .strict();
 export type PlayerInput = z.infer<typeof InputSchema>;
@@ -107,7 +115,7 @@ const ChatTextSchema = z
 
 export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("input.stop") }).strict(),
-  z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional(), lifeRevision: z.number().int().min(0).optional() }).strict(),
+  z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional(), lifeRevision: z.number().int().min(0).optional(), zoneRevision: z.number().int().min(0).optional() }).strict(),
   z
     .object({
       type: z.literal("chat.send"),
@@ -137,12 +145,14 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("voice.mode"), mode: VoiceModeSchema }).strict(),
   z.object({ type: z.literal("race.ready"), ready: z.boolean() }).strict(),
   z.object({ type: z.literal("race.start") }).strict(),
+  z.object({ type: z.literal("race.enter") }).strict(),
   z.object({ type: z.literal("race.return") }).strict(),
   z.object({ type: z.literal("world.propose"), worldId: z.enum(["living-room","forest"]), commandId: CommandIdSchema, revision: z.number().int().min(0) }).strict(),
   z.object({ type: z.literal("world.object"), proposalId: IdSchema }).strict(),
+  z.object({type:z.literal("area.enter"),area:z.enum(["asylum","forest"])}).strict(),
   z.object({ type: z.literal("flashlight"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
-  z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional() }).strict(),
+  z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
   z.object({ type: z.literal("session.replace") }).strict(),
 ]);
 export type ClientCommand = z.infer<typeof CommandSchema>;
@@ -186,19 +196,22 @@ export interface RaceState {
   results: RaceResult[];
 }
 export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
-export interface SharedMedia { revision: number; url: string; playing: boolean; position: number; anchorAt: number; }
-export interface WorldSoundEvent {id:string;kind:"giggle"|"slash";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
-export interface ForestStalker {intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
+export interface SharedMedia { playbackId?:string; revision: number; url: string; playing: boolean; position: number; anchorAt: number; queue?: {id:string;url:string;addedBy:string;start?:number}[]; }
+export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;kind:"giggle"|"slash"|"howl"|"growl"|"claw";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
+export interface ForestStalker {kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
   stalker?: ForestStalker | null;
+  werewolf?: ForestStalker | null;
   homeId: string;
-  worldId: "living-room" | "forest";
+  rootWorldId?: "living-room" | "forest";
+  worldId: "living-room" | "forest" | "asylum";
   worldRevision: number;
   worldProposal: WorldProposal | null;
   media: SharedMedia;
   instanceId: string;
   epoch: string;
   serverTime: number;
+  members?: PlayerState[];
   players: PlayerState[];
   voiceMode: VoiceMode;
   hostId: string | null;
