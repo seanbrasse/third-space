@@ -1,3 +1,4 @@
+import { catchStingKind } from "./catch-sting";
 import { movementAudioCues } from "./movement-audio";
 import { ForestAmbience } from "./forest-ambience";
 import { AsylumAmbience, asylumAudioLocation } from "./asylum-ambience";
@@ -25,14 +26,16 @@ export class SoundboardAudio {
     const source=ctx.createBufferSource(),gain=ctx.createGain(),pan=ctx.createStereoPanner();source.buffer=buffer;gain.gain.value=level;pan.pan.value=Math.max(-1,Math.min(1,(x-self.x)/8));
     source.connect(gain);gain.connect(pan);pan.connect(this.gameOutput(ctx));this.gameNodes++;source.start();source.onended=()=>{source.disconnect();gain.disconnect();pan.disconnect();this.gameNodes=Math.max(0,this.gameNodes-1);};
   }
-  playWorld(event:WorldSoundEvent,snapshot:Snapshot,selfId:string,volume:number){
+  playWorld(event:WorldSoundEvent,snapshot:Snapshot,selfId:string,volume:number,reducedMotion=false){
     if(event.expiresAt<snapshot.serverTime||this.heard.has(event.id)
       ||(event.epoch!==undefined&&event.epoch!==snapshot.epoch)
       ||(event.worldRevision!==undefined&&event.worldRevision!==snapshot.worldRevision))return;
     this.heard.add(event.id);if(this.heard.size>256)this.heard.delete(this.heard.values().next().value!);
-    const self=snapshot.players.find(p=>p.id===selfId);if(!self||self.mode!=="home"||self.zone||(snapshot.worldId!=="forest"&&["howl","growl","claw"].includes(event.kind)))return;
+    const self=snapshot.players.find(p=>p.id===selfId);if(!self||!self.connected||self.mode!=="home"||self.zone||(snapshot.worldId!=="forest"&&["howl","growl","claw"].includes(event.kind)))return;
     // The victim hears the impact at full personal game level, before their respawn.
     this.cue(event.kind,event.x,event.y,event.victimId===selfId?event:self,volume);
+    const sting=catchStingKind(event,selfId,snapshot.serverTime,reducedMotion);
+    if(sting && (typeof document === "undefined" || !document.hidden)) this.cue(sting,self.x,self.y,self,volume);
   }
   private movement(snapshot:Snapshot|null,selfId:string,volume:number){
     if(!snapshot){this.stepAt.clear();this.soundInstance="";return;}

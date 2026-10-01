@@ -1,6 +1,7 @@
 import { type WorldDefinition, type Point, GAME_CONFIG } from '@third-space/config';
 import { type PlayerState, type ForestStalker, type WorldSoundEvent } from '@third-space/contracts';
 import { distance, findHomePath, isHomeSegmentWalkable, isHomeWalkable } from '@third-space/simulation';
+import { chooseClownGreeting } from "./clown-greeting";
 import { ENCOUNTER_TUNING as T, encounterSegmentSafe } from './encounter-tuning';
 export interface EncounterBehavior {
     kind: 'werewolf';
@@ -95,6 +96,7 @@ export class ForestEncounter {
     }
     private spawn(point: Point, coverId: string, targetId: string, intent: "hunt" | "perimeter", now: number) {
         this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.behavior ? { kind: this.behavior.kind } : this.random() < .45 ? { giggleAt: now } : {}) };
+        if (!this.behavior) this.state.greeting = chooseClownGreeting(this.state.id, coverId, now);
         this.lastMove = now;
         this.lastPath = 0;
         this.caughtIds.clear();

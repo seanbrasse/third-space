@@ -1,0 +1,9 @@
+# Forest catches and greetings
+
+The server still owns catches, protection, movement locks and respawns. A fresh local catch now displays an original creature portrait with a brief lunge and small jolt, then the existing finite blackout and return-to-fire sequence. The entire presentation lasts 1.8 seconds; it uses no strobe. Old catches may finish their fade after reconnection but do not replay the closeup. A bounded session guard prevents replay across component remounts, including React Strict Mode.
+
+The caught player also hears a generated 320 ms accent. Nearby players hear the existing positional impact. The accent requires a fresh victim event with the current room epoch/revision; duplicate, expired, hidden-tab and disconnected events cannot retrigger it. Game-sound mute and zero effects volume suppress it. Reduced motion, whether selected in settings or requested by the operating system, removes the portrait/jolt and accent while retaining the gentle return fade.
+
+Each clown encounter chooses one original short greeting on the server. Its shared timestamps provide a 4.5-second lifetime and 700 ms fade, so joining or reconnecting cannot restart it. The existing acquisition giggle remains paired with the hunt. The label is clamped within the viewport and renders with DPR/zoom-adjusted text resolution. Wolves do not receive clown greetings.
+
+Validation: 375 unit/integration tests, workspace typechecks and production build pass. Chrome's actual in-game clown chase/catch/respawn test passes at 1440×1000 DPR 1 and 390×844 DPR 2. A fixture rendering the actual React component verifies both clown/wolf portraits, finite completion, reduced motion, stale catches and remount replay protection at desktop/mobile DPR 2. A live rare wolf catch and physical-phone/speaker playback were not exercised in this milestone.

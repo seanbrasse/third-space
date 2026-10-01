@@ -28,6 +28,7 @@ import type { PlayerInput } from "@third-space/contracts";
 import { avatarPixelCanvas, furnitureCanvas } from "./pixel-art";
 import { homeFloorCanvas } from "./home-art";
 import { cameraFollowX, decayCorrection } from "./presentation";
+import { clownGreetingPresentation, greetingViewportPoint } from "./clown-greeting";
 import { werewolfLeapPresentation } from "./werewolf-leap-presentation";
 import { werewolfSpriteCanvas } from "./werewolf-art";
 import { forestFloorCanvas, forestObjectCanvas, flashlightContains, clownSpriteCanvas } from "./forest-art";
@@ -70,6 +71,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private currentRevision = -1;
     private stalkerSprite: Phaser.GameObjects.Image | null = null;
     private stalkerId="";
+    private clownGreeting: Phaser.GameObjects.Text | null = null;
     private werewolfSprite: Phaser.GameObjects.Image | null = null;
     private werewolfId="";
     private werewolfFeet: Point | null = null;
@@ -216,7 +218,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.racePresentation = null;
       for (const object of this.mapObjects) object.destroy();
       this.mapObjects = [];
-      this.stalkerSprite=null;this.stalkerId="";
+      this.stalkerSprite=null;this.stalkerId="";this.clownGreeting=null;
       this.werewolfSprite=null;this.werewolfId="";this.werewolfFeet=null;this.werewolfLeapTell=null;
       this.pathTorches=[];
       this.fireArt=null;this.roastArt=null;this.lightImage=null;
@@ -341,6 +343,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.stalkerSprite=this.add.image(0,0,this.texture("forest-clown-0",clownSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<4;i++)this.texture("forest-clown-"+i,clownSpriteCanvas(i));
         this.mapObjects.push(this.stalkerSprite);
+        this.clownGreeting=this.add.text(0,0,"",{fontFamily:"system-ui,sans-serif",fontSize:"13px",color:"#f1e6d4",backgroundColor:"#251b25",align:"center",padding:{x:8,y:5},wordWrap:{width:164,useAdvancedWrap:true}}).setOrigin(.5,1).setScrollFactor(0).setDepth(1900).setVisible(false);
+        this.mapObjects.push(this.clownGreeting);
         this.werewolfSprite=this.add.image(0,0,this.texture("forest-werewolf-0",werewolfSpriteCanvas(0))).setOrigin(.5,.96).setScale(32*AVATAR_SCALE/38).setVisible(false);
         for(let i=1;i<6;i++)this.texture("forest-werewolf-"+i,werewolfSpriteCanvas(i));
         this.mapObjects.push(this.werewolfSprite);
@@ -941,6 +945,19 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           this.stalkerSprite.setRotation(motion*(peek?.05:.10)).setDepth(this.stalkerSprite.y).setAlpha(stalker.phase==="retreat"?Math.max(0,(stalker.phaseUntil-snapshot.serverTime)/900):.92);
         }
       }
+      if(this.clownGreeting){
+        const greeting=clownGreetingPresentation(stalker,snapshot.serverTime),text=this.clownGreeting,camera=this.cameras.main;
+        text.setVisible(!!greeting);
+        if(greeting&&this.stalkerSprite){
+          const metrics=chatTextMetrics(window.devicePixelRatio,camera.zoom);
+          if(text.style.resolution!==metrics.resolution){text.frame.source.resolution=metrics.resolution;text.setResolution(metrics.resolution);}
+          text.setScale(metrics.scale).setText(greeting.text).setAlpha(greeting.alpha);
+          const origin=camera.getWorldPoint(0,0);
+          const point=greetingViewportPoint((this.stalkerSprite.x-origin.x)*camera.zoom,(this.stalkerSprite.y-AVATAR_HEAD-origin.y)*camera.zoom,text.width,text.height,camera.width,camera.height);
+          // Scroll factor zero still applies camera zoom, so positions undo zoom explicitly.
+          text.setPosition(camera.width/2+(point.x-camera.width/2)/camera.zoom,camera.height/2+(point.y-camera.height/2)/camera.zoom);
+        }
+      }
       this.target.clear();
       if (this.destination) {
         this.target.lineStyle(1, 0xf7e6b6);
@@ -992,6 +1009,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         werewolfId: snapshot.werewolf?.id??"",
         werewolfPhase: snapshot.werewolf?.phase??"",
         stalkerPhase: snapshot.stalker?.phase??"",
+        clownGreeting: this.clownGreeting?.visible?this.clownGreeting.text:"",
+        clownGreetingResolution: String(this.clownGreeting?.frame.source.resolution??0),
         selfAvatar: JSON.stringify(self?.avatar || {}),
         seatId: self?.seatId || "",
         authoritativeX: String(self?.x || 0),
