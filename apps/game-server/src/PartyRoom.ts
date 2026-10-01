@@ -1,3 +1,4 @@
+import { createIdlePresence, recordActivity, recordWatching, idleStatus, type IdlePresence } from "./idle-policy";
 import { ForestWerewolf } from "./ForestWerewolf";
 import { ForestEncounter } from "./ForestStalker";
 import { stepFlashlight } from "./flashlight";
@@ -57,11 +58,13 @@ const distance = (a: { x: number; y: number }, b: { x: number; y: number }) =>
 export class PartyRoom extends Room {
   static store: LocalStore;
   static activeHomes = new Set<string>();
+  static liveRooms = new Map<string, PartyRoom>();
   homeId = "";
   worldId: "living-room" | "forest" = "forest";
   worldRevision = 0;
   worldProposal: WorldProposal | null = null;
   media: SharedMedia = {revision:0,url:"",playing:false,position:0,anchorAt:0};
+  private idlePresence = new Map<string, IdlePresence>();
   private areaCooldowns=new Map<string,number>();
   private indoorSpawnSeats=new Map<string,string>();
   private spawnSeats = new Map<string, string>();
@@ -111,6 +114,7 @@ export class PartyRoom extends Room {
       );
     PartyRoom.activeHomes.add(options.homeId);
     this.homeId = options.homeId;
+    PartyRoom.liveRooms.set(this.homeId, this);
     this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
     this.werewolf = this.worldId === "forest" ? new ForestWerewolf(getWorld(this.worldId)) : null;
     this.onMessage("connection.ping", (client, raw: unknown) => {
@@ -226,6 +230,7 @@ export class PartyRoom extends Room {
       player.y = spawn.y;
       if(this.worldId==="forest"&&this.mapFor(player).seats.some(seat=>seat.id===this.spawnSeats.get(auth.userId)&&distance(seat,spawn)<.01))player.seatId=this.spawnSeats.get(auth.userId);
     }
+    this.idlePresence.set(auth.userId, createIdlePresence(Date.now()));
     player.connected = true;
     player.flashlightOn ??= false; player.flashlightBattery ??= 1; player.zoneRevision ??= 0;
     this.players.set(auth.userId, player);
@@ -250,6 +255,7 @@ export class PartyRoom extends Room {
     const player = this.players.get(id);
     if (player) { player.connected = false; cancelSprint(player, Date.now()); if(this.race.phase==="waiting")this.race.readyIds=this.race.readyIds.filter(pid=>pid!==id); }
     this.intents.delete(id);
+    this.sendSnapshots();
     try {
       await this.allowReconnection(client, GAME_CONFIG.reconnectGraceMs / 1000);
     } catch {
@@ -269,6 +275,7 @@ export class PartyRoom extends Room {
       client.leave(4011);
       return;
     }
+    if (this.expireIdle(id, client, Date.now())) return;
     const player = this.players.get(id);
     if (player) {
       player.connected = true;
@@ -297,6 +304,7 @@ export class PartyRoom extends Room {
     this.clientsByUser.delete(id);
     this.players.delete(id);
     this.roles.delete(id);
+    this.idlePresence.delete(id);
     this.intents.delete(id);
     this.spawnSeats.delete(id);this.indoorSpawnSeats.delete(id);this.areaCooldowns.delete(id);
     if(this.worldProposal?.proposerId === id) this.worldProposal = null;
@@ -320,6 +328,7 @@ export class PartyRoom extends Room {
 
   onDispose() {
     PartyRoom.activeHomes.delete(this.homeId);
+    if (PartyRoom.liveRooms.get(this.homeId) === this) PartyRoom.liveRooms.delete(this.homeId);
     this.unbindAccess?.();
     this.unbindBoard?.();
   }
@@ -421,6 +430,18 @@ export class PartyRoom extends Room {
   private command(client: Client, id: string, command: ClientCommand) {
     const p = this.players.get(id);
     if (!p || !p.connected) return;
+    // A resumed tab or queued heartbeat cannot revive an already expired session.
+    if (this.expireIdle(id, client, Date.now())) return;
+    if (["presence.activity", "presence.stay"].includes(command.type)) {
+      const state = this.idlePresence.get(id);
+      if (state && this.cooled(id, "idle-activity", 1000)) recordActivity(state, Date.now());
+      return;
+    }
+    if (command.type === "presence.watching") {
+      const state = this.idlePresence.get(id);
+      if (state && p.mode === "home" && p.zone === "asylum" && this.media.playing && this.media.playbackId === command.playbackId && this.cooled(id, "idle-watching", 4000)) recordWatching(state, Date.now());
+      return;
+    }
     if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
     switch (command.type) {
       case "world.propose": {
@@ -502,6 +523,9 @@ export class PartyRoom extends Room {
           );
         if (!this.allowed(id + ":input", 60, 1000)) return;
         const now = Date.now();
+        if (command.input.axisX || command.input.axisY || command.input.jump || command.input.sprint) {
+          const state = this.idlePresence.get(id); if (state) recordActivity(state, now);
+        }
         if(command.input.axisX||command.input.axisY){delete p.seatId;delete p.roastingAt;}
         // Packets carry only intent. Charge, duration and speed come from authority.
         if (command.input.sprint) {
@@ -514,6 +538,8 @@ export class PartyRoom extends Room {
             Object.assign(p, requestSprint(p, now));
           }
         }
+        // Acknowledge accepted input even when seated or race physics is frozen.
+        p.lastInputSeq = command.input.seq;
         this.intents.set(id, { value: command.input, receivedAt: now });
         if (command.input.axisX || command.input.axisY) { delete p.seatId; delete p.roastingAt; }
         break;
@@ -1015,7 +1041,18 @@ export class PartyRoom extends Room {
   private safeRaceRespawn(p: PlayerState) {
     Object.assign(p, respawnRacePlayer(p));
   }
+  private expireIdle(id: string, client: Client, now: number): boolean {
+    const state = this.idlePresence.get(id);
+    if (!state || !idleStatus(state, now).expired) return false;
+    this.notice(client, "IDLE_TIMEOUT", "You left the session after 18 minutes of inactivity. You can join again whenever you’re ready.");
+    this.removePresence(id);
+    client.leave(4012);
+    return true;
+  }
   private revalidate() {
+    const now = Date.now();
+    for (const [id, client] of this.clientsByUser)
+      if (this.players.get(id)?.connected) this.expireIdle(id, client, now);
     for (const [id, client] of this.clientsByUser)
       if (!PartyRoom.store.canAccess(this.homeId, id)) {
         this.notice(client, "ACCESS_DENIED", "Your room access was revoked.");
@@ -1036,6 +1073,7 @@ export class PartyRoom extends Room {
       const voiceScope={instanceId:waitingBridge?this.homeId+":waiting:"+this.race.id:instanceId,mode:waitingBridge?"room" as const:this.voiceModes[p.mode],participantIds:[...this.players.values()].filter(v=>v.connected&&(waitingBridge?!v.zone&&(v.mode==="home"||this.race.joinedIds?.includes(v.id)):v.mode===p.mode&&v.zone===p.zone)).map(v=>v.id)};
       const snapshot: RoomSnapshot = {
         homeId: this.homeId,
+        idle: this.idlePresence.has(id) ? (() => { const { warningAt, kickAt } = idleStatus(this.idlePresence.get(id)!, now); return { warningAt, kickAt }; })() : undefined,
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
         werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,
         rootWorldId:this.worldId,worldId:p.zone??this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,

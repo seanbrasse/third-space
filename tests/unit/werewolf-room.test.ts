@@ -195,7 +195,7 @@ describe('werewolf PartyRoom integration',()=>{
   clown.state={id:'occupied',x:43,y:45,targetId:clients[0]!.auth.userId,coverId:'tree',phase:'peek',startedAt:Date.now(),phaseUntil:Date.now()+3000};authority.encounter=clown;
   harness.advance(3);expect(wolf.state).toBeNull();expect(clients[0]!.received<WorldSoundEvent>('world.sound')).toEqual([]);
   authority.encounter=null;harness.advance(3);expect(wolf.state).not.toBeNull();
-  const target=harness.room.players.get(wolf.state!.targetId)!;target.mode='race';harness.advance(3);expect(wolf.state?.phase).toBe('retreat');
+  const target=harness.room.players.get(wolf.state!.targetId)!;target.mode='race';harness.advance(3);expect(wolf.state?.phase).toBe('peek');expect(wolf.state?.targetId).not.toBe(target.id);
   authority.changeWorld('living-room');harness.snapshots();expect(authority.werewolf).toBeNull();expect(clients[1]!.snapshot().werewolf).toBeNull();
  });
 });

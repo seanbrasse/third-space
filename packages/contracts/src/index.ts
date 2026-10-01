@@ -120,6 +120,9 @@ const ChatTextSchema = z
   );
 
 export const CommandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("presence.activity") }).strict(),
+  z.object({ type: z.literal("presence.stay") }).strict(),
+  z.object({ type: z.literal("presence.watching"), playbackId: IdSchema }).strict(),
   z.object({ type: z.literal("input.stop") }).strict(),
   z.object({ type: z.literal("input"), input: InputSchema, worldRevision: z.number().int().min(0).optional(), lifeRevision: z.number().int().min(0).optional(), zoneRevision: z.number().int().min(0).optional() }).strict(),
   z
@@ -207,6 +210,8 @@ export interface SharedMedia { playbackId?:string; revision: number; url: string
 export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;kind:"giggle"|"slash"|"howl"|"growl"|"claw";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
 export interface ForestStalker {kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
+  /** Recipient-only authoritative idle deadline; never a client-provided timestamp. */
+  idle?: { warningAt: number; kickAt: number };
   stalker?: ForestStalker | null;
   werewolf?: ForestStalker | null;
   homeId: string;

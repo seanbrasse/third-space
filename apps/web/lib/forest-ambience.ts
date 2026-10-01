@@ -1,3 +1,4 @@
+import { getWorld } from "@third-space/config";
 import { ambienceSamples, fireAmbienceGain } from './ambience';
 export interface ForestAudioLocation { outside: boolean; x: number; y: number; volume: number; }
 type Loop = { kind: 'night' | 'fire'; source: AudioBufferSourceNode | null; gain: GainNode; filter: BiquadFilterNode; target: number; };
@@ -19,13 +20,17 @@ export class ForestAmbience {
             for (const loop of this.loops) if (!loop.source) this.start(loop);
         }
         const level = Math.max(0, Math.min(1, location.volume));
+        const fire = getWorld("forest").fire!;
         for (const loop of this.loops) {
             const target = !location.outside ? 0 : loop.kind === 'night' ? level * .14
-                : fireAmbienceGain(Math.hypot(location.x - 24, location.y - 24), level);
-            if (Math.abs(target - loop.target) < .002) continue;
+                : fireAmbienceGain(Math.hypot(location.x - fire.x, location.y - fire.y), level);
+            // Never suppress reaching silence: a tiny edge gain must not persist at distance.
+            if (Math.abs(target - loop.target) < .002 && !(target === 0 && loop.target !== 0)) continue;
             loop.target = target;
             loop.gain.gain.cancelScheduledValues(this.ctx.currentTime);
-            loop.gain.gain.setTargetAtTime(target, this.ctx.currentTime, location.outside ? .15 : .045);
+            loop.gain.gain.setTargetAtTime(target, this.ctx.currentTime, target === 0 ? .045 : .15);
+            // setTarget approaches zero asymptotically. Finish the short fade at exact silence.
+            if (target === 0) loop.gain.gain.setValueAtTime(0, this.ctx.currentTime + .18);
         }
     }
     private start(loop: Loop) {

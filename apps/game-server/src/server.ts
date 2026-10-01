@@ -5,6 +5,7 @@ import express from "express";
 import cors from "cors";
 import { createServer } from "node:http";
 import { LocalStore, createDataRouter } from "@third-space/data";
+import { listLiveSessions } from "./live-sessions.js";
 import { PartyRoom } from "./PartyRoom.js";
 
 const originalAdmission=matchMaker.controller.invokeMethod;
@@ -62,6 +63,9 @@ export function createGameServer(
             "Native voice is awaiting a configured, verified media service.",
         },
       }),
+  );
+  app.get("/api/live-sessions", (_req, res) =>
+    res.json({ sessions: listLiveSessions(PartyRoom.liveRooms.values(), store) }),
   );
   app.use("/api", createDataRouter(store, { allowedOrigins: origins, secureCookies: production }));
   const httpServer = createServer(app);

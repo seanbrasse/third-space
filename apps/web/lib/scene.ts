@@ -1,6 +1,9 @@
+import { darknessFill } from "./forest-visibility";
 import { FOREST_TORCHES, torchLight, torchSpriteCanvas } from "./forest-torches";
 import { ASYLUM_WAYFINDING_LIGHTS, asylumChargerCanvas } from "./asylum-wayfinding";
 import { RacePresentation } from "./race-presentation";
+import { takeTouchBoost } from "./touch-boost";
+import { InputSequence } from "./input-sequence";
 import { GameKeyboard, isGameInputBlocked } from "./game-keyboard";
 import {asylumFloorCanvas,asylumObjectCanvas} from "./asylum-art";
 import * as Phaser from "phaser";
@@ -58,6 +61,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
     private hoveredId = "";
     private clickedId = "";
     private seq = 0;
+    private inputSequence = new InputSequence();
     private lastInput = 0;
     private currentMode = "";
     private currentWorld = "";
@@ -166,6 +170,17 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
           this.walkTo({ x: pointer.worldX / TILE, y: pointer.worldY / TILE });
         },
       );
+      // DOM scrolling/layout shifts do not always update Phaser's cached input bounds.
+      // Refresh before the manager converts the native touch/mouse event.
+      const refreshBounds=()=>this.scale.updateBounds();
+      const canvas=this.game.canvas;
+      for(const type of ["mousedown","touchstart","pointerdown"])canvas.addEventListener(type,refreshBounds,{capture:true,passive:true});
+      document.addEventListener("scroll",refreshBounds,true);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
+        for(const type of ["mousedown","touchstart","pointerdown"])canvas.removeEventListener(type,refreshBounds,true);
+        document.removeEventListener("scroll",refreshBounds,true);
+      });
+      refreshBounds();
       this.scale.on("resize", () => this.fit());
       this.drawHome();
       this.fit();
@@ -323,7 +338,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         this.mapObjects.push(this.roastArt);
         this.lightCanvas ??= document.createElement("canvas");
         this.lightCanvas.width = this.lightCanvas.height = 320;
-        const initialMask=this.lightCanvas.getContext("2d")!;initialMask.fillStyle="rgba(2,8,13,.97)";initialMask.fillRect(0,0,320,320);
+        const initialMask=this.lightCanvas.getContext("2d")!;initialMask.fillStyle=darknessFill(this.forest);initialMask.fillRect(0,0,320,320);
         this.lightImage = this.add.image(0, 0, this.texture("forest-darkness", this.lightCanvas)).setOrigin(0).setDepth(1800);
         this.mapObjects.push(this.lightImage);
     }
@@ -367,7 +382,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         if(!Number.isFinite(view.width)||!Number.isFinite(view.height)||view.width<=0||view.height<=0)return;
         this.lastLightAt = time;
         g.clearRect(0, 0, c.width, c.height);
-        g.fillStyle = "rgba(2,8,13,.97)";
+        g.fillStyle = darknessFill(this.forest);
         g.fillRect(0, 0, c.width, c.height);
         const sx = c.width / view.width, sy = c.height / view.height;
         const glow = (x: number, y: number, radius: number, strength: number, cone?: string) => {
@@ -591,6 +606,10 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       if (!snapshot) return;
       const self = snapshot.players.find((p) => p.id === bridge.selfId);
       const mode = self?.mode || "home";
+      if (self && this.inputSequence.observe(snapshot.epoch + ":" + snapshot.instanceId, self.lastInputSeq, self.connected && bridge.transportConnected)) {
+        this.seq = self.lastInputSeq;
+        this.inputHistory = []; this.correction = { x: 0, y: 0 }; this.prediction = null;
+      }
       if (mode !== this.currentMode || snapshot.worldId!==this.currentWorld || snapshot.worldRevision!==this.currentRevision || snapshot.instanceId!==this.currentInstance) {
         this.currentInstance=snapshot.instanceId;this.movement.reset();this.sprintPacketPending=false;
         this.currentWorld=snapshot.worldId;this.currentRevision=snapshot.worldRevision;
@@ -645,7 +664,9 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             : { x: 0, y: 0 };
       }
       const controls = this.movement.read();
-      const sprintTap = active && this.movement.takeSprintTap();
+      const keyboardSprintTap = this.movement.takeSprintTap();
+      const touchSprintTap = takeTouchBoost(bridge.touch);
+      const sprintTap = active && (keyboardSprintTap || touchSprintTap);
       if (sprintTap && mode === "home") { this.sprintPacketPending = true; this.sprintPress++; }
       if(mode==="home"&&this.forest&&this.prediction){
         const d=distance(this.prediction,{x:15,y:14.5});
@@ -958,10 +979,13 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         moveTargetX: this.destination ? String(this.destination.x) : "",
         moveTargetY: this.destination ? String(this.destination.y) : "",
       });
-      if (time - this.lastInput > 33 && self) {
+      const nextInputSeq = time - this.lastInput > 33 && self
+        ? this.inputSequence.next(document.visibilityState === "visible") : null;
+      if (nextInputSeq !== null && self) {
+        this.seq = nextInputSeq;
         const dt = Math.min((time - this.lastInput) / 1000, 0.05);
         this.lastInput = time;
-        const input = { seq: ++this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
+        const input = { seq: this.seq, axisX, axisY, jump, sprint, sprintPress: sprint ? this.sprintPress : undefined };
         this.inputHistory.push({ input, dt, at: predictedNow, sprintTap: this.sprintPacketPending });
         this.sprintPacketPending = false;
         if (this.inputHistory.length > 100) this.inputHistory.shift();

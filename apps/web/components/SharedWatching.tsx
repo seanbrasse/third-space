@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { getWorld, resolveMediaLink } from "@third-space/config";
+import { reportVisiblePlayback } from "../lib/watching-presence";
 import YouTubeWatching from "./YouTubeWatching";
 import type { Snapshot } from "../lib/types";
 export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded, onExpand, send }: {
@@ -55,6 +56,7 @@ export default function SharedWatching({ snapshot, getSnapshot, selfId, expanded
             const v = video.current, m = snapshot?.media;
             if (!v || !m?.url)
                 return;
+            reportVisiblePlayback(v, !v.paused && !v.ended && !v.seeking && v.readyState >= 3, m.playbackId);
             const serverNow = anchor.current.server + Date.now() - anchor.current.client;
             const target = m.position + (m.playing ? Math.max(0, serverNow - m.anchorAt) / 1000 : 0);
             if (v.readyState > 0 && Math.abs(v.currentTime - target) > .6)

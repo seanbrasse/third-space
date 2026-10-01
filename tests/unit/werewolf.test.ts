@@ -12,10 +12,10 @@ const fixture = (w = world) => { const wolf = new ForestWerewolf(w, () => .5), p
 const spawn = (wolf: ForestWerewolf, p = player()) => { wolf.update(151000, [p]); expect(wolf.state?.kind).toBe('werewolf'); };
 
 describe('authoritative rare werewolf', () => {
-    it('uses five times the actual clown interval and faster than its peak stride', () => {
-        expect(WEREWOLF_DEFAULTS.intervalMs).toBe(world.stalker!.intervalMs * 5);
+    it('uses three times the actual clown interval and faster than its peak stride', () => {
+        expect(WEREWOLF_DEFAULTS.intervalMs).toBe(world.stalker!.intervalMs * 3);
         expect(WEREWOLF_DEFAULTS.speedMultiplier).toBeGreaterThan(1.35);
-        const { wolf, p } = fixture(); wolf.update(150999, [p]); expect(wolf.state).toBeNull(); spawn(wolf, p);
+        const { wolf, p } = fixture(); wolf.update(90999, [p]); expect(wolf.state).toBeNull(); spawn(wolf, p);
     });
     it('spawns beyond every active player snapshot visibility boundary, including protected observers', () => {
         const { wolf, p } = fixture(); spawn(wolf, p); const point = { ...wolf.state! };
@@ -75,15 +75,15 @@ describe('authoritative rare werewolf', () => {
             expect(wolf.update(154100, [p])).toBeNull(); expect(wolf.state?.phase).toBe('retreat'); expect(wolf.drainSounds()).toEqual([]);
         }
         const { wolf, p } = fixture(); spawn(wolf, p); wolf.reset(151001); expect(wolf.drainSounds()).toEqual([]); expect(wolf.state).toBeNull();
-        wolf.update(301000, [p]); expect(wolf.state).toBeNull(); wolf.update(301001, [p]); expect(wolf.drainSounds()).toHaveLength(1);
+        wolf.update(241000, [p]); expect(wolf.state).toBeNull(); wolf.update(241001, [p]); expect(wolf.drainSounds()).toHaveLength(1);
     });
-    it('keeps a safe-camp perimeter appearance five times rarer and never turns it into a hunt', () => {
+    it('keeps a safe-camp perimeter appearance three times rarer and never turns it into a hunt', () => {
         const campWorld = { ...world, map: { ...world.map, furniture: [{ ...world.map.furniture[0]!, footprint: { x: 37, y: 22, width: 2, height: 3 } }] } };
         const wolf = new ForestWerewolf(campWorld, () => .5), p = { ...player(), x: 24, y: 24 };
-        wolf.reset(1000); wolf.update(1000, [p]); wolf.update(2250999, [p]); expect(wolf.state).toBeNull();
-        wolf.update(2251000, [p]); expect(wolf.state?.intent).toBe('perimeter'); expect(wolf.visibleTo(p)).toBeNull();
-        expect(wolf.drainSounds().map(s => s.kind)).toEqual(['howl']); wolf.update(2251900, [p]); expect(wolf.visibleTo(p)).not.toBeNull(); p.x = wolf.state!.x; p.y = wolf.state!.y;
-        expect(wolf.update(2254000, [p])).toBeNull(); expect(wolf.state?.phase).toBe('retreat');
+        wolf.reset(1000); wolf.update(1000, [p]); wolf.update(1350999, [p]); expect(wolf.state).toBeNull();
+        wolf.update(1351000, [p]); expect(wolf.state?.intent).toBe('perimeter'); expect(wolf.visibleTo(p)).toBeNull();
+        expect(wolf.drainSounds().map(s => s.kind)).toEqual(['howl']); wolf.update(1351900, [p]); expect(wolf.visibleTo(p)).not.toBeNull(); p.x = wolf.state!.x; p.y = wolf.state!.y;
+        expect(wolf.update(1354000, [p])).toBeNull(); expect(wolf.state?.phase).toBe('retreat');
     });
     it('preserves the clown default profile', () => {
         const clown = new ForestEncounter(world, () => .5); clown.reset(1000); const p = { ...player(), x: 40, y: 45 }; clown.update(31000, [p]);

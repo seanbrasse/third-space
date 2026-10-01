@@ -1,6 +1,11 @@
 "use client";
+import LiveSessions from "./LiveSessions";
+import SessionInfo from "./SessionInfo";
+import { rememberSessionPin, sessionPinStorage } from "../lib/session-pin";
 import WorldMap from "./WorldMap";
+import IdlePresence, { useIdleActivity } from "./IdlePresence";
 import StaminaBar from "./StaminaBar";
+import { canTouchBoost, queueTouchBoost } from "../lib/touch-boost";
 import { gameHotkey, isEditingTarget, shouldOpenChat } from "../lib/game-keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -154,7 +159,7 @@ export default function ThirdSpace() {
   function forgetSession(){try{sessionStorage.removeItem("third-space.session");}catch{}savedSession.current="";}
   async function recover(targetHome: Home, token?: string) {
     if(recovering.current||leaving.current||!mounted.current)return;
-    recovering.current=true;setHome(targetHome);
+    recovering.current=true;if(bridgeRef.current)bridgeRef.current.transportConnected=false;setHome(targetHome);
     if(!token){try{const previous=JSON.parse(sessionStorage.getItem("third-space.session")||"null");if(previous?.homeId===targetHome.id&&previous.userId===identityRef.current?.id)token=previous.token;}catch{}}
     try{
       for(let attempt=0;attempt<6&&mounted.current&&!leaving.current;attempt++){
@@ -193,6 +198,7 @@ export default function ThirdSpace() {
       snapshot: null,
       selfId: "",
       blocked: false,
+      transportConnected: false,
       touch: { axisX: 0, axisY: 0, jump: false },
       bubbles: true,
       mutedText: new Set(),
@@ -203,9 +209,18 @@ export default function ThirdSpace() {
       interact: () => {},
       selectPerson: () => {},
     };
+  useEffect(() => {
+    if (!home || connection !== "Connected") return;
+    const resume = () => { void audio.current?.resumeAfterGesture().catch(() => {}); };
+    window.addEventListener("pointerdown", resume, { capture: true, passive: true });
+    window.addEventListener("keydown", resume, true);
+    return () => { window.removeEventListener("pointerdown", resume, true); window.removeEventListener("keydown", resume, true); };
+  }, [home, connection]);
   const bridge = bridgeRef.current;
+  useIdleActivity(send, !!home && connection === "Connected");
   if (!room.current) bridge.snapshot = snapshot;
   bridge.selfId = identity?.id || "";
+  bridge.transportConnected = connection === "Connected";
   bridge.blocked = modal !== null || connection !== "Connected";
   bridge.bubbles = prefs.bubbles;
   bridge.mutedText = new Set(prefs.textMuted);
@@ -464,6 +479,7 @@ export default function ThirdSpace() {
     if(generation!==connectGeneration.current||leaving.current||!mounted.current){void connected.leave();throw new Error("Connection cancelled.");}
     connected.reconnection.minUptime=0;connected.reconnection.maxRetries=6;connected.reconnection.maxDelay=2000;
     room.current = connected;
+    bridge.transportConnected = true;
     remember(targetHome,connected);
     setHome(targetHome);
     setConnection("Connected");
@@ -582,20 +598,28 @@ export default function ThirdSpace() {
     );
     connected.onDrop(() => {
       if(room.current!==connected||leaving.current)return;
+      bridge.transportConnected = false;
       setConnection("Reconnecting…");
       bridge.blocked = true;
       bridge.touch = { axisX: 0, axisY: 0, jump: false };
     });
     connected.onReconnect(() => {
       if(room.current!==connected||leaving.current)return;
+      bridge.transportConnected = true;
       setConnection("Connected");
       bridge.liveBubbleIds.clear();
       notify("You’re back.");
     });
     connected.onLeave((code: number) => {
       if(room.current!==connected)return;
-      room.current=null;audio.current?.setWorld(null,"",0);
+      room.current=null;bridge.transportConnected=false;audio.current?.setWorld(null,"",0);
       if(leaving.current||!mounted.current)return;
+      if (code === 4012) {
+        connectGeneration.current++; forgetSession(); setHome(null); setSnapshot(null); bridge.snapshot = null;
+        bridge.blocked = true; bridge.touch = { axisX: 0, axisY: 0, jump: false };
+        setConnection("Ready to enter"); setError("You left the session after 18 minutes of inactivity. Join again when you’re ready.");
+        return;
+      }
       if(code===4011){
         forgetSession();setConnection("Session replaced in another tab");
         notify("Your session moved to another tab.");return;
@@ -648,6 +672,7 @@ export default function ThirdSpace() {
         );
         selected = result.home;
       }
+      if (!inviteToken.current || entryMode === "create") rememberSessionPin(sessionPinStorage(), current.id, selected.id, selected.settingsRevision, pin);
       try {
         await connect(selected, false, undefined, false, true);
       } catch (e) {
@@ -669,7 +694,7 @@ export default function ThirdSpace() {
   async function leave() {
     audio.current?.setWorld(null,"",0);
     setWatchExpanded(false);
-    leaving.current = true;connectGeneration.current++;forgetSession();
+    leaving.current = true;bridge.transportConnected=false;connectGeneration.current++;forgetSession();
     await room.current?.leave();
     forgetSession();room.current = null;
     setHome(null);
@@ -812,6 +837,7 @@ export default function ThirdSpace() {
   }, [snapshot]);
   return (
     <main className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
+      <IdlePresence snapshot={snapshot} send={send}/>
       <DeathVeil caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
         <a className="brand" href="/" aria-label="Third Space home">
@@ -929,6 +955,8 @@ export default function ThirdSpace() {
                     />
                   </label>
                 ) : (
+                  <>
+                  <LiveSessions onSelect={(homeId)=>{setJoinId(homeId);setPin("");inviteToken.current="";}}/>
                   <label>
                     Home ID
                     <input
@@ -938,6 +966,7 @@ export default function ThirdSpace() {
                       placeholder="Paste the home ID from your friend"
                     />
                   </label>
+                  </>
                 )}
                 <label>
                   {entryMode === "create" ? "Choose a private PIN" : "Room PIN"}
@@ -1036,6 +1065,7 @@ export default function ThirdSpace() {
                 {connection}
               </span>
               <ConnectionHealth room={room.current} connection={connection}/>
+              {identity && <SessionInfo key={`${identity.id}:${home.id}`} home={home} profileId={identity.id}/>}
               {replaceHome && <button className="secondary" onClick={()=>{void connect(replaceHome,true).catch(e=>notify(e.message));}}>Use this tab · replaces your other session</button>}
               {connection === "Disconnected" && (
                 <button
@@ -1310,11 +1340,16 @@ export default function ThirdSpace() {
                 </div>
                 <button
                   className="touch-action"
-                  onPointerDown={() =>
-                    race ? (bridge.touch.jump = true) : setModal("portal")
-                  }
+                  aria-label={race ? "Jump" : "Boost"}
+                  disabled={!race && (bridge.blocked || !canTouchBoost(self, snapshot?.serverTime ?? 0))}
+                  onPointerDown={() => { if (race) bridge.touch.jump = true; }}
+                  onPointerCancel={() => { bridge.touch.jump = false; }}
+                  onClick={() => {
+                    if (!race && !bridge.blocked)
+                      queueTouchBoost(bridge.touch, self, snapshot?.serverTime ?? 0);
+                  }}
                 >
-                  {race ? "Jump" : "Play"}
+                  {race ? "Jump" : "Boost"}
                 </button>
               </div>
             </div>
@@ -2050,10 +2085,12 @@ export default function ThirdSpace() {
                 <button
                   className="primary"
                   onClick={() => {
-                    void api(`/homes/${home.id}/pin`, "PUT", { pin })
-                      .then(() =>
-                        notify("PIN rotated. Previous guest grants revoked."),
-                      )
+                    void api<{home:Home}>(`/homes/${home.id}/pin`, "PUT", { pin })
+                      .then(({home:updated}) => {
+                        rememberSessionPin(sessionPinStorage(), identity!.id, updated.id, updated.settingsRevision, pin);
+                        setHome(updated);
+                        notify("PIN rotated. Previous guest grants revoked.");
+                      })
                       .catch((e) => notify(e.message));
                   }}
                 >

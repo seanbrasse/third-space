@@ -24,12 +24,15 @@ export type Home = {
   ownerId: string;
   capacity: number;
   discordUrl?: string;
+  settingsRevision?: number;
+  pinEnabled?: boolean;
 };
 export type WorldBridge = {
   snapshot: Snapshot | null;
   selfId: string;
   blocked: boolean;
-  touch: { axisX: number; axisY: number; jump: boolean };
+  transportConnected: boolean;
+  touch: { axisX: number; axisY: number; jump: boolean; boostTap?: boolean };
   bubbles: boolean;
   mutedText: Set<string>;
   reducedMotion: boolean;

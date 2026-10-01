@@ -470,7 +470,12 @@ export class LocalStore {
   ): Home {
     if (!this.getProfile(userId))
       return fail("UNAUTHENTICATED", "Create a local profile first.", 401);
-    if (this.canAccess(homeId, userId)) return this.getHome(homeId)!;
+    // A supplied PIN must be verified even when a previous grant exists.
+    // This permits safely remembering a submitted PIN without trusting grants.
+    if (this.canAccess(homeId, userId)) {
+      if (input.pin !== undefined) this.verifyHomePin(homeId, userId, input.pin, ip);
+      return this.getHome(homeId)!;
+    }
     this.limit(`join:user:${homeId}:${userId}`, 5);
     this.limit(`join:ip:${homeId}:${ip}`, 20);
     this.limit(`join:global:${ip}`, 100);
@@ -540,6 +545,16 @@ export class LocalStore {
       );
       this.audit(homeId, userId, "home.join");
     });
+    return this.getHome(homeId)!;
+  }
+  verifyHomePin(homeId: string, userId: string, pin: unknown, ip = "local"): Home {
+    this.requireAccess(homeId, userId);
+    this.limit(`join:user:${homeId}:${userId}`, 5);
+    this.limit(`join:ip:${homeId}:${ip}`, 20);
+    this.limit(`join:global:${ip}`, 100);
+    const home = this.one("SELECT * FROM homes WHERE id=?", homeId);
+    if (!home?.pin_verifier || !pinMatches(pin, home.pin_verifier))
+      return fail("INVALID_CREDENTIAL", "Unable to join with those credentials.", 403);
     return this.getHome(homeId)!;
   }
   issueTicket(homeId: string, userId: string) {

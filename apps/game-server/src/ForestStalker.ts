@@ -20,6 +20,9 @@ export class ForestEncounter {
     private lastPath = 0;
     private path: Point[] = [];
     private pathGoal: Point | null = null;
+    private lingerUntil = 0;
+    private retreatUntil = 0;
+    private caughtIds = new Set<string>();
     private cover: {
         point: Point;
         id: string;
@@ -34,20 +37,48 @@ export class ForestEncounter {
                     this.cover.push({ point, id: item.id });
         }
     }
-    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; }
+    reset(now: number) { this.state = null; this.path = []; this.pathGoal = null; this.nextAt = now + this.interval(); this.lastMove = now; this.allSafe = false; this.campAt = 0; this.lingerUntil = 0; this.retreatUntil = 0; this.caughtIds.clear(); }
     private interval() { return (this.behavior?.intervalMs ?? this.world.stalker!.intervalMs) * (.85 + this.random() * .3); }
-    visibleTo(player: PlayerState) { return player.connected && !player.zone && player.mode === 'home' && this.state && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
+    visibleTo(player: PlayerState) { return player.connected && !player.zone && player.mode === 'home' && this.state && !(this.state.phase === "retreat" && this.lastMove >= this.retreatUntil) && distance(player, this.state) <= this.world.stalker!.viewRadius ? { ...this.state } : null; }
     private retreat(now: number) {
         if (this.state) {
             this.state.phase = 'retreat';
-            this.state.phaseUntil = now + 900;
+            this.retreatUntil = now + 900;
+            this.lingerUntil = now + 15000;
+            // Preserve the existing client fade clock; the hidden linger stays server-owned.
+            this.state.phaseUntil = this.retreatUntil;
         }
         this.path = [];
+        this.pathGoal = null;
+    }
+    private eligible(player: PlayerState, now: number) {
+        return player.connected && !player.zone && player.mode === 'home' && !player.respawnAt
+            && (player.haloUntil ?? 0) <= now && !this.caughtIds.has(player.id)
+            && distance(player, this.world.fire!) > this.world.stalker!.safeRadius + .5;
+    }
+    private nearest(players: readonly PlayerState[], now: number) {
+        const state = this.state!;
+        return players.filter(p => this.eligible(p, now) && distance(p, state) <= 16)
+            .sort((a, b) => distance(a, state) - distance(b, state) || a.id.localeCompare(b.id))[0];
+    }
+    private pursue(player: PlayerState, now: number) {
+        const state = this.state!;
+        state.targetId = player.id;
+        state.intent = 'hunt';
+        // Reacquisition and close retargets give a fresh, visible warning before a catch.
+        state.phase = 'peek';
+        state.phaseUntil = now + this.world.stalker!.peekMs;
+        this.path = [];
+        this.pathGoal = null;
+        this.lastMove = now;
+        this.lastPath = 0;
     }
     private spawn(point: Point, coverId: string, targetId: string, intent: "hunt" | "perimeter", now: number) {
         this.state = { id: String(++this.serial), x: point.x, y: point.y, originX: point.x, originY: point.y, targetId, coverId, intent, phase: "peek", startedAt: now, phaseUntil: now + this.world.stalker!.peekMs, ...(this.behavior ? { kind: this.behavior.kind } : this.random() < .45 ? { giggleAt: now } : {}) };
         this.lastMove = now;
         this.lastPath = 0;
+        this.caughtIds.clear();
+        this.lingerUntil = 0;
     }
     /** Returns a caught identity once. PartyRoom alone performs the respawn. */
     update(now: number, players: readonly PlayerState[]): string | null {
@@ -81,25 +112,40 @@ export class ForestEncounter {
             if (now < this.nextAt)
                 return null;
             this.nextAt = now + this.interval();
-            const eligible = home.filter(p => distance(p, fire) > rules.safeRadius + .5 && (p.haloUntil ?? 0) <= now && !p.respawnAt);
-            const candidates = eligible.flatMap(p => this.cover.filter(c => { const d = distance(p, c.point); return d >= (this.behavior?.minTargetDistance ?? 2.5) && d <= (this.behavior?.maxTargetDistance ?? 7)
-                // Match visibleTo's authoritative snapshot cull, independent of viewport/lighting.
-                && (!this.behavior || home.every(viewer => distance(viewer, c.point) > rules.viewRadius + this.behavior!.hiddenMargin)); }).map(c => ({ p, c })));
+            const candidates = home.filter(p => this.eligible(p, now)).map(p => ({ p, covers: this.cover.filter(c => {
+                const d = distance(p, c.point);
+                return d >= (this.behavior?.minTargetDistance ?? 2.5) && d <= (this.behavior?.maxTargetDistance ?? 7)
+                    // All active observers, including protected campers, count for hidden wolf spawning.
+                    && (!this.behavior || home.every(viewer => distance(viewer, c.point) > rules.viewRadius + this.behavior!.hiddenMargin));
+            }) })).filter(candidate => candidate.covers.length > 0);
             if (!candidates.length) {
                 this.nextAt = now + 5000;
                 return null;
             }
-            const { p, c } = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
+            // Choose a player uniformly, then their cover: nearby tree count must not bias the victim lottery.
+            const { p, covers } = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
+            const c = covers[Math.min(covers.length - 1, Math.floor(this.random() * covers.length))]!;
             this.spawn(c.point, c.id, p.id, "hunt", now);
             return null;
         }
         const s = this.state;
         if (s.phase === 'retreat') {
-            const remaining = Math.max(0, (s.phaseUntil - now) / 900);
+            this.lastMove = now;
+            if (now >= this.lingerUntil) {
+                this.state = null;
+                this.caughtIds.clear();
+                return null;
+            }
+            if (now >= this.retreatUntil) {
+                s.x = s.originX!;
+                s.y = s.originY!;
+                const emerging = this.nearest(players, now);
+                if (emerging) this.pursue(emerging, now);
+                return null;
+            }
+            const remaining = Math.max(0, (this.retreatUntil - now) / 900);
             s.x = s.originX! + (s.x - s.originX!) * remaining;
             s.y = s.originY! + (s.y - s.originY!) * remaining;
-            if (now >= s.phaseUntil)
-                this.state = null;
             return null;
         }
         const target = players.find(p => p.id === s.targetId);
@@ -118,8 +164,10 @@ export class ForestEncounter {
             }
             return null;
         }
-        if (!target?.connected || target.mode !== 'home' || target.zone || target.respawnAt || distance(target, fire) <= rules.safeRadius || (target.haloUntil ?? 0) > now) {
-            this.retreat(now);
+        if (!target || !this.eligible(target, now)) {
+            const replacement = this.nearest(players, now);
+            if (replacement) this.pursue(replacement, now);
+            else this.retreat(now);
             return null;
         }
         if (s.phase === 'peek') {
@@ -135,6 +183,7 @@ export class ForestEncounter {
             return null;
         }
         if (distance(s, target) < .65 && isHomeSegmentWalkable(s, target, map)) {
+            this.caughtIds.add(target.id);
             this.retreat(now);
             return target.id;
         }
@@ -181,6 +230,7 @@ export class ForestEncounter {
             this.path = [];
         }
         if (distance(s, target) < .65 && isHomeSegmentWalkable(s, target, map)) {
+            this.caughtIds.add(target.id);
             this.retreat(now);
             return target.id;
         }
