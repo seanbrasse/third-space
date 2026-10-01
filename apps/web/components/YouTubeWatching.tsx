@@ -1,4 +1,5 @@
 "use client";
+import { sharedPlaybackPosition } from "../lib/watching-controls";
 import { reportVisiblePlayback } from "../lib/watching-presence";
 import {getWorld} from "@third-space/config";
 import Script from "next/script";
@@ -44,6 +45,14 @@ export default forwardRef<YouTubePlaybackHandle, {
         if (!player.current) return false;
         // Keep recovery visible until the provider actually reports PLAYING.
         autoplayBlocked.current = false;
+        const snapshot = latest.current.getSnapshot();
+        if (snapshot) {
+            if (snapshot.serverTime !== clock.current.server) clock.current = { server: snapshot.serverTime, client: Date.now() };
+            const target = sharedPlaybackPosition(snapshot.media, clock.current.server + Date.now() - clock.current.client);
+            // One seek on this explicit tap catches up after autoplay was blocked.
+            // Ongoing playback still never periodically seeks for decoder drift.
+            if (Math.abs(player.current.getCurrentTime() - target) > .35) player.current.seekTo(target, true);
+        }
         player.current.playVideo();
         sync.current.lastPlay = performance.now();
         return true;
