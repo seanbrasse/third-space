@@ -45,6 +45,8 @@ export function createPlayer(
     connected: true,
     lastInputSeq: -1,
     checkpoint: 0,
+    flashlightBattery: 1,
+    flashlightOn: false,
   };
 }
 

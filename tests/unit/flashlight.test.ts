@@ -70,7 +70,50 @@ beforeEach(() => {
 afterEach(() => { harness.close(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("authoritative flashlight battery", () => {
+  it("spawns charged and OFF, preserving the budget during idle at camp",()=>{
+    expect(harness.player.flashlightBattery).toBe(1);
+    expect(harness.player.flashlightOn).toBe(false);
+    harness.ticks(3600);
+    expect(harness.player.flashlightBattery).toBe(1);
+  });
+
+  it.each([undefined,"asylum"] as const)("walks into the %s charger without a seat command, preserving OFF",zone=>{
+    const dock=zone?{x:16.5,y:9.5}:{x:30.5,y:23.7};
+    Object.assign(harness.player,{zone,x:dock.x,y:dock.y+1.1,flashlightBattery:0,flashlightOn:false});
+    delete harness.player.seatId;
+    harness.ticks(1);expect(harness.player.flashlightBattery).toBe(0);
+    for(let seq=0;seq<12;seq++){
+      harness.send({type:"input",input:{seq,axisX:0,axisY:-1,jump:false}});
+      harness.ticks(1);
+    }
+    expect(harness.player.flashlightBattery).toBe(1);
+    expect(harness.player.flashlightOn).toBe(false);
+    expect(harness.player.seatId).toBeUndefined();
+    Object.assign(harness.player,{x:dock.x,y:dock.y+1.1});
+    harness.send({type:"input.stop"});
+    harness.send({type:"flashlight",enabled:true});harness.ticks(60);
+    expect(harness.player.flashlightBattery).toBeCloseTo(1-1/30,12);
+    Object.assign(harness.player,{x:dock.x,y:dock.y,connected:false,flashlightBattery:.2});
+    harness.ticks(1);expect(harness.player.flashlightBattery).toBe(.2);
+  });
+
+  it("freshly rejoins charged after leaving, while reserved reconnects keep their remaining charge",()=>{
+    Object.assign(harness.player,{flashlightBattery:0,flashlightOn:false});
+    harness.room.onLeave(harness.client);
+    harness.room.onJoin(harness.client,{});
+    expect(harness.player.flashlightBattery).toBe(1);
+    expect(harness.player.flashlightOn).toBe(false);
+  });
+
+  it("returns from a threat respawn with a full OFF flashlight",()=>{
+    Object.assign(harness.player,{flashlightBattery:0,flashlightOn:false,respawnAt:Date.now()+1});
+    harness.ticks(1);
+    expect(harness.player.flashlightBattery).toBe(1);
+    expect(harness.player.flashlightOn).toBe(false);
+  });
+
   it("provides precisely 30 seconds of continuous enabled runtime", () => {
+    harness.send({type:"flashlight",enabled:true});
     expect(FLASHLIGHT_SECONDS).toBe(30);
     harness.ticks(1799);
     expect(harness.player.flashlightOn).toBe(true);
@@ -81,6 +124,7 @@ describe("authoritative flashlight battery", () => {
   });
 
   it("preserves the exact remaining charge while OFF, including long idle time", () => {
+    harness.send({type:"flashlight",enabled:true});
     harness.ticks(420);
     harness.send({ type: "flashlight", enabled: false });
     const remaining = harness.player.flashlightBattery;
@@ -105,6 +149,7 @@ describe("authoritative flashlight battery", () => {
   });
 
   it("keeps an OFF flashlight OFF through group travel and resumes only on command", () => {
+    harness.send({type:"flashlight",enabled:true});
     harness.ticks(120);
     harness.send({ type: "flashlight", enabled: false });
     const remaining = harness.player.flashlightBattery;
@@ -120,6 +165,7 @@ describe("authoritative flashlight battery", () => {
   });
 
   it("freezes charge throughout disconnect grace and resumes without timestamp catch-up", async () => {
+    harness.send({type:"flashlight",enabled:true});
     harness.ticks(120);
     const remaining = harness.player.flashlightBattery;
     const reserve = new Promise<Client>(() => {});
@@ -139,6 +185,7 @@ describe("authoritative flashlight battery", () => {
   });
 
   it("preserves OFF and partial charge through session replacement", () => {
+    harness.send({type:"flashlight",enabled:true});
     harness.ticks(180);
     harness.send({ type: "flashlight", enabled: false });
     const remaining = harness.player.flashlightBattery;
@@ -181,12 +228,14 @@ describe("authoritative flashlight battery", () => {
     harness.ticks(600);
     expect(harness.player.flashlightBattery).toBe(1);
     harness.send({ type: "flashlight", enabled: true });
+    harness.enterAsylum();
     harness.ticks(1800);
     expect(harness.player.flashlightBattery).toBe(0);
     expect(harness.player.flashlightOn).toBe(false);
   });
 
   it("resets the runtime budget when an enabled partially charged light is recharged", () => {
+    harness.send({type:"flashlight",enabled:true});
     harness.ticks(600);
     harness.enterAsylum();
     const before = harness.player.flashlightBattery;
@@ -195,6 +244,7 @@ describe("authoritative flashlight battery", () => {
     harness.charge();
     expect(harness.player.flashlightBattery).toBe(1);
     expect(harness.player.flashlightOn).toBe(true);
+    harness.enterAsylum();
     harness.ticks(1799);
     expect(harness.player.flashlightOn).toBe(true);
     harness.ticks(1);

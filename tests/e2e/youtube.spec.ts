@@ -23,7 +23,7 @@ test('YouTube adapter follows shared member controls, persistent TV surface and 
  await page.getByLabel('Video link').fill('https://youtu.be/M7lc1UVf-VE?t=12');await page.getByRole('button',{name:'Load for everyone'}).click();
  const state=(p:typeof page)=>p.evaluate(()=>{const w=window as unknown as {__yt?:{getCurrentTime:()=>number;getPlayerState:()=>number;v:number}};return w.__yt?{t:w.__yt.getCurrentTime(),s:w.__yt.getPlayerState(),v:w.__yt.v}:null;});
  await expect.poll(async()=>(await state(guest))?.t).toBe(12);
- await page.getByRole('button',{name:'Play together'}).click();await expect.poll(async()=>(await state(guest))?.s).toBe(1);await page.waitForTimeout(1300);
+ await expect(page.locator('.youtube-player')).toHaveCSS('pointer-events','none');await page.getByRole('button',{name:'Play video for everyone',exact:true}).click();await expect.poll(async()=>(await state(guest))?.s).toBe(1);await page.waitForTimeout(6000);await expect.poll(async()=>(await state(page))?.s).toBe(1);
  // A slow decoder stays buffering beyond the old1.2s correction threshold.
  const before=await guest.evaluate(()=>{const p=(window as any).__yt;p.t=p.getCurrentTime();p.s=3;return p.seeks});
  await guest.waitForTimeout(7000);
@@ -35,15 +35,15 @@ test('YouTube adapter follows shared member controls, persistent TV surface and 
  expect(await guest.evaluate(()=>(window as any).__yt.seeks)).toBe(before);
  await expect(page.getByRole('button',{name:'Pause together',exact:true})).toBeVisible();
  await guest.evaluate(()=>{(window as any).__yt.getDuration=()=>300});
- await guest.getByRole('button',{name:'Pause together'}).click();await expect.poll(async()=>(await state(page))?.s).toBe(2);
+ await guest.getByRole('button',{name:'Pause video for everyone',exact:true}).click();await expect.poll(async()=>(await state(page))?.s).toBe(2);
  await page.getByLabel('Seek (seconds)').fill('23');await page.getByRole('button',{name:'Seek together'}).click();await expect.poll(async()=>(await state(guest))?.t).toBe(23);
  await page.getByLabel('Video link').fill('https://youtu.be/dQw4w9WgXcQ');await page.getByRole('button',{name:'Add to queue'}).click();await expect(guest.getByRole('list',{name:'Shared video queue'})).toContainText('dQw4w9WgXcQ');
  await guest.getByLabel('Video link').fill('https://example.com/discard.mp4');await guest.getByRole('button',{name:'Add to queue'}).click();await page.getByLabel('Remove queued video 2').click();await expect(guest.getByRole('list',{name:'Shared video queue'})).not.toContainText('discard.mp4');
- await page.getByRole('button',{name:'Full screen',exact:true}).click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Full screen',exact:true}).click();await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);await page.keyboard.press('Escape');await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(false);await page.getByRole('button',{name:'Play video for everyone',exact:true}).click();await expect.poll(async()=>(await state(guest))?.s).toBe(1);await guest.getByRole('button',{name:'Pause video for everyone',exact:true}).click();await expect.poll(async()=>(await state(page))?.s).toBe(2);
  await guest.getByRole('button',{name:'Play next'}).click();await expect.poll(async()=>(await state(page))?.s).toBe(1);await expect(page.getByRole('list',{name:'Shared video queue'}).locator('li')).toHaveCount(0);
  await guest.getByRole('button',{name:'Close shared screen'}).click();await expect(guest.locator('.shared-watching.surface iframe')).toHaveCount(1);const screenBox=await guest.locator('.shared-watching.surface').boundingBox();expect(screenBox!.width).toBeGreaterThan(150);expect(screenBox!.width/screenBox!.height).toBeCloseTo(16/9,1);const time=(await state(guest))!.t;await guest.waitForTimeout(1200);expect((await state(guest))!.t).toBeGreaterThan(time+.7);await expect.poll(async()=>(await state(guest))?.s).toBe(1);
 
- await page.getByRole('button',{name:'Close shared screen'}).click();
+ await page.mouse.click(20,20);await expect(page.locator('.shared-watching.surface iframe')).toHaveCount(1);await expect.poll(async()=>(await state(page))?.s).toBe(1);
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByLabel('Mute game sounds').check();
  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('third-space.preferences')!).gameSoundsMuted)).toBe(true);
  await expect(page.getByRole('button',{name:'Native off',exact:true})).toBeVisible();

@@ -22,7 +22,7 @@ test('LIVE collapsed TV playback stays continuous', async ({browser,page})=>{
  await page.getByLabel('Video link').fill(process.env.YOUTUBE_VIDEO_URL || 'https://youtu.be/8wUfa7HwuLI');await page.getByRole('button',{name:'Load for everyone'}).click();
 
  await page.waitForTimeout(10000);
- await page.getByRole('button',{name:'Play together'}).click();for(const p of [page,guest])await p.getByRole('button',{name:'Close shared screen'}).click();
+ await page.getByRole('button',{name:'Play video for everyone',exact:true}).click();for(const p of [page,guest])await p.getByRole('button',{name:'Close shared screen'}).click();
  const samples:any[]=[];
  for(let i=0;i<30;i++){
   await page.waitForTimeout(1000);

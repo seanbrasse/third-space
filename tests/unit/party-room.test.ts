@@ -527,7 +527,7 @@ describe("shared reusable social worlds",()=>{
     expect(new PartyRoom().worldId).toBe("forest");
     const forest = new Harness("forest");
     try { const c=forest.join(forest.identities[0]!);const p=forest.room.players.get(c.auth.userId)!;
-      expect(c.snapshot().worldId).toBe("forest");expect(p.flashlightOn).toBe(true);
+      expect(c.snapshot().worldId).toBe("forest");expect(p.flashlightOn).toBe(false);
       expect(getWorld("forest").map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);
     } finally {forest.close();}
   });
@@ -554,7 +554,7 @@ describe("shared reusable social worlds",()=>{
     expect(harness.room.worldId).toBe("forest");expect(harness.room.worldRevision).toBe(1);
     const map=getWorld("forest").map,ps=[...harness.room.players.values()];
     expect(new Set(ps.map(p=>p.x+":"+p.y)).size).toBe(8);
-    ps.forEach(p=>{expect(map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);expect(p.mode).toBe("home");expect(p.flashlightOn).toBe(true);expect(p.seatId).toBeUndefined();});
+    ps.forEach(p=>{expect(map.solids.some(s=>overlapsPlayer(p,s))).toBe(false);expect(p.mode).toBe("home");expect(p.flashlightOn).toBe(false);expect(p.seatId).toBeUndefined();});
     clients.forEach((c,i)=>{expect(c.snapshot().worldRevision).toBe(1);expect(harness.room.players.get(c.auth.userId)!.avatar).toEqual(oldAvatars[i]);});
     const p=harness.room.players.get(clients[0]!.auth.userId)!,x=p.x;
     harness.send(clients[0]!,{type:"input",input:{seq:9,axisX:1,axisY:0,jump:false},worldRevision:0});harness.advance(5);expect(harness.room.players.get(p.id)!.x).toBe(x);
