@@ -165,6 +165,7 @@ beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(1000000);harness=new Harness
 afterEach(()=>{harness.close();vi.restoreAllMocks();vi.useRealTimers();});
 function setup(){
  const clients=harness.identities.slice(0,3).map(id=>harness.join(id));
+ (harness.room as unknown as {npcs:unknown}).npcs=null;
  const authority=harness.room as unknown as {werewolf:ForestWerewolf|null;encounter:ForestEncounter|null;changeWorld(id:'living-room'|'forest'):void};
  const wolf=new ForestWerewolf(wolfWorld,()=>.5);wolf.reset(Date.now()-150000);authority.werewolf=wolf;authority.encounter=null;
  for(const c of clients)Object.assign(harness.room.players.get(c.auth.userId)!,{x:30,y:45,seatId:undefined});
@@ -196,7 +197,7 @@ describe('werewolf PartyRoom integration',()=>{
  it('shares growls/catch without giggle or knife, then respawns through existing authority',()=>{
   const {clients}=setup();harness.advance(600);
   const sounds=clients.slice(0,2).flatMap(c=>c.received<WorldSoundEvent>('world.sound'));
-  expect(sounds.some(e=>e.kind==='growl')).toBe(true);expect(sounds.some(e=>e.kind==='claw')).toBe(true);expect(sounds.filter(e=>e.kind==='claw').every(e=>e.id.includes(':werewolf:')&&e.id.endsWith(':claw'))).toBe(true);
+  expect(sounds.some(e=>e.kind==='growl')).toBe(true);expect(sounds.some(e=>e.kind==='claw')).toBe(true);expect(sounds.filter(e=>e.kind==='claw').every(e=>e.id.includes(':werewolf:')&&e.id.endsWith(':hit:'+e.victimId))).toBe(true);
   expect(sounds.some(e=>e.kind==='giggle'||e.kind==='slash')).toBe(false);
   expect([...harness.room.players.values()].some(p=>(p.respawnCount??0)>0)).toBe(true);
   expect(clients[2]!.received<WorldSoundEvent>('world.sound')).toEqual([]);

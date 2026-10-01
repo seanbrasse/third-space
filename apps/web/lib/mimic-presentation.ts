@@ -2,7 +2,7 @@ import type { ForestMimicState } from '@third-space/contracts';
 /** Pure snapshot presentation; repeated renders and reconnects never emit a cue or decide damage. */
 export function mimicPresentation(state: ForestMimicState, now: number, reducedMotion: boolean) {
     const morph = state.phase === 'morph';
-    const progress = morph ? Math.max(0, Math.min(1, (now - (state.phaseUntil - 1600)) / 1600)) : state.transformed ? 1 : 0;
+    const progress = morph ? Math.max(0, Math.min(1, (now - (state.morphStartedAt ?? state.phaseUntil - 360)) / Math.max(1, state.phaseUntil - (state.morphStartedAt ?? state.phaseUntil - 360)))) : state.transformed ? 1 : 0;
     const monster = state.transformed || morph;
     return {
         monster, progress,

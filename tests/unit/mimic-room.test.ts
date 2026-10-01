@@ -167,8 +167,8 @@ afterEach(()=>{harness.close();vi.restoreAllMocks();vi.useRealTimers();});
 function setup(){
  const clients=harness.identities.slice(0,3).map(id=>harness.join(id));
  const authority=harness.room as unknown as {mimic:ForestMimic|null;werewolf:ForestWerewolf|null;encounter:ForestEncounter|null;changeWorld(id:'living-room'|'forest'):void};
- const mimic=new ForestMimic(mimicWorld,()=>.5);mimic.reset(Date.now()-120000);authority.mimic=mimic;authority.werewolf=null;authority.encounter=null;
- for(const c of clients)Object.assign(harness.room.players.get(c.auth.userId)!,{x:36,y:45,seatId:undefined});
+ const mimic=new ForestMimic(mimicWorld,()=>.5);mimic.reset(Date.now()-120000);authority.mimic=mimic;authority.werewolf=null;authority.encounter=null;(authority as unknown as {npcs:null}).npcs=null;
+ for(const c of clients)Object.assign(harness.room.players.get(c.auth.userId)!,{x:14,y:45,seatId:undefined});
  harness.room.players.get(clients[2]!.auth.userId)!.mode='race';
  return {clients,authority,mimic};
 }
@@ -177,7 +177,7 @@ describe('mimic PartyRoom integration',()=>{
   const {clients,mimic}=setup();harness.advance(3);expect(mimic.state?.phase).toBe('approach');
   const target=harness.room.players.get(mimic.state!.targetId)!;target.x=mimic.state!.x-2;target.y=mimic.state!.y;
   for(const c of clients.slice(0,2))Object.assign(harness.room.players.get(c.auth.userId)!,{x:target.x,y:target.y});
-  harness.advance(3);
+  harness.advance(3);expect(clients[0]!.snapshot().mimic?.phase).toBe('linger');harness.advance(132);
   for(const c of clients.slice(0,2)){expect(c.snapshot().mimic?.phase).toBe('morph');expect(c.received<WorldSoundEvent>('world.sound').map(e=>e.kind)).toEqual(['mimic-roar']);}
   expect(clients[0]!.snapshot().mimic!.disguise).toEqual(clients[1]!.snapshot().mimic!.disguise);
   expect(clients[2]!.snapshot().mimic).toBeNull();expect(clients[2]!.received<WorldSoundEvent>('world.sound')).toEqual([]);
@@ -189,7 +189,7 @@ describe('mimic PartyRoom integration',()=>{
   const {clients,mimic}=setup();harness.advance(3);const target=harness.room.players.get(mimic.state!.targetId)!;
   target.x=mimic.state!.x-2;target.y=mimic.state!.y;harness.advance(3);for(const c of clients.slice(0,2))Object.assign(harness.room.players.get(c.auth.userId)!,{x:mimic.state!.x,y:mimic.state!.y});
   harness.advance(300);const victim=[...harness.room.players.values()].find(p=>p.caughtBy==='mimic')!;expect(victim.respawnCount).toBe(1);expect(victim.haloUntil).toBeGreaterThan(Date.now());
-  const impacts=clients.slice(0,2).flatMap(c=>c.received<WorldSoundEvent>('world.sound')).filter(e=>e.kind==='mimic-hit');expect(impacts.length).toBeGreaterThanOrEqual(2);expect(new Set(impacts.map(e=>e.victimId)).size).toBe(2);for(const p of harness.room.players.values())expect(p.respawnCount??0).toBeLessThanOrEqual(1);
+  const impacts=clients.slice(0,2).flatMap(c=>c.received<WorldSoundEvent>('world.sound')).filter(e=>e.kind==='mimic-hit');expect(impacts.length).toBeGreaterThanOrEqual(2);expect(new Set(impacts.map(e=>e.victimId)).size).toBe(1);for(const p of harness.room.players.values())expect(p.respawnCount??0).toBeLessThanOrEqual(1);
   expect(clients[2]!.received<WorldSoundEvent>('world.sound')).toEqual([]);
  });
  it('keeps a single active threat including hidden linger and clears mimic on travel',()=>{

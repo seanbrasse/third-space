@@ -1,3 +1,5 @@
+export type {ForestNPC} from './forest-npc';
+import type {ForestNPC, ForestNPCArt} from './forest-npc';
 import type { SurvivalSnapshot } from './survival';
 export type { SurvivalItem, SurvivalPlayer, Backpack, AppleTree, SurvivalEvent, SurvivalSnapshot } from './survival';
 import { z } from "zod";
@@ -172,6 +174,7 @@ export const CommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flashlight"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("roast"), enabled: z.boolean() }).strict(),
   z.object({ type: z.literal("media.control"), commandId: CommandIdSchema, revision: z.number().int().min(0), action: z.enum(["play","pause","seek","source","queue.add","queue.remove","next","ended"]), position: z.number().finite().min(0).max(86400).optional(), url: z.string().url().max(2048).optional(), itemId:IdSchema.optional(), playbackId:IdSchema.optional() }).strict(),
+  z.object({type:z.literal("npc.interact"),npcId:z.string().startsWith("npc:").max(100),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.select"),slot:z.number().int().min(0).max(4),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.equip"),item:z.enum(["flashlight","apple","knife"]),commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
   z.object({type:z.literal("survival.harvest"),treeId:IdSchema,commandId:CommandIdSchema,worldRevision:z.number().int().min(0),lifeRevision:z.number().int().min(0),zoneRevision:z.number().int().min(0)}).strict(),
@@ -225,7 +228,7 @@ export interface RaceState {
 export interface WorldProposal { id: string; commandId: string; proposerId: string; worldId: "living-room" | "forest"; startAt: number; endsAt: number; }
 export interface SharedMedia { playbackId?:string; revision: number; url: string; playing: boolean; position: number; anchorAt: number; queue?: {id:string;url:string;addedBy:string;start?:number}[]; }
 export interface WorldSoundEvent {epoch?:string;worldRevision?:number;id:string;kind:"giggle"|"slash"|"howl"|"growl"|"claw"|"mimic-roar"|"mimic-hit";x:number;y:number;createdAt:number;expiresAt:number;victimId?:string;}
-export interface ForestMimicState {kind:"mimic";id:string;x:number;y:number;originX:number;originY:number;coverId:string;targetId:string;disguisePlayerId:string;disguise:AvatarConfig;phase:"approach"|"morph"|"chase"|"retreat";startedAt:number;phaseUntil:number;transformed:boolean;}
+export interface ForestMimicState {kind:"mimic";id:string;x:number;y:number;originX:number;originY:number;coverId:string;targetId:string;disguisePlayerId:string;disguise:AvatarConfig;disguiseKind?:"player"|"npc";disguiseArt?:ForestNPCArt;phase:"approach"|"linger"|"morph"|"chase"|"retreat";startedAt:number;phaseUntil:number;transformed:boolean;morphStartedAt?:number;chaseStartedAt?:number;}
 export interface ForestStalker {greeting?:{id:string;text:string;shownAt:number;until:number};leap?:{phase:"windup"|"air";startedAt:number;until:number;fromX:number;fromY:number;toX:number;toY:number};kind?:"werewolf";intent?:"hunt"|"perimeter";originX?:number;originY?:number;giggleAt?:number;id:string;x:number;y:number;targetId:string;coverId:string;phase:"peek"|"chase"|"retreat";startedAt:number;phaseUntil:number;}
 export interface RoomSnapshot {
   survival?: SurvivalSnapshot;
@@ -234,6 +237,7 @@ export interface RoomSnapshot {
   stalker?: ForestStalker | null;
   werewolf?: ForestStalker | null;
   mimic?: ForestMimicState | null;
+  npcs?: ForestNPC[];
   homeId: string;
   rootWorldId?: "living-room" | "forest";
   worldId: "living-room" | "forest" | "asylum";

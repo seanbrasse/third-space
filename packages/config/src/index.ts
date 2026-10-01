@@ -195,6 +195,11 @@ export const WORLDS: Record<WorldId,WorldDefinition> = {
   forest:{id:"forest",mediaEnabled:false,name:"Midnight Pines",description:"A warm fire. A dark forest. Stay a little longer.",map:FOREST_MAP,camera:"follow",dark:true,fire:{x:24,y:24},stalker:{safeRadius:9,viewRadius:10,intervalMs:30000,campMinMs:300000,campMaxMs:600000,peekMs:3000,chaseMs:14000},mediaSurface:{id:"camp-tv",x:31.375,y:23.875,width:2.25,height:.9375,source:{x:32.5,y:26}}},
 };
 export function getWorld(id: WorldId = "living-room") { return WORLDS[id]; }
+// Navigation can safely retain a spatial index only for immutable geometry.
+for (const world of Object.values(WORLDS)) {
+  for (const solid of world.map.solids) Object.freeze(solid);
+  Object.freeze(world.map.solids);
+}
 export const ACTIVE_WORLD_IDS = ["forest"] as const;
 export const CAMP_RACE_DOOR = {x:15,y:14.5};
 export const WORLD_COUNTDOWN_MS=8_000;

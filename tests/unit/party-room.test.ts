@@ -607,6 +607,8 @@ describe("shared reusable social worlds",()=>{
   it("respawns a caught explorer safely, clears intent, rejects pre-respawn input and scopes the one stalker by area",()=>{
     vi.spyOn(Math,"random").mockReturnValue(.5);
     const clients=harness.fill(),c=clients[0]!;propose(c);harness.advance(481);
+    // Isolate the human catch regression; shared NPC prey has dedicated room tests.
+    (harness.room as unknown as {npcs:unknown}).npcs=null;
     Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});
     for(let ticks=0;ticks<2700&&!harness.room.players.get(c.auth.userId)!.respawnCount;ticks+=3)harness.advance(3);
     const encountered=c.received<RoomSnapshot>("snapshot").find(s=>s.stalker);
@@ -628,6 +630,7 @@ describe("shared reusable social worlds",()=>{
   it("drops a pursuit when its explorer disconnects and reconnects the same live avatar",async()=>{
     vi.spyOn(Math,"random").mockReturnValue(.5);
     const c=harness.fill()[0]!;propose(c);harness.advance(481);
+    (harness.room as unknown as {npcs:unknown}).npcs=null;
     Object.assign(harness.room.players.get(c.auth.userId)!,{x:24,y:10.5});harness.advance(1803);
     expect(c.snapshot().stalker?.phase).toBe("peek");
     let resolve!:(client:AuthorityClient)=>void;const wait=new Promise<AuthorityClient>(done=>{resolve=done;});

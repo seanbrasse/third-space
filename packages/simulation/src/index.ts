@@ -90,103 +90,242 @@ export interface NavigationMap {
   height: number;
   solids: readonly Rect[];
 }
-export function isHomeWalkable(point: Point, map: NavigationMap = HOME_MAP): boolean {
+/** Bounded caches/work per immutable world; mutable fixture maps remain uncached. */
+export const NAVIGATION_LIMITS = Object.freeze({
+  cellSize: 4,
+  maxIndexedSolids: 16_384,
+  maxIndexEntries: 65_536,
+  maxCachedNodes: 32_768,
+  maxSearchNodes: 65_536,
+  maxExpandedNodes: 65_536,
+  maxSmoothChecks: 2_048,
+});
+type SolidIndex = {
+  buckets: Map<string, number[]>;
+  overflow: number[];
+  solids: readonly Rect[];
+  seen: Uint32Array;
+  stamp: number;
+};
+type NavigationCache = {
+  solids: readonly Rect[];
+  width: number;
+  height: number;
+  index: SolidIndex | null;
+  nodes: Map<number, Point | null>;
+};
+const navigationCaches = new WeakMap<NavigationMap, NavigationCache>();
+const cellKey = (x: number, y: number) => `${x}:${y}`;
+function buildSolidIndex(solids: readonly Rect[]): SolidIndex | null {
+  if (solids.length > NAVIGATION_LIMITS.maxIndexedSolids) return null;
+  const index: SolidIndex = { buckets: new Map(), overflow: [], solids, seen: new Uint32Array(solids.length), stamp: 0 };
+  let entries = 0;
+  for (let id = 0; id < solids.length; id++) {
+    const solid = solids[id]!;
+    const minX = Math.floor(solid.x / NAVIGATION_LIMITS.cellSize), maxX = Math.floor((solid.x + solid.width) / NAVIGATION_LIMITS.cellSize);
+    const minY = Math.floor(solid.y / NAVIGATION_LIMITS.cellSize), maxY = Math.floor((solid.y + solid.height) / NAVIGATION_LIMITS.cellSize);
+    const count = (maxX - minX + 1) * (maxY - minY + 1);
+    // Very long walls and malformed rectangles stay in a small always-tested
+    // list. Index construction never loops over unbounded rectangle extents.
+    if (![minX, maxX, minY, maxY].every(Number.isSafeInteger) || maxX < minX || maxY < minY || !Number.isSafeInteger(count) || count < 1 || count > 256 || entries + count > NAVIGATION_LIMITS.maxIndexEntries) {
+      index.overflow.push(id); continue;
+    }
+    for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+      const key = cellKey(x, y), bucket = index.buckets.get(key);
+      if (bucket) bucket.push(id); else index.buckets.set(key, [id]);
+    }
+    entries += count;
+  }
+  return index;
+}
+function navigationCache(map: NavigationMap): NavigationCache | null {
+  const previous = navigationCaches.get(map);
+  if (previous && previous.solids === map.solids && previous.width === map.width && previous.height === map.height) return previous;
+  // A readonly TypeScript type is not runtime immutability. In-place same-length
+  // edits are legal in fixture/editor maps, so never cache those geometries.
+  if (!Object.isFrozen(map.solids) || !map.solids.every(Object.isFrozen)) {
+    if (previous) navigationCaches.delete(map);
+    return null;
+  }
+  const cache = { solids: map.solids, width: map.width, height: map.height, index: buildSolidIndex(map.solids), nodes: new Map<number, Point | null>() };
+  navigationCaches.set(map, cache); return cache;
+}
+/** True if any candidate satisfies the exact collision predicate. */
+function someSolid(solids: readonly Rect[], index: SolidIndex | null, minX: number, minY: number, maxX: number, maxY: number, test: (solid: Rect) => boolean): boolean {
+  if (!index) return solids.some(test);
+  const left = Math.floor(minX / NAVIGATION_LIMITS.cellSize), right = Math.floor(maxX / NAVIGATION_LIMITS.cellSize);
+  const top = Math.floor(minY / NAVIGATION_LIMITS.cellSize), bottom = Math.floor(maxY / NAVIGATION_LIMITS.cellSize);
+  // Wide diagonal LOS queries can cross a mostly-empty enormous bounding box.
+  // A full scan then costs less and retains exact semantics.
+  const cells = (right - left + 1) * (bottom - top + 1);
+  if (![left, right, top, bottom].every(Number.isSafeInteger) || !Number.isSafeInteger(cells) || cells > Math.max(16, index.buckets.size)) return index.solids.some(test);
+  index.stamp = (index.stamp + 1) >>> 0;
+  if (index.stamp === 0) { index.seen.fill(0); index.stamp = 1; }
+  for (const id of index.overflow) { index.seen[id] = index.stamp; if (test(index.solids[id]!)) return true; }
+  for (let y = top; y <= bottom; y++) for (let x = left; x <= right; x++) {
+    const bucket = index.buckets.get(cellKey(x, y));
+    if (!bucket) continue;
+    for (const id of bucket) {
+      if (index.seen[id] === index.stamp) continue;
+      index.seen[id] = index.stamp;
+      if (test(index.solids[id]!)) return true;
+    }
+  }
+  return false;
+}
+function walkable(point: Point, map: NavigationMap, index: SolidIndex | null): boolean {
   return Number.isFinite(point.x) && Number.isFinite(point.y) &&
     point.x >= RADIUS && point.y >= RADIUS &&
     point.x <= map.width - RADIUS && point.y <= map.height - RADIUS &&
-    !map.solids.some((solid) => overlapsPlayer(point, solid));
+    !someSolid(map.solids, index, point.x - RADIUS, point.y - RADIUS, point.x + RADIUS, point.y + RADIUS, solid => overlapsPlayer(point, solid));
 }
-
+export function isHomeWalkable(point: Point, map: NavigationMap = HOME_MAP): boolean {
+  return walkable(point, map, navigationCache(map)?.index ?? null);
+}
+function segmentHitsSolid(from: Point, to: Point, solid: Rect): boolean {
+  let enter = 0, exit = 1;
+  for (const axis of ["x", "y"] as const) {
+    const size = axis === "x" ? "width" : "height";
+    const low = solid[axis] - RADIUS + EPSILON;
+    const high = solid[axis] + solid[size] + RADIUS - EPSILON;
+    const delta = to[axis] - from[axis];
+    if (Math.abs(delta) < EPSILON) {
+      if (from[axis] <= low || from[axis] >= high) return false;
+    } else {
+      const a = (low - from[axis]) / delta, b = (high - from[axis]) / delta;
+      enter = Math.max(enter, Math.min(a, b)); exit = Math.min(exit, Math.max(a, b));
+    }
+  }
+  return enter <= exit && enter <= 1 && exit >= 0;
+}
+function segmentWalkable(from: Point, to: Point, map: NavigationMap, index: SolidIndex | null): boolean {
+  if (!walkable(from, map, index) || !walkable(to, map, index)) return false;
+  return !someSolid(map.solids, index, Math.min(from.x, to.x) - RADIUS, Math.min(from.y, to.y) - RADIUS,
+    Math.max(from.x, to.x) + RADIUS, Math.max(from.y, to.y) + RADIUS, solid => segmentHitsSolid(from, to, solid));
+}
 /** Swept avatar footprint against expanded rectangles; no diagonal corner cutting. */
 export function isHomeSegmentWalkable(from: Point, to: Point, map: NavigationMap = HOME_MAP): boolean {
-  if (!isHomeWalkable(from, map) || !isHomeWalkable(to, map)) return false;
-  for (const solid of map.solids) {
-    let enter = 0;
-    let exit = 1;
-    for (const axis of ["x", "y"] as const) {
-      const size = axis === "x" ? "width" : "height";
-      const low = solid[axis] - RADIUS + EPSILON;
-      const high = solid[axis] + solid[size] + RADIUS - EPSILON;
-      const delta = to[axis] - from[axis];
-      if (Math.abs(delta) < EPSILON) {
-        if (from[axis] <= low || from[axis] >= high) { enter = 2; break; }
-      } else {
-        const a = (low - from[axis]) / delta;
-        const b = (high - from[axis]) / delta;
-        enter = Math.max(enter, Math.min(a, b));
-        exit = Math.min(exit, Math.max(a, b));
-      }
-    }
-    if (enter <= exit && enter <= 1 && exit >= 0) return false;
+  return segmentWalkable(from, to, map, navigationCache(map)?.index ?? null);
+}
+type SearchNode = { cost: number; parent?: number; closed: boolean; heapIndex: number; score: number; heuristic: number };
+/** Indexed binary heap: one entry per discovered node, no stale duplicate queue. */
+class NavigationHeap {
+  private ids: number[] = [];
+  constructor(private records: Map<number, SearchNode>) {}
+  get size() { return this.ids.length; }
+  private before(a: number, b: number) {
+    const x = this.records.get(a)!, y = this.records.get(b)!;
+    return x.score < y.score || x.score === y.score && (x.heuristic < y.heuristic || x.heuristic === y.heuristic && a < b);
   }
-  return true;
+  update(id: number) {
+    const record = this.records.get(id)!;
+    let at = record.heapIndex;
+    if (at < 0) { at = this.ids.length; this.ids.push(id); }
+    while (at > 0) {
+      const parent = (at - 1) >>> 1, parentId = this.ids[parent]!;
+      if (!this.before(id, parentId)) break;
+      this.ids[at] = parentId; this.records.get(parentId)!.heapIndex = at; at = parent;
+    }
+    this.ids[at] = id; record.heapIndex = at;
+  }
+  pop(): number | undefined {
+    if (!this.ids.length) return undefined;
+    const first = this.ids[0]!, last = this.ids.pop()!;
+    this.records.get(first)!.heapIndex = -1;
+    if (this.ids.length) {
+      let at = 0;
+      while (at * 2 + 1 < this.ids.length) {
+        let child = at * 2 + 1;
+        if (child + 1 < this.ids.length && this.before(this.ids[child + 1]!, this.ids[child]!)) child++;
+        if (!this.before(this.ids[child]!, last)) break;
+        this.ids[at] = this.ids[child]!; this.records.get(this.ids[at]!)!.heapIndex = at; at = child;
+      }
+      this.ids[at] = last; this.records.get(last)!.heapIndex = at;
+    }
+    return first;
+  }
 }
 
-/** Bounded half-tile A*. Includes exact off-grid endpoints and smooths only safe segments.
- * Waypoints are movement targets; clients still submit bounded direction inputs. */
-const navigationNodes=new WeakMap<NavigationMap,Map<number,Point|null>>();
+/** Sparse bounded half-tile A*. Includes exact endpoints and only smooths safe
+ * swept segments. Map area alone never rejects a route; work/memory are bounded. */
 export function findHomePath(start: Point, goal: Point, map: NavigationMap = HOME_MAP): Point[] | null {
-  if (!isHomeWalkable(start, map) || !isHomeWalkable(goal, map)) return null;
-  if (isHomeSegmentWalkable(start, goal, map)) return distance(start, goal) < EPSILON ? [{...start}] : [{...start}, {...goal}];
-  const columns = Math.floor(map.width * 2) + 1;
-  const rows = Math.floor(map.height * 2) + 1;
-  if (columns * rows > 32_768) return null;
-  // Immutable world definitions share lazy walkability. Most paths visit a tiny
-  // part of the bounded forest; no full-map solid scan on each click or pursuit.
-  let cached=navigationNodes.get(map);if(!cached){cached=new Map();navigationNodes.set(map,cached);}
-  const nodes=cached;
-  const node=(id:number)=>{if(nodes.has(id))return nodes.get(id);const point={x:(id%columns)/2,y:Math.floor(id/columns)/2};const result=isHomeWalkable(point,map)?point:null;nodes.set(id,result);return result;};
-  const goalCosts = new Map<number, number>();
-  const open = new Set<number>();
-  const costs = new Map<number, number>();
-  const parents = new Map<number, number>();
-  for(const endpoint of [start,goal])for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){
-    const col=Math.round(endpoint.x*2)+dx,row=Math.round(endpoint.y*2)+dy;if(col<0||col>=columns||row<0||row>=rows)continue;
-    const id=row*columns+col,point=node(id);if(!point||distance(point,endpoint)>1.1||!isHomeSegmentWalkable(endpoint,point,map))continue;
-    if(endpoint===start){costs.set(id,distance(start,point));open.add(id);}else goalCosts.set(id,distance(point,goal));
+  const cache = navigationCache(map);
+  // Mutable maps get an index only for this synchronous search; there is no
+  // retained walkability after a caller edits/replaces any rectangle.
+  const index = cache?.index ?? buildSolidIndex(map.solids);
+  if (!walkable(start, map, index) || !walkable(goal, map, index)) return null;
+  if (segmentWalkable(start, goal, map, index)) return distance(start, goal) < EPSILON ? [{...start}] : [{...start}, {...goal}];
+  const columns = Math.floor(map.width * 2) + 1, rows = Math.floor(map.height * 2) + 1;
+  if (!Number.isSafeInteger(columns * rows) || columns < 1 || rows < 1) return null;
+  const nodes = cache?.nodes ?? new Map<number, Point | null>();
+  const node = (id: number): Point | null => {
+    if (nodes.has(id)) return nodes.get(id)!;
+    const point = { x: (id % columns) / 2, y: Math.floor(id / columns) / 2 };
+    const result = walkable(point, map, index) ? point : null;
+    if (nodes.size < NAVIGATION_LIMITS.maxCachedNodes) nodes.set(id, result);
+    return result;
+  };
+  const goals = new Map<number, number>(), records = new Map<number, SearchNode>();
+  const open = new NavigationHeap(records);
+  for (const endpoint of [start, goal]) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    const col = Math.round(endpoint.x * 2) + dx, row = Math.round(endpoint.y * 2) + dy;
+    if (col < 0 || col >= columns || row < 0 || row >= rows) continue;
+    const id = row * columns + col, point = node(id);
+    if (!point || distance(point, endpoint) > 1.1 || !segmentWalkable(endpoint, point, map, index)) continue;
+    if (endpoint === goal) { goals.set(id, distance(point, goal)); continue; }
+    const cost = distance(start, point), heuristic = distance(point, goal);
+    records.set(id, { cost, heuristic, score: cost + heuristic, closed: false, heapIndex: -1 }); open.update(id);
   }
-  let terminal: number | undefined;
-  let terminalCost = Infinity;
-  const closed = new Set<number>();
-  while (open.size && closed.size < 16_384) {
-    let current = -1;
-    let best = Infinity;
-    for (const id of open) {
-      const score = costs.get(id)! + distance(nodes.get(id)!, goal);
-      if (score < best) { best = score; current = id; }
-    }
-    if (best >= terminalCost) break;
-    open.delete(current); closed.add(current);
-    const currentPoint = nodes.get(current)!;
-    const remaining = goalCosts.get(current);
-    if (remaining !== undefined && costs.get(current)! + remaining < terminalCost) {
-      terminal = current; terminalCost = costs.get(current)! + remaining;
-    }
-    const column = current % columns;
-    const row = Math.floor(current / columns);
+  if (!goals.size) return null;
+  let terminal: number | undefined, terminalCost = Infinity, expanded = 0;
+  while (open.size && expanded < NAVIGATION_LIMITS.maxExpandedNodes) {
+    const current = open.pop()!, record = records.get(current)!;
+    if (record.score >= terminalCost) break;
+    record.closed = true; expanded++;
+    const currentPoint = node(current)!;
+    const remaining = goals.get(current);
+    if (remaining !== undefined && record.cost + remaining < terminalCost) { terminal = current; terminalCost = record.cost + remaining; }
+    const column = current % columns, row = Math.floor(current / columns);
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       if ((!dx && !dy) || column + dx < 0 || column + dx >= columns || row + dy < 0 || row + dy >= rows) continue;
       const id = (row + dy) * columns + column + dx;
+      let nextRecord = records.get(id);
+      if (nextRecord?.closed) continue;
       const next = node(id);
-      if (!next || closed.has(id) || !isHomeSegmentWalkable(currentPoint, next, map)) continue;
-      const candidate = costs.get(current)! + distance(currentPoint, next);
-      if (candidate < (costs.get(id) ?? Infinity)) {
-        costs.set(id, candidate); parents.set(id, current); open.add(id);
-      }
+      if (!next || !segmentWalkable(currentPoint, next, map, index)) continue;
+      const candidate = record.cost + (dx && dy ? Math.SQRT1_2 : .5);
+      if (candidate >= (nextRecord?.cost ?? Infinity)) continue;
+      if (!nextRecord) {
+        if (records.size >= NAVIGATION_LIMITS.maxSearchNodes) continue;
+        const heuristic = distance(next, goal);
+        nextRecord = { cost: candidate, parent: current, heuristic, score: candidate + heuristic, closed: false, heapIndex: -1 };
+        records.set(id, nextRecord);
+      } else { nextRecord.cost = candidate; nextRecord.parent = current; nextRecord.score = candidate + nextRecord.heuristic; }
+      open.update(id);
     }
   }
   if (terminal === undefined) return null;
   const reverse: Point[] = [];
   let cursor: number | undefined = terminal;
-  while (cursor !== undefined) { reverse.push(nodes.get(cursor)!); cursor = parents.get(cursor); }
-  const raw = [{...start}, ...reverse.reverse(), {...goal}];
-  const smooth: Point[] = [raw[0]!];
-  let index = 0;
-  while (index < raw.length - 1) {
+  while (cursor !== undefined) { reverse.push(node(cursor)!); cursor = records.get(cursor)!.parent; }
+  const raw = [{...start}, ...reverse.reverse(), {...goal}], smooth: Point[] = [{...start}];
+  let cursorIndex = 0, smoothChecks = 0;
+  while (cursorIndex < raw.length - 1) {
+    if (smoothChecks >= NAVIGATION_LIMITS.maxSmoothChecks) {
+      // Every raw edge was already swept-tested. Keep a valid unsmoothed tail
+      // rather than turn a winding route into quadratic LOS work.
+      for (const point of raw.slice(cursorIndex + 1)) if (distance(smooth[smooth.length - 1]!, point) > EPSILON) smooth.push({...point});
+      break;
+    }
     let next = raw.length - 1;
-    while (next > index + 1 && !isHomeSegmentWalkable(raw[index]!, raw[next]!, map)) next--;
+    while (next > cursorIndex + 1) {
+      if (smoothChecks >= NAVIGATION_LIMITS.maxSmoothChecks) { next = cursorIndex + 1; break; }
+      smoothChecks++;
+      if (segmentWalkable(raw[cursorIndex]!, raw[next]!, map, index)) break;
+      next--;
+    }
     if (distance(smooth[smooth.length - 1]!, raw[next]!) > EPSILON) smooth.push({...raw[next]!});
-    index = next;
+    cursorIndex = next;
   }
   return smooth;
 }
@@ -205,18 +344,21 @@ function moveAxis(
   delta: number,
   axis: "x" | "y",
   solids: readonly Rect[],
+  map?: NavigationMap,
 ): number {
+  if (delta === 0) return player[axis];
   let target = player[axis] + delta;
   const otherAxis = axis === "x" ? "y" : "x";
   const size = axis === "x" ? "width" : "height";
   const otherSize = axis === "x" ? "height" : "width";
-  for (const solid of solids) {
+  const end = { x: player.x, y: player.y, [axis]: target };
+  someSolid(solids, map ? navigationCache(map)?.index ?? null : null, Math.min(player.x, end.x) - RADIUS, Math.min(player.y, end.y) - RADIUS, Math.max(player.x, end.x) + RADIUS, Math.max(player.y, end.y) + RADIUS, solid => {
     if (
       player[otherAxis] + RADIUS <= solid[otherAxis] + EPSILON ||
       player[otherAxis] - RADIUS >=
         solid[otherAxis] + solid[otherSize] - EPSILON
     )
-      continue;
+      return false;
     if (
       delta > 0 &&
       player[axis] + RADIUS <= solid[axis] + EPSILON &&
@@ -229,7 +371,8 @@ function moveAxis(
       target - RADIUS < solid[axis] + solid[size]
     )
       target = Math.max(target, solid[axis] + solid[size] + RADIUS);
-  }
+    return false;
+  });
   return target;
 }
 
@@ -276,14 +419,14 @@ export function stepHome(
   for (let i = 0; i < count; i++) {
     const oldX = next.x;
     next.x = clamp(
-      moveAxis(next, next.vx * step, "x", map.solids),
+      moveAxis(next, next.vx * step, "x", map.solids, map),
       RADIUS,
       map.width - RADIUS,
     );
     if (Math.abs(next.x - oldX - next.vx * step) > EPSILON) next.vx = 0;
     const oldY = next.y;
     next.y = clamp(
-      moveAxis(next, next.vy * step, "y", map.solids),
+      moveAxis(next, next.vy * step, "y", map.solids, map),
       RADIUS,
       map.height - RADIUS,
     );

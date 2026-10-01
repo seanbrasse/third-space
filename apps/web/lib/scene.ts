@@ -1,3 +1,5 @@
+import { ForestNPCPresentation } from './forest-npc-presentation';
+import { forestCameraZoom } from "../../../packages/config/src/forest-view";
 import { mimicSpriteCanvas } from "./mimic-art";
 import { mimicPresentation } from "./mimic-presentation";
 import { chatTextMetrics } from "./chat-presentation";
@@ -55,6 +57,7 @@ function snapshotSeats(bridge: WorldBridge, selfId: string) {
 }
 export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
   class HomeScene extends Phaser.Scene {
+    private npcPresentation: ForestNPCPresentation | null = null;
     private survivalPresentation: SurvivalPresentation | null = null;
     private racePresentation: RacePresentation | null = null;
     private nodes = new Map<string, Node>();
@@ -199,6 +202,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.events.once(Phaser.Scenes.Events.DESTROY,releaseBounds);
       refreshBounds();
       this.scale.on("resize", () => this.fit());
+      this.npcPresentation=new ForestNPCPresentation(this,npcId=>{if(!bridge.blocked)bridge.send({type:"npc.interact",npcId});});
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.npcPresentation?.destroy());
       this.survivalPresentation=new SurvivalPresentation(this,command=>{if(!bridge.blocked)bridge.send(command);});
       this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.survivalPresentation?.destroy());
       this.drawHome();
@@ -216,7 +221,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
             height / (race ? RACE_MAP.height * TILE : H),
           ),
         );
-      if(this.forest) this.cameras.main.setZoom(Math.min(width/(22*TILE),height/(22*TILE)));
+      if(this.forest) this.cameras.main.setZoom(forestCameraZoom(width,height,TILE));
       if (!race && !this.forest) this.cameras.main.centerOn(W / 2, H / 2);
     }
     clearMap() {
@@ -588,6 +593,8 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         bridge.send({ type: "seat", seatId: null });
         return;
       }
+      const npc=bridge.snapshot?.npcs?.filter(n=>n.phase!=="respawning"&&distance(self,n)<=2.5&&isHomeSegmentWalkable(self,n,this.map)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
+      if(npc){bridge.send({type:"npc.interact",npcId:npc.id});return;}
       const occupied = new Set(snapshotSeats(bridge, self.id));
       const candidates = this.map.furniture
         .flatMap<Point & { action: string }>((item) =>
@@ -649,6 +656,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         mode === "race" ? this.drawRace() : this.dark ? this.drawForest() : this.drawHome();
         this.fit();
       }
+      if(self)this.npcPresentation?.update(this.forest?snapshot.npcs??[]:[],self,snapshot.serverTime,TILE,bridge.reducedMotion);
       if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
       const typing = isGameInputBlocked(document.activeElement);
@@ -919,11 +927,12 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
         avatar.setVisible(!!mimic);monster.setVisible(!!mimic);
         if(mimic){
           const presentation=mimicPresentation(mimic,snapshot.serverTime,bridge.reducedMotion);
-          const target=snapshot.players.find(p=>p.id===mimic.targetId),dx=(target?.x??mimic.x)-mimic.x,dy=(target?.y??mimic.y)-mimic.y;
+          const target=snapshot.players.find(p=>p.id===mimic.targetId)??snapshot.npcs?.find(p=>p.id===mimic.targetId),dx=(target?.x??mimic.x)-mimic.x,dy=(target?.y??mimic.y)-mimic.y;
           const facing=Math.abs(dx)>Math.abs(dy)?dx<0?"left":"right":dy<0?"up":"down";
           // A cosmetic node never enters players/names/roster or receives an input identity.
           const visual={...snapshot.players[0]!,avatar:mimic.disguise,facing,seatId:undefined} as Player;
           avatar.setTexture(this.avatarTexture(visual,bridge.reducedMotion?0:Math.floor(snapshot.serverTime/250)%2));
+          if(mimic.disguiseKind==="npc")avatar.setDisplaySize(TILE*.9,TILE*1.2);else avatar.setScale(AVATAR_SCALE);
           avatar.setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.1).setAlpha(presentation.avatarAlpha*(mimic.phase==="retreat"?Math.max(0,(mimic.phaseUntil-snapshot.serverTime)/900):1));
           monster.setTexture("forest-mimic-"+presentation.frame).setPosition(mimic.x*TILE,mimic.y*TILE).setDepth(mimic.y*TILE+.2).setAlpha(presentation.monsterAlpha).setRotation(presentation.rotation);
         }

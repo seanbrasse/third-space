@@ -111,12 +111,13 @@ export class ForestEncounter {
         else if (this.state.giggleAt) this.encounterSounds.push({ id: `clown:${this.state.id}:perimeter`, kind: "giggle", x: point.x, y: point.y, createdAt: now, expiresAt: now + 1200 });
     }
     /** Returns a caught identity once. PartyRoom alone performs the respawn. */
-    update(now: number, players: readonly PlayerState[]): string | null {
+    update(now: number, players: readonly PlayerState[], humanObservers: readonly PlayerState[] = players): string | null {
         const rules = this.world.stalker!, fire = this.world.fire!, map = this.world.map;
         if (!this.nextAt)
             this.reset(now);
         const home = players.filter(p => p.connected && !p.zone && p.mode === "home");
-        const allSafe = home.length > 0 && home.every(p => distance(p, fire) <= rules.safeRadius);
+        const observers = humanObservers.filter(p => p.connected && !p.zone && p.mode === "home");
+        const allSafe = observers.length > 0 && observers.every(p => distance(p, fire) <= rules.safeRadius);
         if (allSafe && !this.allSafe)
             this.campAt = now + (rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs)) * (this.behavior ? this.behavior.intervalMs / rules.intervalMs : 1);
         if (!allSafe && this.allSafe) {
@@ -129,13 +130,13 @@ export class ForestEncounter {
                 if (now < this.campAt)
                     return null;
                 this.campAt = now + (rules.campMinMs + this.random() * (rules.campMaxMs - rules.campMinMs)) * (this.behavior ? this.behavior.intervalMs / rules.intervalMs : 1);
-                const candidates = this.cover.filter(c => distance(c.point, fire) <= rules.safeRadius + 4 && (this.behavior ? home.every(p => distance(p, c.point) > rules.viewRadius + this.behavior!.hiddenMargin) : home.some(p => distance(p, c.point) <= rules.viewRadius)));
+                const candidates = this.cover.filter(c => distance(c.point, fire) <= rules.safeRadius + 4 && (this.behavior ? observers.every(p => distance(p, c.point) > rules.viewRadius + this.behavior!.hiddenMargin) : observers.some(p => distance(p, c.point) <= rules.viewRadius)));
                 if (!candidates.length) {
                     if (this.behavior) this.campAt = now + 5000;
                     return null;
                 }
                 const c = candidates[Math.min(candidates.length - 1, Math.floor(this.random() * candidates.length))]!;
-                const viewer = home.reduce((a, b) => distance(a, c.point) < distance(b, c.point) ? a : b);
+                const viewer = observers.reduce((a, b) => distance(a, c.point) < distance(b, c.point) ? a : b);
                 this.spawn(c.point, c.id, viewer.id, "perimeter", now);
                 return null;
             }
@@ -146,7 +147,7 @@ export class ForestEncounter {
                 const d = distance(p, c.point);
                 return d >= (this.behavior?.minTargetDistance ?? 2.5) && d <= (this.behavior?.maxTargetDistance ?? 7)
                     // All active observers, including protected campers, count for hidden wolf spawning.
-                    && (!this.behavior || home.every(viewer => distance(viewer, c.point) > rules.viewRadius + this.behavior!.hiddenMargin));
+                    && (!this.behavior || observers.every(viewer => distance(viewer, c.point) > rules.viewRadius + this.behavior!.hiddenMargin));
             }) })).filter(candidate => candidate.covers.length > 0);
             if (!candidates.length) {
                 this.nextAt = now + 5000;
