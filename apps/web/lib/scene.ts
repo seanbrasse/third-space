@@ -230,7 +230,7 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.drawHome();
       this.fit();
     }
-    private lastExitRequest=0;
+    private lastExitRequest=bridge.exitRequest??0;
     fit() {
       const race = this.currentMode === "race";
       const width = this.scale.width,
@@ -700,10 +700,6 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
       this.worldLabels.flush();
       if(self)this.survivalPresentation?.update(this.forest?snapshot.survival:undefined,self,snapshot.serverTime,snapshot.players,bridge.reducedMotion);
       if (self && mode === "race") this.racePresentation?.update(self, bridge.reducedMotion ? 0 : time, this.scale.height);
-      if((bridge.exitRequest??0)!==this.lastExitRequest){
-        this.lastExitRequest=bridge.exitRequest??0;
-        if(!bridge.blocked&&mode==='home'&&snapshot.worldId.startsWith('interior:')){const exit=this.map.furniture.find(item=>item.kind==='portal');if(exit)this.useFurniture(exit);}
-      }
       const typing = isGameInputBlocked(document.activeElement);
       const active =
         !bridge.blocked &&
@@ -742,6 +738,15 @@ export async function createWorld(parent: HTMLElement, bridge: WorldBridge) {
                 y: previous.y - this.prediction.y,
               }
             : { x: 0, y: 0 };
+      }
+      if((bridge.exitRequest??0)!==this.lastExitRequest){
+        // A button click restores game focus on the next animation frame. Keep
+        // its request until movement is active, or that frame cancels the walk.
+        if(mode!=='home'||!snapshot.worldId.startsWith('interior:')||self?.respawnAt)this.lastExitRequest=bridge.exitRequest??0;
+        else if(active&&this.prediction){
+          this.lastExitRequest=bridge.exitRequest??0;
+          const exit=this.map.furniture.find(item=>item.kind==='portal');if(exit)this.useFurniture(exit);
+        }
       }
       const controls = this.movement.read();
       if(mode==="home"&&this.forest&&this.prediction){

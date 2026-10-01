@@ -98,10 +98,10 @@ function action(peer: Peer, command: Record<string, unknown>) {
   const player = self(peer); peer.room.send('command', { ...command, commandId: randomUUID(), worldRevision: peer.snapshot!.worldRevision,
     lifeRevision: player.respawnCount ?? 0, zoneRevision: player.zoneRevision ?? 0 });
 }
-async function walk(peer: Peer, goal: { x: number; y: number }, timeout = 5000) {
+async function walk(peer: Peer, goal: { x: number; y: number }, timeout = 5000, transitionTo?: string) {
   const start = Date.now();
   try {
-    while (distance(self(peer), goal) > .15) {
+    while (peer.snapshot?.worldId !== transitionTo && distance(self(peer), goal) > .15) {
       if (Date.now() - start > timeout) throw new Error('Real authoritative input did not reach its goal.');
       const p = self(peer), d = distance(p, goal), gain = Math.min(1, d * 2.4);
       const command: ClientCommand = { type: 'input', worldRevision: peer.snapshot!.worldRevision, lifeRevision: p.respawnCount ?? 0, zoneRevision: p.zoneRevision ?? 0,
@@ -171,14 +171,15 @@ describe('real forest delta transport and authority', () => {
 
     const entrySeq = visitor.state!.seq; action(visitor, { type: 'interior.enter', interiorId: setup.interiorId });
     await until(() => visitor.snapshot?.worldId === setup.interiorId, 'Accepted interior entry did not transition the delta client.');
-    const enteredAt = Date.now();
     expect(visitor.receivedKinds.some(f => f.seq > entrySeq && f.kind === 'full' && f.worldId === setup.interiorId)).toBe(true);
     expect(visitor.snapshot!.members).toHaveLength(8); expect(visitor.snapshot!.players.map(p => p.id)).toEqual([visitor.identity.id]);
     expect(visitor.snapshot!.npcs).toBeUndefined();
     await until(() => peers.filter(p => p !== visitor).every(p => p.snapshot!.players.length === 7 && p.snapshot!.members?.length === 8), 'Outdoor scope did not preserve roster while excluding interior actors.');
     await exactCaptured(visitor);
-    await walk(visitor, setup.exit); await pause(Math.max(0, 1650 - (Date.now() - enteredAt)));
-    const exitSeq = visitor.state!.seq; action(visitor, { type: 'interior.enter', interiorId: 'outside' });
+    const exitSeq = visitor.state!.seq;
+    // The real doorway completes the exit after its cooldown; no delayed
+    // synthetic exit command should be needed once the walk reaches it.
+    await walk(visitor, setup.exit, 5000, 'forest');
     await until(() => visitor.snapshot?.worldId === 'forest' && peers.every(p => p.snapshot?.players.length === 8), 'Real interior exit did not restore shared outdoor snapshots.');
     expect(visitor.receivedKinds.some(f => f.seq > exitSeq && f.kind === 'full' && f.worldId === 'forest')).toBe(true);
 
