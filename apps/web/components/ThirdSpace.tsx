@@ -213,7 +213,7 @@ export default function ThirdSpace() {
     noticeTimer.current = setTimeout(() => setToast(""), 4500);
   }, []);
   const send = useCallback((command: Record<string, unknown>) => {
-    if (typeof command.type==="string" && command.type.startsWith("survival.")) {
+    if (typeof command.type==="string" && (command.type.startsWith("survival.") || command.type === "npc.interact")) {
       const snapshot=bridgeRef.current?.snapshot, player=snapshot?.players.find(p=>p.id===identityRef.current?.id);
       if(!snapshot || !player || !bridgeRef.current?.transportConnected)return;
       command={...command,commandId:id(),worldRevision:snapshot.worldRevision,...(command.type==="survival.pvp"?{}:{lifeRevision:player.respawnCount??0,zoneRevision:player.zoneRevision??0})};

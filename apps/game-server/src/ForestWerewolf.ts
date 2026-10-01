@@ -20,8 +20,8 @@ export class ForestWerewolf extends ForestEncounter {
     override reset(now: number) {
         super.reset(now); this.sounds = []; this.growlAt = 0;
     }
-    override update(now: number, players: readonly PlayerState[]) {
-        const previous = this.state?.id, caught = super.update(now, players), s = this.state;
+    override update(now: number, players: readonly PlayerState[], humanObservers: readonly PlayerState[] = players) {
+        const previous = this.state?.id, caught = super.update(now, players, humanObservers), s = this.state;
         if (s && s.id !== previous) {
             this.sounds.push({ id: `werewolf:${s.id}:howl`, kind: 'howl', x: s.x, y: s.y, createdAt: now, expiresAt: now + 1800 });
             this.growlAt = now + 3500;

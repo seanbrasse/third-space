@@ -6,7 +6,7 @@ export type GameSoundKind = 'player-step' | 'clown-step' | 'giggle' | 'slash' | 
 export function gameSoundGain(kind: GameSoundKind, distance: number, volume: number) {
     const approach = kind === 'clown-step' || kind === 'werewolf-step' || kind === 'mimic-step';
     const range = kind === 'player-step' ? 8 : kind === 'howl' ? 32 : approach ? 16 : 12;
-    const level = { 'player-step': .07, 'clown-step': .24, giggle: .075, slash: .24, howl: .20, growl: .18, claw: .24, 'werewolf-step': .22, 'clown-scare': .16, 'werewolf-scare': .16, 'mimic-scare': .16, 'mimic-step': .24, 'mimic-roar': .18, 'mimic-hit': .24 }[kind];
+    const level = { 'player-step': .07, 'clown-step': .24, giggle: .075, slash: .24, howl: .20, growl: .18, claw: .24, 'werewolf-step': .22, 'clown-scare': .16, 'werewolf-scare': .16, 'mimic-scare': .16, 'mimic-step': .24, 'mimic-roar': .30, 'mimic-hit': .24 }[kind];
     return level * Math.max(0, Math.min(1, volume)) * Math.pow(Math.max(0, 1 - Math.max(0, distance) / range), approach ? 1.4 : 2);
 }
 export function clownStepInterval(distanceToTarget: number) { return 520 - 300 * Math.max(0, Math.min(1, 1 - distanceToTarget / 8)); }

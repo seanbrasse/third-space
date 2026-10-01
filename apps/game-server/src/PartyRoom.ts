@@ -1,3 +1,4 @@
+import { ForestNPCController } from './ForestNPCController';
 import { createIdlePresence, recordActivity, recordWatching, idleStatus, type IdlePresence } from "./idle-policy";
 import { ForestWerewolf } from "./ForestWerewolf";
 import { createForestSurvival } from './survival-world';
@@ -97,6 +98,8 @@ export class PartyRoom extends Room {
   private encounter: ForestEncounter | null = null;
   private werewolf: ForestWerewolf | null = null;
   private mimic: ForestMimic | null = null;
+  private npcs: ForestNPCController | null = null;
+  private lastNPCTick = 0;
   private accumulation = 0;
   private hostId: string | null = null;
   private windows = new Map<string, number[]>();
@@ -122,6 +125,7 @@ export class PartyRoom extends Room {
     this.encounter = getWorld(this.worldId).stalker ? new ForestEncounter(getWorld(this.worldId)) : null;
     this.werewolf = this.worldId === "forest" ? new ForestWerewolf(getWorld(this.worldId)) : null;
     this.mimic = this.worldId === "forest" ? new ForestMimic(getWorld(this.worldId)) : null;
+    this.npcs = this.worldId === "forest" ? new ForestNPCController(getWorld(this.worldId)) : null;
     this.onMessage("connection.ping", (client, raw: unknown) => {
       const id = (client.auth as Admission)?.userId;
       if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0 || raw > 1e9 || this.clientsByUser.get(id) !== client || !this.cooled(id, "ping", 1000)) return;
@@ -450,6 +454,14 @@ export class PartyRoom extends Room {
       return;
     }
     if(p.respawnAt&&!["input.stop","chat.send","world.object","voice.status","voice.mode"].includes(command.type))return;
+    if (command.type === "npc.interact") {
+      if (this.worldId !== "forest" || this.worldProposal || p.mode !== "home" || p.zone || p.respawnAt || command.worldRevision !== this.worldRevision || command.lifeRevision !== (p.respawnCount ?? 0) || command.zoneRevision !== (p.zoneRevision ?? 0))
+        return this.notice(client,"NPC_STALE","Return outside to talk with them.",command.commandId);
+      if (!this.survival.acceptCommand(p.id, command.commandId, Date.now())) return;
+      if (!this.npcs?.interact(command.npcId,p,Date.now())) this.notice(client,"NPC_UNAVAILABLE","Walk closer, or let them finish speaking.",command.commandId);
+      else {const idle=this.idlePresence.get(p.id);if(idle)recordActivity(idle,Date.now());}
+      this.sendSnapshots(); return;
+    }
     if (command.type.startsWith("survival.")) {
       this.survivalCommand(client, p, command as Extract<ClientCommand, {type: `survival.${string}`}>);
       return;
@@ -949,6 +961,7 @@ export class PartyRoom extends Room {
     this.werewolf=worldId==="forest"?new ForestWerewolf(getWorld(worldId)):null;
     this.werewolf?.reset(Date.now());
     this.mimic=worldId==="forest"?new ForestMimic(getWorld(worldId)):null;
+    this.npcs=worldId==="forest"?new ForestNPCController(getWorld(worldId)):null; this.lastNPCTick=0;
     this.mimic?.reset(Date.now());
     this.proposals.clear(); this.chats.home=[]; this.chats.race=[];
     this.race={id:randomUUID(),phase:"lobby",startAt:0,endAt:0,readyIds:[],results:[]};
@@ -1018,21 +1031,23 @@ export class PartyRoom extends Room {
     const hungerDeaths=this.survival.tick(now,this.worldId==="forest"?[...this.players.values()]:[]);
     for(const id of hungerDeaths)this.knockout(id,"hunger",now);
     const outside=[...this.players.values()].filter(p=>!p.zone);
-    // One threat at a time; overdue rare encounters get first safe opportunity.
-    const mimicCaught=!this.encounter?.state&&!this.werewolf?.state?this.mimic?.update(now,outside):null;
-    const wolfCaught=!this.encounter?.state&&!this.mimic?.state?this.werewolf?.update(now,outside):null;
-    const clownCaught=!this.werewolf?.state&&!this.mimic?.state?this.encounter?.update(now,outside):null;
-    for(const cue of this.encounter?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
-    for(const cue of this.werewolf?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
-    for(const cue of this.mimic?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
-    const caught=mimicCaught??wolfCaught??clownCaught;
-    const encounter=mimicCaught?this.mimic?.state:wolfCaught?this.werewolf?.state:this.encounter?.state;
-    if(caught){
-      const player=this.players.get(caught)!;
-      this.knockout(caught,mimicCaught?"mimic":wolfCaught?"werewolf":"clown",now);
-      this.worldSound({id:this.epoch+":"+this.worldRevision+":"+(mimicCaught?"mimic:":wolfCaught?"werewolf:":"")+encounter!.id+(mimicCaught?":hit:"+caught:wolfCaught?":claw":":slash"),kind:mimicCaught?"mimic-hit":wolfCaught?"claw":"slash",x:player.x,y:player.y,victimId:caught,createdAt:now,expiresAt:now+1000});
-
-      const client=this.clientsByUser.get(caught);if(client)this.notice(client,"FOREST_CAUGHT",mimicCaught?"The mimic caught you. Returning to the fire...":wolfCaught?"The werewolf caught you. Returning to the fire...":"The clown caught you. Returning to the fire...");
+    if (now - this.lastNPCTick >= 100) { this.npcs?.update(now); this.lastNPCTick=now; }
+    // NPCs continue everywhere, but do not turn a resting human party into a hunting encounter.
+    const exposed = outside.some(p=>p.connected&&p.mode==="home"&&!p.respawnAt&&(p.haloUntil??0)<=now&&distance(p,getWorld(this.worldId).fire??p)>9.5);
+    const prey=exposed?[...outside,...(this.npcs?.prey()??[])]:outside;
+    const catches: {id:string|null|undefined;cause:"mimic"|"werewolf"|"clown";encounterId?:string}[]=[];
+    if(!this.encounter?.state&&!this.werewolf?.state)catches.push({id:this.mimic?.update(now,prey,outside),cause:"mimic",encounterId:this.mimic?.state?.id});
+    if(!this.encounter?.state&&!this.mimic?.state)catches.push({id:this.werewolf?.update(now,prey,outside),cause:"werewolf",encounterId:this.werewolf?.state?.id});
+    if(!this.werewolf?.state&&!this.mimic?.state)catches.push({id:this.encounter?.update(now,prey,outside),cause:"clown",encounterId:this.encounter?.state?.id});
+    for(const source of [this.encounter,this.werewolf,this.mimic])for(const cue of source?.drainSounds()??[])this.worldSound({...cue,id:this.epoch+":"+this.worldRevision+":"+cue.id});
+    for(const caught of catches) {
+      if(!caught.id)continue;
+      const npc=this.npcs?.get(caught.id),player=this.players.get(caught.id),victim=player??npc;
+      if(!victim)continue;
+      if(npc){if(!this.npcs?.catch(npc.id,now))continue;}
+      else if(!this.knockout(caught.id,caught.cause,now))continue;
+      this.worldSound({id:`${this.epoch}:${this.worldRevision}:${caught.cause}:${caught.encounterId}:hit:${caught.id}`,kind:caught.cause==="mimic"?"mimic-hit":caught.cause==="werewolf"?"claw":"slash",x:victim.x,y:victim.y,...(player?{victimId:player.id}:{}),createdAt:now,expiresAt:now+1000});
+      if(player){const client=this.clientsByUser.get(player.id);if(client)this.notice(client,"FOREST_CAUGHT",`The ${caught.cause} caught you. Returning to the fire...`);}
       this.sendSnapshots();
     }
     if (this.race.phase === "running" && now >= this.race.endAt) {
@@ -1122,6 +1137,7 @@ export class PartyRoom extends Room {
         stalker:p.zone?null:this.encounter?.visibleTo(p)??null,
         werewolf:p.zone?null:this.werewolf?.visibleTo(p)??null,
         mimic:p.zone?null:this.mimic?.visibleTo(p)??null,
+        npcs:p.mode==="home"&&!p.zone?this.npcs?.snapshot().filter(n=>distance(n,p)<56):undefined,
         rootWorldId:this.worldId,worldId:p.zone??this.worldId, worldRevision:this.worldRevision, worldProposal:this.worldProposal, media:this.media,
         instanceId: p.mode === "home" ? this.homeId + ":home:" + this.worldRevision + ":" + (p.zone??"outside") + ":" + (p.zoneRevision??0) : this.race.id,
         epoch: this.epoch,
