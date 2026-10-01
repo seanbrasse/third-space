@@ -1,10 +1,14 @@
 "use client";
+import GameMenu from "./GameMenu";
+import { useGameFullscreen } from "../lib/use-game-fullscreen";
 import ChatTimestamp from "./ChatTimestamp";
 import LiveSessions from "./LiveSessions";
 import SessionInfo from "./SessionInfo";
 import { rememberSessionPin, sessionPinStorage } from "../lib/session-pin";
 import { parseRoomInvite } from "../lib/room-invite";
 import WorldMap from "./WorldMap";
+import { ChatSubmissions, shouldOpenChatWithSlash } from "../lib/chat-entry";
+import { restoreGameFocus } from "../lib/game-focus";
 import { usePanelGameFocus } from "../lib/use-panel-game-focus";
 import IdlePresence, { useIdleActivity } from "./IdlePresence";
 import StaminaBar from "./StaminaBar";
@@ -149,7 +153,17 @@ export default function ThirdSpace() {
     recovering = useRef(false),
     connectGeneration = useRef(0),
     savedSession = useRef("");
+  const gameFullscreen = useGameFullscreen(!!home);
   const visitsRef = useRef<HomeVisit[]>([]), suggestedNameAssigned = useRef(false);
+  const chatSubmissions = useRef(new ChatSubmissions()), draftRevision = useRef(0), draftRef = useRef(draft), chatComposing = useRef(false);
+  draftRef.current = draft;
+  function acknowledgeChat(message: Message) {
+    if (!message.commandId || message.senderId !== identityRef.current?.id) return;
+    const result = chatSubmissions.current.complete(message.commandId, draftRef.current, draftRevision.current, document.activeElement);
+    if (!result.clear) return;
+    draftRevision.current++; draftRef.current = ""; setDraft("");
+    if (result.focus && bridge.transportConnected && !document.hidden) restoreGameFocus(result.owners);
+  }
   usePanelGameFocus(!!modal, ".modal-backdrop");
   usePanelGameFocus(chatOpen && prefs.panel, ".chat-panel", ".chat-panel .chat-heading");
   function changeAvatar(selected: Avatar) {
@@ -368,6 +382,14 @@ export default function ThirdSpace() {
         else if (typing) element.blur();
         return;
       }
+      if (prefs.panel && shouldOpenChatWithSlash(event, !!modal || connection !== "Connected" || !!document.querySelector('[aria-modal="true"]'))) {
+        event.preventDefault();
+        setChatOpen(true);
+        requestAnimationFrame(() => {
+          if (bridge.transportConnected && prefsRef.current.panel && !document.querySelector('[aria-modal="true"]')) chatInput.current?.focus();
+        });
+        return;
+      }
       if (prefs.panel && shouldOpenChat(event, !!modal || connection !== "Connected")) {
         event.preventDefault();
         setChatOpen(true);
@@ -514,7 +536,7 @@ export default function ThirdSpace() {
       remember(targetHome,connected);
       if (lastInstance.current && lastInstance.current !== data.instanceId) {
         setDraft("");
-        setPending([]);
+        setPending([]); chatSubmissions.current.clear();
         setUnread(0);
         seenChat.current.clear();
         bridge.liveBubbleIds.clear();
@@ -536,6 +558,7 @@ export default function ThirdSpace() {
       if(bridge.snapshot)audio.current?.playWorld(event,bridge.snapshot,identityRef.current?.id||"",prefsRef.current.effectsVolume);
     });
     connected.onMessage("chat", (message: Message) => {
+      acknowledgeChat(message);
       if (seenChat.current.has(message.id)) return;
       seenChat.current.add(message.id);
       bridge.liveBubbleIds.add(message.id);
@@ -585,7 +608,7 @@ export default function ThirdSpace() {
     });
     connected.onMessage("transition", () => {
       setDraft("");
-      setPending([]);
+      setPending([]); chatSubmissions.current.clear();
       setUnread(0);
       setModal(null);
       setWatchExpanded(false);
@@ -600,12 +623,14 @@ export default function ThirdSpace() {
       "notice",
       (data: { code: string; message: string; commandId?: string }) => {
         notify(data.message);
-        if (data.commandId)
+        if (data.commandId) {
+          chatSubmissions.current.fail(data.commandId);
           setPending((p) =>
             p.map((d) =>
               d.commandId === data.commandId ? { ...d, failed: true } : d,
             ),
           );
+        }
       },
     );
     connected.onDrop(() => {
@@ -713,7 +738,7 @@ export default function ThirdSpace() {
     setSnapshot(null);
     setModal(null);
     setConnection("Ready to enter");
-    setPending([]);
+    setPending([]); chatSubmissions.current.clear();
     try {
       const result = await api<{ homes: Home[] }>("/homes");
       setHomes(uniqueHomes(result.homes));
@@ -721,20 +746,22 @@ export default function ThirdSpace() {
   }
   function chat(event: React.FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || !room.current) return;
-    const commandId = id();
-    send({ type: "chat.send", commandId, text: draft.trim() });
-    setPending((p) => [...p, { commandId, text: draft.trim(), failed: false }]);
-    setDraft("");
-    setTimeout(
-      () =>
-        setPending((p) =>
-          p.map((m) =>
-            m.commandId === commandId ? { ...m, failed: true } : m,
-          ),
-        ),
-      8000,
-    );
+    if (chatComposing.current || !draft.trim() || !room.current || !bridge.transportConnected || connection !== "Connected") return;
+    const commandId = id(), text = draft.trim();
+    const owners = [chatInput.current, (event.nativeEvent as SubmitEvent).submitter];
+    if (!chatSubmissions.current.begin(commandId, draft, draftRevision.current, owners)) return;
+    setPending((p) => [...p, { commandId, text, failed: false }]);
+    try { send({ type: "chat.send", commandId, text }); }
+    catch (error) {
+      chatSubmissions.current.fail(commandId);
+      setPending(p => p.map(item => item.commandId === commandId ? { ...item, failed: true } : item));
+      notify((error as Error).message || "Message could not send. Your draft is saved.");
+      return;
+    }
+    setTimeout(() => {
+      chatSubmissions.current.fail(commandId);
+      setPending(p => p.map(item => item.commandId === commandId ? { ...item, failed: true } : item));
+    }, 8000);
   }
   async function saveNote(event: React.FormEvent) {
     event.preventDefault();
@@ -838,6 +865,7 @@ export default function ThirdSpace() {
     );
   useEffect(() => {
     if (!snapshot) return;
+    for (const message of snapshot.chat) acknowledgeChat(message);
     setPending((p) =>
       p.filter(
         (item) =>
@@ -848,7 +876,7 @@ export default function ThirdSpace() {
     );
   }, [snapshot]);
   return (
-    <main className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
+    <main ref={gameFullscreen.ref} className={`app ${prefs.theme==="dark"?"dark-theme":""} ${prefs.reducedMotion ? "reduced-motion" : ""}`}>
       <IdlePresence snapshot={snapshot} send={send}/>
       <DeathVeil caughtBy={self?.caughtBy} avatar={self?.avatar} caughtAt={self?.caughtAt} serverTime={snapshot?.serverTime??0} worldRevision={snapshot?.worldRevision??0} epoch={snapshot?.epoch??""} reducedMotion={prefs.reducedMotion}/>
       <header className="masthead">
@@ -1077,7 +1105,72 @@ export default function ThirdSpace() {
                 {connection}
               </span>
               <ConnectionHealth room={room.current} connection={connection}/>
-              {identity && <SessionInfo key={`${identity.id}:${home.id}`} home={home} profileId={identity.id}/>}
+              <GameMenu>
+                <button className="primary" disabled={!gameFullscreen.supported} onClick={()=>void gameFullscreen.toggle()}>{gameFullscreen.active ? "Exit game fullscreen" : "Game fullscreen"}</button>
+                {!gameFullscreen.supported && <small>This browser does not offer game fullscreen.</small>}
+                {gameFullscreen.error && <p role="status">{gameFullscreen.error}</p>}
+                <h3>Explore & connect</h3>
+                <div className="game-menu-actions">
+                  <button data-close-game-menu="true" onClick={()=>{const button=gameFullscreen.ref.current?.querySelector<HTMLButtonElement>(".world-menu-toggle");if(button?.getAttribute("aria-expanded")!=="true")button?.click();}}>Worlds</button>
+                  <button data-close-game-menu="true" disabled={race} onClick={()=>{const button=gameFullscreen.ref.current?.querySelector<HTMLButtonElement>(".navigation-map > button");if(button?.getAttribute("aria-expanded")!=="true")button?.click();}}>Map</button>
+                  <button data-close-game-menu="true" onClick={()=>{setPrefs(p=>({...p,panel:true}));setChatOpen(true);setUnread(0);}}>Chat</button>
+                  <button data-close-game-menu="true" onClick={()=>setModal("people")}>People</button>
+                  <button data-close-game-menu="true" onClick={()=>setModal("settings")}>Settings</button>
+                  {host && <button data-close-game-menu="true" onClick={()=>setModal("host")}>Host & invitations</button>}
+                </div>
+                <h3>Session & sharing</h3>
+                {identity && <SessionInfo key={`${identity.id}:${home.id}`} home={home} profileId={identity.id}/>}
+                <h3>Things to do</h3>
+            <nav className="social-toolbar" aria-label="Hangout controls" data-close-game-menu="true">
+              <div className="audio-toolbar">
+                <button
+                  className="native-off"
+                  onClick={() => notify(voiceReason)}
+                >
+                  <span>♩</span>
+                  <div>
+                    Native voice off
+                    <small>Text & game audio are available</small>
+                  </div>
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="Microphone unavailable"
+                  onClick={() => notify(voiceReason)}
+                >
+                  ♩̸
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="Native listening unavailable"
+                  onClick={() => notify(voiceReason)}
+                >
+                  ♧
+                </button>
+                <span className="voice-reach">Native voice unavailable</span>
+              </div>
+              <div className="social-buttons">
+                {snapshot&&getWorld(snapshot.worldId).dark&&!race&&<><button aria-keyshortcuts="F" title="Toggle flashlight (F)" onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"} · {Math.ceil((self?.flashlightBattery??1)*100)}%</span></button></>}
+                {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button aria-label="▣ Watch together" onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
+                <button onClick={() => setModal("emotes")}>
+                  ☺ <span>Emotes</span>
+                </button>
+                <button onClick={() => setModal("sound")}>
+                  ♫ <span>Sounds</span>
+                </button>
+                <button onClick={() => setModal("board")}>
+                  ▤ <span>Idea board</span>
+                </button>
+                <button
+                  className="play-button"
+                  onClick={() => setModal("portal")}
+                >
+                  ✦ <span>Let&apos;s play</span>
+                </button>
+              </div>
+            </nav>
+                <button data-close-game-menu="true" onClick={()=>void leave()}>Leave home</button>
+              </GameMenu>
               {replaceHome && <button className="secondary" onClick={()=>{void connect(replaceHome,true).catch(e=>notify(e.message));}}>Use this tab · replaces your other session</button>}
               {connection === "Disconnected" && (
                 <button
@@ -1308,15 +1401,19 @@ export default function ThirdSpace() {
                             (bridge.blocked =
                               modal !== null || connection !== "Connected")
                           }
-                          onChange={(e) => setDraft(e.target.value)}
+                          onChange={(e) => { draftRevision.current++; draftRef.current = e.target.value; setDraft(e.target.value); }}
+                          onCompositionStart={() => { chatComposing.current = true; }}
+                          onCompositionEnd={() => { chatComposing.current = false; }}
                           onKeyDown={(e) => {
-                            if (e.nativeEvent.isComposing && e.key === "Enter")
-                              e.preventDefault();
+                            if (e.key === "Enter") {
+                              e.stopPropagation();
+                              if (e.nativeEvent.isComposing || chatComposing.current || e.repeat) e.preventDefault();
+                            }
                           }}
                         />
                         <button
                           aria-label="Send message"
-                          disabled={!draft.trim() || connection !== "Connected"}
+                          disabled={!draft.trim() || connection !== "Connected" || chatSubmissions.current.hasPending(draftRevision.current)}
                         >
                           ↑
                         </button>
@@ -1368,54 +1465,6 @@ export default function ThirdSpace() {
                 </button>
               </div>
             </div>
-            <nav className="social-toolbar" aria-label="Hangout controls">
-              <div className="audio-toolbar">
-                <button
-                  className="native-off"
-                  onClick={() => notify(voiceReason)}
-                >
-                  <span>♩</span>
-                  <div>
-                    Native voice off
-                    <small>Text & game audio are available</small>
-                  </div>
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Microphone unavailable"
-                  onClick={() => notify(voiceReason)}
-                >
-                  ♩̸
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label="Native listening unavailable"
-                  onClick={() => notify(voiceReason)}
-                >
-                  ♧
-                </button>
-                <span className="voice-reach">Native voice unavailable</span>
-              </div>
-              <div className="social-buttons">
-                {snapshot&&getWorld(snapshot.worldId).dark&&!race&&<><button aria-keyshortcuts="F" title="Toggle flashlight (F)" onClick={()=>send({type:"flashlight",enabled:!self?.flashlightOn})}>{self?.flashlightOn?"☀":"☾"} <span>Flashlight {self?.flashlightOn?"on":"off"} · {Math.ceil((self?.flashlightBattery??1)*100)}%</span></button></>}
-                {snapshot&&getWorld(snapshot.worldId).mediaEnabled!==false&&<button aria-label="▣ Watch together" onClick={()=>setWatchExpanded(true)}>▣ <span>Watch together</span></button>}
-                <button onClick={() => setModal("emotes")}>
-                  ☺ <span>Emotes</span>
-                </button>
-                <button onClick={() => setModal("sound")}>
-                  ♫ <span>Sounds</span>
-                </button>
-                <button onClick={() => setModal("board")}>
-                  ▤ <span>Idea board</span>
-                </button>
-                <button
-                  className="play-button"
-                  onClick={() => setModal("portal")}
-                >
-                  ✦ <span>Let&apos;s play</span>
-                </button>
-              </div>
-            </nav>
             <div className="room-note">
               <span>A place for the in-between moments.</span>
               <button

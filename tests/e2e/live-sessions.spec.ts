@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect } from "@playwright/test";
 
 test("live campsite discovery requires PIN and admitted friends can reveal it after refresh", async ({ browser, page }) => {
@@ -11,7 +12,7 @@ test("live campsite discovery requires PIN and admitted friends can reveal it af
     await page.getByLabel("Choose a private PIN", { exact: true }).fill("123456");
     await page.getByRole("button", { name: "Create & enter home" }).click();
     await expect(page.locator(".connection")).toHaveText("Connected");
-    await page.getByRole("button", { name: "Session info", exact: true }).click();
+    await gameAction(page, () => page.getByRole("button", { name: "Session info", exact: true }).click());
     const hostInfo = page.getByRole("region", { name: "Session info" });
     await hostInfo.getByRole("button", { name: "Reveal PIN" }).click();
     await expect(hostInfo.getByLabel("Room PIN", { exact: true })).toHaveValue("123456");
@@ -29,7 +30,7 @@ test("live campsite discovery requires PIN and admitted friends can reveal it af
     await expect(friend.locator(".connection")).toHaveText("Connected");
     await friend.reload();
     await expect(friend.locator(".connection")).toHaveText("Connected");
-    await friend.getByRole("button", { name: "Session info", exact: true }).click();
+    await gameAction(friend, () => friend.getByRole("button", { name: "Session info", exact: true }).click());
     const info = friend.getByRole("region", { name: "Session info" });
     await info.getByRole("button", { name: "Reveal PIN" }).click();
     await expect(info.getByLabel("Room PIN", { exact: true })).toHaveValue("123456");

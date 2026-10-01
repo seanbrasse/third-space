@@ -1,3 +1,4 @@
+import { gameAction } from "./menu-actions";
 import { test, expect, type Page } from "@playwright/test";
 
 async function position(page: Page) {
@@ -44,14 +45,19 @@ test("Watch Together permits game movement while focused playback controls keep 
   await expect(world).toHaveAttribute("data-world-id", "asylum");
   // Move away from the automatic exit before checking both keyboard layouts.
   await world.focus(); await page.keyboard.down("w"); await page.waitForTimeout(350); await page.keyboard.up("w");
-  await page.getByRole("button", { name: /Watch together/ }).click();
+  await page.locator('.game-menu-toggle').click();
+  const fullGame=await page.getByRole('dialog',{name:'Game menu',exact:true}).getByRole('button',{name:'Game fullscreen',exact:true}).isEnabled();
+  if(fullGame)await page.getByRole('dialog',{name:'Game menu',exact:true}).getByRole('button',{name:'Game fullscreen',exact:true}).click();
+  await page.getByRole('button',{name:'Close game menu'}).click();
+  await gameAction(page, () => page.getByRole("button", { name: /Watch together/ }).click());
   const panel = page.locator(".shared-watching.expanded"); await expect(panel).toBeVisible();
   await page.getByRole("button", { name: "Toggle map" }).click();
   await expect(panel).toHaveCount(0);
-  await page.getByRole("button", { name: /Watch together/ }).click();
+  await page.getByRole("button",{name:"Close map",exact:true}).click();
+  await gameAction(page, () => page.getByRole("button", { name: /Watch together/ }).click());
   for (const key of ["ArrowRight","ArrowLeft","d","a"]) {
     await world.focus(); expect(await move(page,key)).toBeGreaterThan(.3);
-    await expect(panel).toBeVisible(); await expect(page.locator(".map-card")).toBeVisible();
+    await expect(panel).toBeVisible(); await expect(page.locator(".map-card")).toHaveCount(0);
   }
   // Noninteractive panel text also permits movement without closing the panel.
   const description = panel.locator(".watching-controls>p").first();
@@ -86,11 +92,19 @@ test("Watch Together permits game movement while focused playback controls keep 
   await page.waitForTimeout(200); expect(await position(page)).toEqual(beforeControls);
   expect(await frame!.evaluate(()=>(window as any).keys)).toEqual([["ArrowRight",false],["d",false],[" ",false],["f",false]]);
   await world.focus(); expect(await move(page,"ArrowLeft")).toBeGreaterThan(.3);
-  await page.getByRole("button",{name:"Settings",exact:true}).click();
+  await page.getByRole('button',{name:'Close shared screen'}).click();
+  await gameAction(page,()=>page.getByRole('dialog',{name:'Game menu',exact:true}).getByRole('button',{name:'Settings',exact:true}).click());
   expect(await move(page,"d")).toBeLessThan(.02);
   await page.keyboard.press("Escape"); await world.focus(); expect(await move(page,"d")).toBeGreaterThan(.3);
   await expect(panel).toHaveCount(0); expect(errors).toEqual([]);
-  await page.getByRole("button", { name: /Watch together/ }).click();
+  await gameAction(page, () => page.getByRole("button", { name: /Watch together/ }).click());
   await expect(panel).toBeVisible();
+  await page.getByRole('button',{name:'Full screen',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>document.fullscreenElement?.matches('.shared-watching'))).toBe(true);
+  await page.evaluate(()=>document.exitFullscreen());
+  await expect.poll(()=>page.evaluate(()=>document.fullscreenElement?.matches('main.app')??false)).toBe(fullGame);
+  await page.getByRole('button',{name:'Close shared screen'}).click();await expect(world).toBeFocused();
+  if(fullGame){await page.locator('.game-menu-toggle').click();await page.getByRole('button',{name:'Exit game fullscreen',exact:true}).click();await page.getByRole('button',{name:'Close game menu'}).click();}
+  expect(errors).toEqual([]);
   await page.screenshot({path:"tests/e2e/artifacts/watching-keyboard.png",fullPage:true});
 });

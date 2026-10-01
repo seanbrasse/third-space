@@ -1,4 +1,4 @@
-import type {Furniture} from '@third-space/config';
+import {getWorld,type Furniture} from '@third-space/config';
 /** Original cached pixel art; wall faces and object bases share collision coordinates. */
 export function asylumFloorCanvas(tile:number){
  const c=document.createElement('canvas');c.width=c.height=20*tile;const g=c.getContext('2d')!;g.imageSmoothingEnabled=false;
@@ -12,11 +12,14 @@ export function asylumObjectCanvas(item:Furniture,tile:number){
  else if(item.id==='overturned-desk'){r(5,12,w-10,h-19,'#403b31');r(9,8,w-18,h-24,'#77664b');r(12,10,w-24,3,'#a48c66');r(0,h-22,17,5,'#544934');r(w-21,h-29,20,5,'#544934');r(15,h-18,6,18,'#4b4032');}
  else if(item.id==='broken-cabinet'){r(3,2,w-6,h-5,'#3b3e33');r(7,7,w-14,h-15,'#77735b');for(let y=14;y<h-12;y+=13){r(10,y,w-20,8,'#252e29');r(9,y+8,w-18,3,'#a28c68');}r(w-13,14,6,h-25,'#544c3b');}
  else if(item.kind==='tv'){
-  // Six-tile 16:9 cloth screen; inset matches mediaSurface exactly (8 px).
+  // Paint the cloth from the projected surface so art and live video stay aligned.
+  const screen=getWorld('asylum').mediaSurface;
+  const sx=(screen.x-item.footprint.x)*tile,sy=(screen.y-item.footprint.y)*tile,sw=screen.width*tile,sh=screen.height*tile;
+  const lower=sy+sh;
   r(0,0,w,5,'#6d6657');r(4,5,w-8,5,'#303b35');
-  r(8,8,w-16,108,'#bdc3a8');r(8,8,w-16,2,'#d9d8bf');
-  r(8,114,w-16,3,'#7e8677');r(3,117,w-6,5,'#383f35');
-  r(9,122,5,h-122,'#5d5b4c');r(w-14,122,5,h-122,'#5d5b4c');
+  r(sx,sy,sw,sh,'#bdc3a8');r(sx,sy,sw,2,'#d9d8bf');
+  r(sx,lower-2,sw,3,'#7e8677');r(3,lower+1,w-6,5,'#383f35');
+  r(9,lower+6,5,h-lower-6,'#5d5b4c');r(w-14,lower+6,5,h-lower-6,'#5d5b4c');
   r(2,h-4,19,4,'#333c34');r(w-21,h-4,19,4,'#333c34');
   r(w*.45,h-9,w*.1,7,'#555b4b');r(w*.49,h-8,4,3,'#b9c5ad');
  }

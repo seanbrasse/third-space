@@ -35,8 +35,8 @@ describe('audible spatial movement', () => {
             expect(gameSoundGain(kind,2,1)).toBeGreaterThan(gameSoundGain(kind,10,1));
             expect(gameSoundGain(kind,16,1)).toBe(0);expect(gameSoundGain(kind,2,0)).toBe(0);
         }
-        expect(gameSoundGain('player-step',0,1)).toBe(.045);
-        expect(gameSoundGain('player-step',4,1)).toBeCloseTo(.01125);
+        expect(gameSoundGain('player-step',0,1)).toBe(.07);
+        expect(gameSoundGain('player-step',4,1)).toBeCloseTo(.0175);
         expect(gameSoundGain('player-step',8,1)).toBe(0);
     });
 });
