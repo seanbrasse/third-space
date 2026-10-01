@@ -2,6 +2,8 @@
 import {applySnapshotFrame,type SnapshotState} from '../../../packages/contracts/src/snapshot-delta';
 import GameMenu from "./GameMenu";
 import type {StolenLanternSnapshot} from '../../../packages/contracts/src/stolen-lantern';
+import ReleaseUpdates from "./ReleaseUpdates";
+import type { PublishedRelease } from "../lib/release-history";
 import {NPCConversationSession} from '../lib/npc-conversation-session';
 import NpcInteractionPanel from './NpcInteractionPanel';
 import {nearestInteractableNPC} from '../lib/nearby-npc';
@@ -114,7 +116,7 @@ function time(ms: number | null | undefined) {
 function id() {
   return crypto.randomUUID();
 }
-export default function ThirdSpace() {
+export default function ThirdSpace({ updates = [] }: { updates?: PublishedRelease[] }) {
   const [living,setLiving]=useState<LivingWorldSnapshot|null>(null),[conversation,setConversation]=useState<ConversationEnvelope|null>(null),[npcNotice,setNpcNotice]=useState(''),[npcPending,setNpcPending]=useState<{commandId:string;actionId:string}|null>(null),[storyTab,setStoryTab]=useState<NPCJournalTab>('leads');
   const [stolen,setStolen]=useState<StolenLanternSnapshot|null>(null);
   const npcConversationSession=useRef(new NPCConversationSession());
@@ -2390,6 +2392,7 @@ export default function ThirdSpace() {
         <span>THIRD SPACE</span>
         <span>Built for the moments that don&apos;t need a plan.</span>
         <span>made for your circle ♡</span>
+        <ReleaseUpdates entries={updates} />
       </footer>
     </main>
   );
