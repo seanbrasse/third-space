@@ -1300,7 +1300,16 @@ export default function ThirdSpace() {
             </div>
           </section>
           <section className="play-area">
-            <div className={`world-shell ${race ? "race-view" : "home-view"} ${snapshot?.worldId==="forest"&&!race?"forest-view":""} ${compactConversation?"compact-npc-conversation":""}`}>
+            <div className={`world-shell ${race ? "race-view" : "home-view"} ${snapshot?.worldId==="forest"&&!race?"forest-view":""} ${compactConversation?"compact-npc-conversation":""}`}
+              // Phaser also listens for native mouse/touch starts on window.
+              // Keep DOM controls from activating the world underneath them;
+              // release events still reach it when a canvas gesture ends outside.
+              onMouseDown={event => {
+                if (event.target !== event.currentTarget.querySelector('.world-canvas > canvas')) event.stopPropagation();
+              }}
+              onTouchStart={event => {
+                if (event.target !== event.currentTarget.querySelector('.world-canvas > canvas')) event.stopPropagation();
+              }}>
               <WorldMenu snapshot={snapshot} send={send}/>
               <div className="world-topline">
                 <span>
